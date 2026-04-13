@@ -1,0 +1,62 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build rustdoc
+        run: cargo doc --no-deps -p plc-comm-slmp-rust
+
+      - name: Add site index redirect
+        run: |
+          cat > target/doc/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta http-equiv="refresh" content="0; url=plc_comm_slmp/">
+              <title>plc-comm-slmp-rust docs</title>
+            </head>
+            <body>
+              <p>Redirecting to <a href="plc_comm_slmp/">plc_comm_slmp</a>...</p>
+            </body>
+          </html>
+          EOF
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/doc
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

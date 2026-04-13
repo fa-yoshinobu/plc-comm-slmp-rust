@@ -1,5 +1,6 @@
 [![CI](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml)
-[![GitHub release](https://img.shields.io/github/v/release/fa-yoshinobu/plc-comm-slmp-rust)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/releases)
+[![crates.io](https://img.shields.io/crates/v/plc-comm-slmp-rust.svg)](https://crates.io/crates/plc-comm-slmp-rust)
+[![docs.rs](https://img.shields.io/docsrs/plc-comm-slmp-rust)](https://docs.rs/plc-comm-slmp-rust)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/blob/main/LICENSE)
 
 # SLMP Protocol for Rust
@@ -35,11 +36,22 @@ verification clients.
 
 ## Installation
 
+Install from crates.io:
+
+```bash
+cargo add plc-comm-slmp-rust
+```
+
+The public package name is `plc-comm-slmp-rust`, and the library import path is
+`plc_comm_slmp`.
+
+Requires Rust 1.85 or newer.
+
 `Cargo.toml`:
 
 ```toml
 [dependencies]
-plc-comm-slmp-rust = { git = "https://github.com/fa-yoshinobu/plc-comm-slmp-rust" }
+plc-comm-slmp-rust = "0.1.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 

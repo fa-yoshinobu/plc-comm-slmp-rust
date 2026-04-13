@@ -38,6 +38,10 @@ jobs:
         working-directory: plc-comm-slmp-rust
         run: cargo build --bin slmp_verify_client
 
+      - name: Build API docs
+        working-directory: plc-comm-slmp-rust
+        run: cargo doc --no-deps -p plc-comm-slmp-rust
+
       - name: Cross-verify rust client
         working-directory: plc-comm-slmp-cross-verify
         run: python verify.py --clients rust

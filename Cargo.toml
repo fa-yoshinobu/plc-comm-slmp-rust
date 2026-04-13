@@ -1,15 +1,24 @@
 [package]
 name = "plc-comm-slmp-rust"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
+rust-version = "1.85"
 description = "Async Rust SLMP client based on the plc-comm-slmp-dotnet implementation"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/fa-yoshinobu/plc-comm-slmp-rust"
 homepage = "https://github.com/fa-yoshinobu/plc-comm-slmp-rust"
-documentation = "https://github.com/fa-yoshinobu/plc-comm-slmp-rust#readme"
+documentation = "https://docs.rs/plc-comm-slmp-rust"
 keywords = ["slmp", "plc", "mitsubishi", "mcprotocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
+include = [
+    "Cargo.toml",
+    "README.md",
+    "src/**",
+    "examples/**",
+    "tests/**",
+    "docs/**",
+]
 
 [lib]
 name = "plc_comm_slmp"
