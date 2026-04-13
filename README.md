@@ -8,7 +8,16 @@ Async Rust implementation of the SLMP library, based on the `plc-comm-slmp-dotne
 implementation and aligned with the shared `plc-comm-slmp-cross-verify` harness.
 
 The crate focuses on Binary 3E / 4E SLMP over TCP and UDP and keeps the same
-operation meaning as the existing Python, .NET, C++, and Node-RED libraries.
+operation meaning as the existing Python, .NET, C++, Node-RED, and Rust
+verification clients.
+
+## What This Repo Contains
+
+- async Rust library crate: `src/`
+- `cross-verify` wrapper binary: `src/bin/slmp_verify_client.rs`
+- runnable examples: [`examples/`](examples)
+- address and usage guides: [`docs/`](docs)
+- minimal `napi-rs` workspace member for future Node packaging: `crates/slmp-node`
 
 ## Current Scope
 
@@ -24,15 +33,17 @@ operation meaning as the existing Python, .NET, C++, and Node-RED libraries.
 - `slmp_verify_client` wrapper for `plc-comm-slmp-cross-verify`
 - minimal `napi-rs` Node binding scaffold in `crates/slmp-node`
 
-## Quick Start
+## Installation
 
-Add the library as a path dependency while the crate is still GitHub-first:
+`Cargo.toml`:
 
 ```toml
 [dependencies]
 plc-comm-slmp-rust = { git = "https://github.com/fa-yoshinobu/plc-comm-slmp-rust" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
+
+## Quick Start
 
 ### Raw Client Usage
 
@@ -107,6 +118,86 @@ write_typed(client, SlmpAddress::parse("D300")?, "L", &SlmpValue::I32(-100)).awa
 # }
 ```
 
+## Runnable Examples
+
+The repository includes examples that compile as part of the crate and can be
+run directly against a PLC or mock server.
+
+### `raw_read_write`
+
+Low-level word read plus optional write/read-back.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_FRAME=4e \
+SLMP_SERIES=iqr \
+cargo run --example raw_read_write
+```
+
+Enable writes explicitly:
+
+```bash
+SLMP_ENABLE_WRITES=1 \
+SLMP_WRITE_ADDRESS=D600 \
+SLMP_WRITE_VALUES=111,222 \
+cargo run --example raw_read_write
+```
+
+### `named_helpers`
+
+Named snapshot, typed decoding, optional `write_named`, and one `poll_named`
+tick.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
+cargo run --example named_helpers
+```
+
+### `advanced_operations`
+
+Safe read-heavy sample that covers type-name, random read, block read, extended
+device read, and self-test loopback.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_RANDOM_WORDS='D100,R10' \
+SLMP_RANDOM_DWORDS='D200,LTN10' \
+SLMP_EXT_DEVICE='J1\W10' \
+cargo run --example advanced_operations
+```
+
+### `device_matrix_compare`
+
+Real-PLC regression sample that writes the same address through multiple command
+paths and checks that read-back stays aligned.
+
+- bit devices: `write_bits`, `write_random_bits`, `write_typed`, `write_named`, raw `request`
+- word devices: `write_words`, `write_random_words`, `write_typed`, `write_named`, raw `request`
+- 32-bit devices: `write_dwords`, `write_random_words`, `write_typed`, `write_named`, raw `request`
+- `J1\\...` devices: extended helper APIs plus raw `request`
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_FRAME=4e \
+SLMP_SERIES=iqr \
+cargo run --example device_matrix_compare
+```
+
+This example exits non-zero when command paths for the same address disagree.
+
+Focus on a subset while debugging:
+
+```bash
+SLMP_COMPARE_ONLY='LTS10,LTC10,LCS10,LCC10,LTN10,LSTN10' \
+cargo run --example device_matrix_compare
+```
+
+The shared environment variables for these examples are documented in
+[`docs/RECIPES.md`](docs/RECIPES.md).
+
 ## Public API Surface
 
 Main exports:
@@ -137,7 +228,7 @@ Important model types:
 
 ## Supported Address Forms
 
-High-level helpers are intended to cover these forms first:
+High-level helpers are intended to cover these forms first.
 
 - plain word devices: `D100`, `R50`, `ZR0`, `TN0`, `CN0`
 - plain bit devices: `M1000`, `X20`, `Y20`, `B10`
@@ -147,6 +238,42 @@ High-level helpers are intended to cover these forms first:
 - extended devices: `J1\\SW0`, `U3\\G100`, `U1\\HG0`
 
 `.bit` notation is only valid for word devices. Address bit devices directly.
+
+See also:
+
+- [`docs/ADDRESS_FORMS.md`](docs/ADDRESS_FORMS.md)
+- [`docs/RECIPES.md`](docs/RECIPES.md)
+
+## Choosing the Right API
+
+- Use raw device methods when you need exact SLMP request control.
+- Use `read_typed` and `write_typed` when one address maps to one scalar value.
+- Use `read_named` and `write_named` when your application needs a snapshot with
+  mixed dtypes and bit-in-word decoding.
+- Use `poll_named` for a lightweight periodic stream.
+- Use `read_random` and `read_block` when you want to keep request counts low.
+- Use the extended-device methods for `J...` and `U...` paths.
+- `read_named` and `write_named` currently target plain device addresses, not
+  `J...` or `U...` qualified addresses.
+
+## Long-Family Behavior
+
+The Rust implementation follows the same normalized behavior as the other
+libraries:
+
+- `LTN`, `LSTN`, `LCN`, and `LZ` default to 32-bit reads
+- `LTS`, `LTC`, `LSTS`, `LSTC`, `LCS`, and `LCC` are state reads
+- `LCS` and `LCC` are decoded from the `LCN` 4-word status block, not by a
+  standalone direct-bit batch read
+- `LCS` and `LCC` are rejected for `Read Random (0x0403)`, `Read Block (0x0406)`,
+  `Write Block (0x1406)`, and `Entry Monitor Device (0x0801)`
+- direct reads for `LTS`, `LTC`, `LSTS`, and `LSTC` are rejected by the Rust
+  client API; use helper APIs or 4-word block reads from `LTN` / `LSTN`
+- direct dword reads for `LTN` and `LSTN` are rejected; use helper APIs or
+  explicit 4-word block reads
+
+That behavior is intentional and is enforced through
+`plc-comm-slmp-cross-verify`.
 
 ## Cross-Verify
 
@@ -164,6 +291,13 @@ cargo run --bin slmp_verify_client -- 127.0.0.1 9000 read-type
 ```
 
 ## Development
+
+Format and test:
+
+```bash
+cargo fmt
+cargo test
+```
 
 Run the Rust tests:
 
@@ -205,9 +339,9 @@ python slmp_live_verify.py \
 
 ## Node Binding
 
-`crates/slmp-node` is currently a thin `napi-rs` scaffold.  
-It is included so the Rust core can be expanded into a Node package later
-without redesigning the workspace layout.
+`crates/slmp-node` is currently a thin `napi-rs` scaffold. It is not yet the
+main delivery path. The current purpose is to keep the Rust workspace ready for
+future Node package work without redesigning the crate layout later.
 
 ## License
 

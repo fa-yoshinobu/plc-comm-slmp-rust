@@ -410,6 +410,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u16>, SlmpError> {
+        Self::validate_direct_word_read(device, points)?;
         let payload = self.build_read_write_payload(device, points, None, false);
         let sub = self.word_subcommand(false);
         let data = self
@@ -443,6 +444,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<bool>, SlmpError> {
+        Self::validate_direct_bit_read(device)?;
         let payload = self.build_read_write_payload(device, points, None, true);
         let data = self
             .request(
@@ -479,6 +481,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u32>, SlmpError> {
+        Self::validate_direct_dword_read(device)?;
         let words = self.read_words_raw(device, points * 2).await?;
         Ok(words
             .chunks_exact(2)
@@ -643,6 +646,7 @@ impl ClientInner {
         word_devices: &[SlmpDeviceAddress],
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
+        Self::validate_no_lcs_lcc_random(word_devices, dword_devices)?;
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -788,6 +792,7 @@ impl ClientInner {
         word_blocks: &[SlmpBlockRead],
         bit_blocks: &[SlmpBlockRead],
     ) -> Result<SlmpBlockReadResult, SlmpError> {
+        Self::validate_no_lcs_lcc_block_read(word_blocks, bit_blocks)?;
         if word_blocks.len() > 0xFF || bit_blocks.len() > 0xFF {
             return Err(SlmpError::new("block counts must be <= 255"));
         }
@@ -849,6 +854,7 @@ impl ClientInner {
         bit_blocks: &[SlmpBlockWrite],
         options: SlmpBlockWriteOptions,
     ) -> Result<(), SlmpError> {
+        Self::validate_no_lcs_lcc_block_write(word_blocks, bit_blocks)?;
         if options.split_mixed_blocks && !word_blocks.is_empty() && !bit_blocks.is_empty() {
             self.write_block_once(word_blocks, &[]).await?;
             self.write_block_once(&[], bit_blocks).await?;
@@ -1115,6 +1121,7 @@ impl ClientInner {
         payload: &[u8],
         expect_response: bool,
     ) -> Result<Vec<u8>, SlmpError> {
+        self.validate_request_payload(command, subcommand, payload)?;
         let frame = self.build_request_frame(command, subcommand, payload);
         self.last_request_frame = frame.clone();
 
@@ -1148,6 +1155,57 @@ impl ClientInner {
                 Self::parse_response(command, subcommand, &buffer)
             }
         }
+    }
+
+    fn validate_request_payload(
+        &self,
+        command: SlmpCommand,
+        subcommand: u16,
+        payload: &[u8],
+    ) -> Result<(), SlmpError> {
+        if matches!(command, SlmpCommand::MonitorRegister) && matches!(subcommand, 0x0000 | 0x0002)
+        {
+            Self::validate_plain_monitor_register_payload(
+                self.options.compatibility_mode,
+                payload,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn validate_plain_monitor_register_payload(
+        mode: SlmpCompatibilityMode,
+        payload: &[u8],
+    ) -> Result<(), SlmpError> {
+        if payload.len() < 2 {
+            return Err(SlmpError::new("Monitor register payload is too short."));
+        }
+        let word_count = payload[0] as usize;
+        let dword_count = payload[1] as usize;
+        let spec_size = device_spec_size(mode);
+        let expected = 2 + (word_count + dword_count) * spec_size;
+        if payload.len() != expected {
+            return Err(SlmpError::new(format!(
+                "Monitor register payload size mismatch: expected={expected} actual={}",
+                payload.len()
+            )));
+        }
+        let mut offset = 2usize;
+        for _ in 0..(word_count + dword_count) {
+            let code = match mode {
+                SlmpCompatibilityMode::Legacy => u16::from(payload[offset + 3]),
+                SlmpCompatibilityMode::Iqr => {
+                    u16::from_le_bytes([payload[offset + 4], payload[offset + 5]])
+                }
+            };
+            if code == SlmpDeviceCode::LCS.as_u16() || code == SlmpDeviceCode::LCC.as_u16() {
+                return Err(SlmpError::new(
+                    "Entry Monitor Device (0x0801) does not support LCS/LCC. Use read_typed/read_named or read the LCN 4-word status block.",
+                ));
+            }
+            offset += spec_size;
+        }
+        Ok(())
     }
 
     fn build_request_frame(
@@ -1285,6 +1343,80 @@ impl ClientInner {
             (SlmpCompatibilityMode::Iqr, false) => 0x0002,
             (SlmpCompatibilityMode::Iqr, true) => 0x0003,
         }
+    }
+
+    fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        match device.code {
+            SlmpDeviceCode::LTS
+            | SlmpDeviceCode::LTC
+            | SlmpDeviceCode::LSTS
+            | SlmpDeviceCode::LSTC => Err(SlmpError::new(
+                "Direct bit read is not supported for long timer state devices. Use read_typed/read_named or a 4-word current-value block read.",
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    fn validate_direct_word_read(device: SlmpDeviceAddress, points: u16) -> Result<(), SlmpError> {
+        match device.code {
+            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN if points == 0 || points % 4 != 0 => {
+                Err(SlmpError::new(
+                    "Long timer and long retentive timer current values must be read as 4-word blocks.",
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        match device.code {
+            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN => Err(SlmpError::new(
+                "Direct dword read is not supported for long timer current values. Use read_typed/read_named or a 4-word block read.",
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    fn validate_no_lcs_lcc_random(
+        word_devices: &[SlmpDeviceAddress],
+        dword_devices: &[SlmpDeviceAddress],
+    ) -> Result<(), SlmpError> {
+        for device in word_devices.iter().chain(dword_devices.iter()) {
+            if matches!(device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+                return Err(SlmpError::new(
+                    "Read Random (0x0403) does not support LCS/LCC. Use read_typed/read_named or read the LCN 4-word status block.",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_no_lcs_lcc_block_read(
+        word_blocks: &[SlmpBlockRead],
+        bit_blocks: &[SlmpBlockRead],
+    ) -> Result<(), SlmpError> {
+        for block in word_blocks.iter().chain(bit_blocks.iter()) {
+            if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+                return Err(SlmpError::new(
+                    "Read Block (0x0406) does not support LCS/LCC. Use read_typed/read_named or read the LCN 4-word status block.",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_no_lcs_lcc_block_write(
+        word_blocks: &[SlmpBlockWrite],
+        bit_blocks: &[SlmpBlockWrite],
+    ) -> Result<(), SlmpError> {
+        for block in word_blocks.iter().chain(bit_blocks.iter()) {
+            if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+                return Err(SlmpError::new(
+                    "Write Block (0x1406) does not support LCS/LCC. Use write_typed/write_named or other supported write routes.",
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn encode_device_spec(&self, device: SlmpDeviceAddress, output: &mut [u8]) -> usize {

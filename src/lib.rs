@@ -1,3 +1,95 @@
+//! Async Rust client for Mitsubishi SLMP Binary 3E and 4E.
+//!
+//! This crate follows the same operation semantics as the sibling
+//! `plc-comm-slmp-python`, `.NET`, `C++`, `Node-RED`, and `cross-verify`
+//! projects in the same family. The intended flow is:
+//!
+//! 1. connect with [`SlmpConnectionOptions`] and [`SlmpClient`]
+//! 2. use raw device APIs for low-level control
+//! 3. use helper APIs such as [`read_named`] and [`write_named`] for
+//!    application-facing snapshots and typed values
+//! 4. validate behavior through `plc-comm-slmp-cross-verify`
+//!
+//! # Quick Start
+//!
+//! ```no_run
+//! use plc_comm_slmp::{
+//!     SlmpAddress, SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType,
+//! };
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100");
+//!     options.port = 1025;
+//!     options.frame_type = SlmpFrameType::Frame4E;
+//!     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
+//!
+//!     let client = SlmpClient::connect(options).await?;
+//!     let words = client.read_words_raw(SlmpAddress::parse("D100")?, 2).await?;
+//!     println!("{words:?}");
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Recommended High-Level Helpers
+//!
+//! ```no_run
+//! use plc_comm_slmp::{
+//!     NamedAddress, SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType,
+//!     SlmpValue, read_named, write_named,
+//! };
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100");
+//!     options.port = 1025;
+//!     options.frame_type = SlmpFrameType::Frame4E;
+//!     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
+//!     let client = SlmpClient::connect(options).await?;
+//!
+//!     let snapshot = read_named(
+//!         &client,
+//!         &["D100".into(), "D200:F".into(), "D50.3".into(), "LTN10:D".into()],
+//!     )
+//!     .await?;
+//!     println!("{snapshot:?}");
+//!
+//!     let mut updates = NamedAddress::new();
+//!     updates.insert("D300".into(), SlmpValue::U16(42));
+//!     updates.insert("D400:F".into(), SlmpValue::F32(3.14));
+//!     write_named(&client, &updates).await?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Address Notes
+//!
+//! - Plain word devices: `D100`, `R50`, `ZR0`
+//! - Plain bit devices: `M100`, `X20`, `Y20`, `B10`
+//! - Typed suffixes: `D200:F`, `D300:D`, `D400:L`
+//! - Bit-in-word form: `D50.3`
+//! - Long current values: `LTN10:D`, `LSTN20:D`, `LCN30:D`
+//! - Extended devices: `J1\\W10`, `U3\\G100`, `U1\\HG0`
+//!
+//! `.bit` notation is only valid for word devices. Long timer and long counter
+//! state reads (`LTS`, `LTC`, `LSTS`, `LSTC`, `LCS`, `LCC`) are normalized
+//! through the corresponding current-value block reads.
+//!
+//! # Examples
+//!
+//! The repository includes runnable examples under `examples/`:
+//!
+//! - `raw_read_write`
+//! - `named_helpers`
+//! - `advanced_operations`
+//!
+//! Run them with `cargo run --example <name>`.
+//!
+//! # Verification
+//!
+//! This crate is meant to participate in `plc-comm-slmp-cross-verify`.
+//! The canonical wrapper binary is `slmp_verify_client`.
+//!
 mod address;
 mod client;
 mod error;
@@ -18,7 +110,7 @@ pub use helpers::{
     write_words_single_request,
 };
 pub use model::{
-    SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions,
+    SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
     SlmpExtensionSpec, SlmpFrameType, SlmpLongTimerResult, SlmpNamedTarget,
     SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
