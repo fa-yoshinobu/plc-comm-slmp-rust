@@ -1,0 +1,16 @@
+[package]
+name = "slmp-node"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3", default-features = false, features = ["napi8", "tokio_rt"] }
+napi-derive = "3"
+plc-comm-slmp-rust = { path = "../.." }
+serde_json = "1"
+
+[build-dependencies]
+napi-build = "2"

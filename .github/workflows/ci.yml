@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust-core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plc-comm-slmp-rust
+
+      - uses: actions/checkout@v4
+        with:
+          repository: fa-yoshinobu/plc-comm-slmp-cross-verify
+          path: plc-comm-slmp-cross-verify
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cargo test
+        working-directory: plc-comm-slmp-rust
+        run: cargo test
+
+      - name: Check napi crate
+        working-directory: plc-comm-slmp-rust
+        run: cargo check -p slmp-node
+
+      - name: Build verify client
+        working-directory: plc-comm-slmp-rust
+        run: cargo build --bin slmp_verify_client
+
+      - name: Cross-verify rust client
+        working-directory: plc-comm-slmp-cross-verify
+        run: python verify.py --clients rust
