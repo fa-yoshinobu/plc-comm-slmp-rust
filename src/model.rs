@@ -25,6 +25,13 @@ pub enum SlmpTraceDirection {
     Receive,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlmpTrafficStats {
+    pub request_count: u64,
+    pub tx_bytes: u64,
+    pub rx_bytes: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum SlmpCommand {
@@ -336,6 +343,21 @@ pub struct SlmpTypeNameInfo {
     pub model: String,
     pub model_code: u16,
     pub has_model_code: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SlmpCpuOperationStatus {
+    Unknown,
+    Run,
+    Stop,
+    Pause,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlmpCpuOperationState {
+    pub status: SlmpCpuOperationStatus,
+    pub raw_status_word: u16,
+    pub raw_code: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

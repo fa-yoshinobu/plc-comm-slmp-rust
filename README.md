@@ -31,6 +31,7 @@ verification clients.
 - remote operations and self-test
 - high-level typed helpers
 - high-level named read/write and polling helpers
+- live device-range catalog via user-selected PLC family plus family `SD` registers
 - `slmp_verify_client` wrapper for `plc-comm-slmp-cross-verify`
 - minimal `napi-rs` Node binding scaffold in `crates/slmp-node`
 
@@ -180,6 +181,32 @@ SLMP_EXT_DEVICE='J1\W10' \
 cargo run --example advanced_operations
 ```
 
+### `device_range_catalog`
+
+Reads the family-specific `SD` window for a user-selected PLC family and prints
+`points` plus formatted address ranges such as `X0000-X2FFF`.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_FRAME=3e \
+SLMP_SERIES=ql \
+SLMP_PLC_TYPE=iq-f \
+cargo run --example device_range_catalog
+```
+
+### `connection_profile_probe`
+
+Tries the standard frame and compatibility candidates, reads `read_type_name`,
+then validates the resolved family by reading its full `SD` block once. The
+result is advisory only so the caller can choose which settings to use.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+cargo run --example connection_profile_probe
+```
+
 ### `device_matrix_compare`
 
 Real-PLC regression sample that writes the same address through multiple command
@@ -210,6 +237,9 @@ cargo run --example device_matrix_compare
 The shared environment variables for these examples are documented in
 [`docs/RECIPES.md`](docs/RECIPES.md).
 
+For live PLC-dependent device limits resolved from a user-selected PLC family
+plus family `SD` registers, see [`docs/DEVICE_RANGES.md`](docs/DEVICE_RANGES.md).
+
 ## Public API Surface
 
 Main exports:
@@ -217,6 +247,8 @@ Main exports:
 - `SlmpConnectionOptions`
 - `SlmpClient`
 - `SlmpAddress`
+- `probe_connection_profiles`
+- `read_type_name` / `read_device_range_catalog` / `read_device_range_catalog_for_family`
 - `read_typed` / `write_typed`
 - `write_bit_in_word`
 - `read_named` / `write_named`
@@ -233,6 +265,7 @@ Important model types:
 - `SlmpTargetAddress`
 - `SlmpExtensionSpec`
 - `SlmpTypeNameInfo`
+- `SlmpDeviceRangeCatalog`, `SlmpDeviceRangeEntry`, `SlmpDeviceRangeFamily`
 - `SlmpRandomReadResult`
 - `SlmpBlockRead`, `SlmpBlockWrite`, `SlmpBlockReadResult`
 - `SlmpLongTimerResult`
@@ -254,6 +287,7 @@ High-level helpers are intended to cover these forms first.
 See also:
 
 - [`docs/ADDRESS_FORMS.md`](docs/ADDRESS_FORMS.md)
+- [`docs/DEVICE_RANGES.md`](docs/DEVICE_RANGES.md)
 - [`docs/RECIPES.md`](docs/RECIPES.md)
 
 ## Choosing the Right API
