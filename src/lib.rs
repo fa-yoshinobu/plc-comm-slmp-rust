@@ -92,6 +92,8 @@
 //!
 mod address;
 mod client;
+mod connection_profile_probe;
+mod device_ranges;
 mod error;
 mod helpers;
 mod model;
@@ -101,6 +103,14 @@ pub use address::{
     parse_qualified_device, parse_target_auto_number,
 };
 pub use client::{SlmpClient, encode_device_spec};
+pub use connection_profile_probe::{
+    SlmpConnectionProfileProbeResult, SlmpConnectionProfileProbeStatus, SlmpResolvedDeviceRangeCatalog,
+    probe_connection_profiles, read_device_range_catalog_with_three_e_legacy_fallback,
+};
+pub use device_ranges::{
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry,
+    SlmpDeviceRangeFamily, SlmpDeviceRangeNotation,
+};
 pub use error::SlmpError;
 pub use helpers::{
     NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_dwords_chunked,
@@ -112,7 +122,8 @@ pub use helpers::{
 pub use model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpExtensionSpec, SlmpFrameType, SlmpLongTimerResult, SlmpNamedTarget,
+    SlmpCpuOperationState, SlmpCpuOperationStatus, SlmpExtensionSpec, SlmpFrameType,
+    SlmpLongTimerResult, SlmpNamedTarget,
     SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
-    SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };

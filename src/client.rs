@@ -1,10 +1,18 @@
+use crate::device_ranges::{
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily, build_catalog as build_device_range_catalog,
+    build_catalog_for_family as build_device_range_catalog_for_family,
+    read_registers as read_device_range_registers,
+    resolve_profile as resolve_device_range_profile,
+    resolve_profile_for_family as resolve_device_range_profile_for_family,
+};
 use crate::address::device_spec_size;
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpExtensionSpec, SlmpFrameType, SlmpLongTimerResult, SlmpQualifiedDeviceAddress,
-    SlmpRandomReadResult, SlmpTargetAddress, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpCpuOperationState, SlmpCpuOperationStatus, SlmpExtensionSpec, SlmpFrameType,
+    SlmpLongTimerResult, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
+    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -28,6 +36,7 @@ struct ClientInner {
     serial: u16,
     last_request_frame: Vec<u8>,
     last_response_frame: Vec<u8>,
+    traffic_stats: SlmpTrafficStats,
 }
 
 impl SlmpClient {
@@ -57,6 +66,7 @@ impl SlmpClient {
                 serial: 0,
                 last_request_frame: Vec::new(),
                 last_response_frame: Vec::new(),
+                traffic_stats: SlmpTrafficStats::default(),
             })),
         })
     }
@@ -76,8 +86,32 @@ impl SlmpClient {
         self.inner.lock().await.last_response_frame.clone()
     }
 
+    pub async fn traffic_stats(&self) -> SlmpTrafficStats {
+        self.inner.lock().await.traffic_stats
+    }
+
     pub async fn read_type_name(&self) -> Result<SlmpTypeNameInfo, SlmpError> {
         self.inner.lock().await.read_type_name().await
+    }
+
+    pub async fn read_cpu_operation_state(&self) -> Result<SlmpCpuOperationState, SlmpError> {
+        self.inner.lock().await.read_cpu_operation_state().await
+    }
+
+    pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
+        let type_info = self.read_type_name().await?;
+        let profile = resolve_device_range_profile(&type_info)?;
+        let registers = read_device_range_registers(self, &profile).await?;
+        build_device_range_catalog(&type_info, &profile, &registers)
+    }
+
+    pub async fn read_device_range_catalog_for_family(
+        &self,
+        family: SlmpDeviceRangeFamily,
+    ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
+        let profile = resolve_device_range_profile_for_family(family);
+        let registers = read_device_range_registers(self, &profile).await?;
+        build_device_range_catalog_for_family(family, &registers)
     }
 
     pub async fn read_words_raw(
@@ -403,6 +437,16 @@ impl ClientInner {
             model_code,
             has_model_code,
         })
+    }
+
+    async fn read_cpu_operation_state(&mut self) -> Result<SlmpCpuOperationState, SlmpError> {
+        let status_word = self
+            .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::SD, 203), 1)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| SlmpError::new("read_cpu_operation_state expected one word"))?;
+        Ok(decode_cpu_operation_state(status_word))
     }
 
     async fn read_words_raw(
@@ -1124,24 +1168,30 @@ impl ClientInner {
         self.validate_request_payload(command, subcommand, payload)?;
         let frame = self.build_request_frame(command, subcommand, payload);
         self.last_request_frame = frame.clone();
+        let tx_len = frame.len() as u64;
 
         match &mut self.transport {
             Transport::Tcp(stream) => {
                 timeout(self.options.timeout, stream.write_all(&frame))
                     .await
                     .map_err(|_| SlmpError::new("tcp write timed out"))??;
+                self.traffic_stats.request_count += 1;
+                self.traffic_stats.tx_bytes += tx_len;
                 if !expect_response {
                     self.last_response_frame.clear();
                     return Ok(Vec::new());
                 }
                 let response = Self::receive_tcp_frame(stream, self.options.timeout).await?;
                 self.last_response_frame = response.clone();
+                self.traffic_stats.rx_bytes += response.len() as u64;
                 Self::parse_response(command, subcommand, &response)
             }
             Transport::Udp(socket) => {
                 timeout(self.options.timeout, socket.send(&frame))
                     .await
                     .map_err(|_| SlmpError::new("udp send timed out"))??;
+                self.traffic_stats.request_count += 1;
+                self.traffic_stats.tx_bytes += tx_len;
                 if !expect_response {
                     self.last_response_frame.clear();
                     return Ok(Vec::new());
@@ -1152,6 +1202,7 @@ impl ClientInner {
                     .map_err(|_| SlmpError::new("udp receive timed out"))??;
                 buffer.truncate(received);
                 self.last_response_frame = buffer.clone();
+                self.traffic_stats.rx_bytes += buffer.len() as u64;
                 Self::parse_response(command, subcommand, &buffer)
             }
         }
@@ -1641,6 +1692,21 @@ impl ClientInner {
                 Ok(payload)
             }
         }
+    }
+}
+
+fn decode_cpu_operation_state(status_word: u16) -> SlmpCpuOperationState {
+    let raw_code = (status_word & 0x000F) as u8;
+    let status = match raw_code {
+        0x00 => SlmpCpuOperationStatus::Run,
+        0x02 => SlmpCpuOperationStatus::Stop,
+        0x03 => SlmpCpuOperationStatus::Pause,
+        _ => SlmpCpuOperationStatus::Unknown,
+    };
+    SlmpCpuOperationState {
+        status,
+        raw_status_word: status_word,
+        raw_code,
     }
 }
 
