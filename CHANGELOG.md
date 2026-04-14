@@ -4,9 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-04-14
+
 ### Changed
-- `SlmpConnectionOptions::new(...)` now requires `SlmpPlcFamily`, and the standard connection path derives frame/profile defaults from that explicit family.
-- `read_device_range_catalog()` now uses the configured PLC family directly instead of model-name auto resolution.
+- The standard connection route now requires explicit `SlmpPlcFamily`, and the normal client path derives frame/profile defaults from that family instead of exposing profile selection as the application-facing route.
+- `read_device_range_catalog()` now follows the configured family directly, while profile probing remains a separate diagnostic helper.
 
 ## [0.1.3] - 2026-04-14
 
