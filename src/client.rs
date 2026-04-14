@@ -11,8 +11,8 @@ use crate::model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
     SlmpCpuOperationState, SlmpCpuOperationStatus, SlmpExtensionSpec, SlmpFrameType,
-    SlmpLongTimerResult, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
-    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpLongTimerResult, SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult,
+    SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -90,6 +90,10 @@ impl SlmpClient {
         self.inner.lock().await.traffic_stats
     }
 
+    pub async fn plc_family(&self) -> Option<SlmpPlcFamily> {
+        self.inner.lock().await.options.plc_family
+    }
+
     pub async fn read_type_name(&self) -> Result<SlmpTypeNameInfo, SlmpError> {
         self.inner.lock().await.read_type_name().await
     }
@@ -99,6 +103,11 @@ impl SlmpClient {
     }
 
     pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
+        if let Some(family) = self.configured_device_range_family().await {
+            let profile = resolve_device_range_profile_for_family(family);
+            let registers = read_device_range_registers(self, &profile).await?;
+            return build_device_range_catalog_for_family(family, &registers);
+        }
         let type_info = self.read_type_name().await?;
         let profile = resolve_device_range_profile(&type_info)?;
         let registers = read_device_range_registers(self, &profile).await?;
@@ -112,6 +121,15 @@ impl SlmpClient {
         let profile = resolve_device_range_profile_for_family(family);
         let registers = read_device_range_registers(self, &profile).await?;
         build_device_range_catalog_for_family(family, &registers)
+    }
+
+    pub async fn configured_device_range_family(&self) -> Option<SlmpDeviceRangeFamily> {
+        self.inner
+            .lock()
+            .await
+            .options
+            .plc_family
+            .map(map_plc_family_to_range_family)
     }
 
     pub async fn read_words_raw(
@@ -412,6 +430,19 @@ impl SlmpClient {
             .await
             .request(command, subcommand, payload, expect_response)
             .await
+    }
+}
+
+fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {
+    match family {
+        SlmpPlcFamily::IqF => SlmpDeviceRangeFamily::IqF,
+        SlmpPlcFamily::IqR | SlmpPlcFamily::IqL => SlmpDeviceRangeFamily::IqR,
+        SlmpPlcFamily::MxF => SlmpDeviceRangeFamily::MxF,
+        SlmpPlcFamily::MxR => SlmpDeviceRangeFamily::MxR,
+        SlmpPlcFamily::QCpu => SlmpDeviceRangeFamily::QCpu,
+        SlmpPlcFamily::LCpu => SlmpDeviceRangeFamily::LCpu,
+        SlmpPlcFamily::QnU => SlmpDeviceRangeFamily::QnU,
+        SlmpPlcFamily::QnUDV => SlmpDeviceRangeFamily::QnUDV,
     }
 }
 

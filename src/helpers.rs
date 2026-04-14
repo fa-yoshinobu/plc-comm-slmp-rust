@@ -1,7 +1,7 @@
-use crate::address::{SlmpAddress, parse_named_address};
+use crate::address::{parse_device_for_family_hint, parse_named_address};
 use crate::client::SlmpClient;
 use crate::error::SlmpError;
-use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult};
+use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcFamily};
 use async_stream::try_stream;
 use futures_core::stream::Stream;
 use std::collections::{BTreeMap, HashMap};
@@ -279,14 +279,15 @@ pub async fn read_named(
     client: &SlmpClient,
     addresses: &[String],
 ) -> Result<NamedAddress, SlmpError> {
-    let plan = compile_read_plan(addresses)?;
+    let plan = compile_read_plan(addresses, client.plc_family().await)?;
     read_named_compiled(client, &plan).await
 }
 
 pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<(), SlmpError> {
+    let plc_family = client.plc_family().await;
     for (address, value) in updates {
         let parts = parse_named_address(address)?;
-        let device = SlmpAddress::parse(&parts.base)?;
+        let device = parse_device_for_family_hint(&parts.base, plc_family)?;
         let resolved_dtype =
             resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
         validate_long_timer_entry(address, device, &resolved_dtype)?;
@@ -337,13 +338,16 @@ fn validate_single_request_values(count: usize, max: usize) -> Result<(), SlmpEr
     Ok(())
 }
 
-fn compile_read_plan(addresses: &[String]) -> Result<NamedReadPlan, SlmpError> {
+fn compile_read_plan(
+    addresses: &[String],
+    plc_family: Option<SlmpPlcFamily>,
+) -> Result<NamedReadPlan, SlmpError> {
     let mut entries = Vec::new();
     let mut word_devices = Vec::new();
     let mut dword_devices = Vec::new();
     for address in addresses {
         let parts = parse_named_address(address)?;
-        let device = SlmpAddress::parse(&parts.base)?;
+        let device = parse_device_for_family_hint(&parts.base, plc_family)?;
         let dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
         validate_long_timer_entry(address, device, &dtype)?;
 
@@ -703,7 +707,7 @@ enum NamedWriteRoute {
 
 pub fn parse_scalar_for_named(address: &str, value: &str) -> Result<SlmpValue, SlmpError> {
     let parts = parse_named_address(address)?;
-    let device = SlmpAddress::parse(&parts.base)?;
+    let device = parse_device_for_family_hint(&parts.base, None)?;
     if parts.bit_index.is_some() || device.code.is_bit_device() {
         return Ok(SlmpValue::Bool(matches!(
             value,

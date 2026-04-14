@@ -20,6 +20,55 @@ pub enum SlmpCompatibilityMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SlmpPlcFamily {
+    IqF,
+    IqR,
+    IqL,
+    MxF,
+    MxR,
+    QCpu,
+    LCpu,
+    QnU,
+    QnUDV,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlmpPlcFamilyDefaults {
+    pub frame_type: SlmpFrameType,
+    pub compatibility_mode: SlmpCompatibilityMode,
+}
+
+impl SlmpPlcFamily {
+    pub fn defaults(self) -> SlmpPlcFamilyDefaults {
+        match self {
+            Self::IqF => SlmpPlcFamilyDefaults {
+                frame_type: SlmpFrameType::Frame3E,
+                compatibility_mode: SlmpCompatibilityMode::Legacy,
+            },
+            Self::IqR | Self::IqL | Self::MxF | Self::MxR => SlmpPlcFamilyDefaults {
+                frame_type: SlmpFrameType::Frame4E,
+                compatibility_mode: SlmpCompatibilityMode::Iqr,
+            },
+            Self::QCpu | Self::LCpu | Self::QnU | Self::QnUDV => SlmpPlcFamilyDefaults {
+                frame_type: SlmpFrameType::Frame3E,
+                compatibility_mode: SlmpCompatibilityMode::Legacy,
+            },
+        }
+    }
+
+    pub fn address_family(self) -> Self {
+        match self {
+            Self::IqL => Self::IqR,
+            other => other,
+        }
+    }
+
+    pub fn uses_iqf_xy_octal(self) -> bool {
+        matches!(self.address_family(), Self::IqF)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SlmpTraceDirection {
     Send,
     Receive,
@@ -440,6 +489,7 @@ pub struct SlmpConnectionOptions {
     pub host: String,
     pub port: u16,
     pub timeout: Duration,
+    pub plc_family: Option<SlmpPlcFamily>,
     pub frame_type: SlmpFrameType,
     pub compatibility_mode: SlmpCompatibilityMode,
     pub target: SlmpTargetAddress,
@@ -453,11 +503,34 @@ impl SlmpConnectionOptions {
             host: host.into(),
             port: 1025,
             timeout: Duration::from_secs(3),
+            plc_family: None,
             frame_type: SlmpFrameType::Frame4E,
             compatibility_mode: SlmpCompatibilityMode::Iqr,
             target: SlmpTargetAddress::default(),
             transport_mode: SlmpTransportMode::Tcp,
             monitoring_timer: 0x0010,
         }
+    }
+
+    pub fn for_plc_family(host: impl Into<String>, family: SlmpPlcFamily) -> Self {
+        let defaults = family.defaults();
+        Self {
+            host: host.into(),
+            port: 1025,
+            timeout: Duration::from_secs(3),
+            plc_family: Some(family),
+            frame_type: defaults.frame_type,
+            compatibility_mode: defaults.compatibility_mode,
+            target: SlmpTargetAddress::default(),
+            transport_mode: SlmpTransportMode::Tcp,
+            monitoring_timer: 0x0010,
+        }
+    }
+
+    pub fn apply_plc_family_defaults(&mut self, family: SlmpPlcFamily) {
+        let defaults = family.defaults();
+        self.plc_family = Some(family);
+        self.frame_type = defaults.frame_type;
+        self.compatibility_mode = defaults.compatibility_mode;
     }
 }

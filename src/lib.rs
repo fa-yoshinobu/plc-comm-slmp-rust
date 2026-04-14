@@ -14,15 +14,13 @@
 //!
 //! ```no_run
 //! use plc_comm_slmp::{
-//!     SlmpAddress, SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType,
+//!     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
 //! };
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100");
+//!     let mut options = SlmpConnectionOptions::for_plc_family("192.168.250.100", SlmpPlcFamily::IqR);
 //!     options.port = 1025;
-//!     options.frame_type = SlmpFrameType::Frame4E;
-//!     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
 //!
 //!     let client = SlmpClient::connect(options).await?;
 //!     let words = client.read_words_raw(SlmpAddress::parse("D100")?, 2).await?;
@@ -35,21 +33,19 @@
 //!
 //! ```no_run
 //! use plc_comm_slmp::{
-//!     NamedAddress, SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType,
-//!     SlmpValue, read_named, write_named,
+//!     NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily, SlmpValue, read_named,
+//!     write_named,
 //! };
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100");
+//!     let mut options = SlmpConnectionOptions::for_plc_family("192.168.250.100", SlmpPlcFamily::IqF);
 //!     options.port = 1025;
-//!     options.frame_type = SlmpFrameType::Frame4E;
-//!     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
 //!     let client = SlmpClient::connect(options).await?;
 //!
 //!     let snapshot = read_named(
 //!         &client,
-//!         &["D100".into(), "D200:F".into(), "D50.3".into(), "LTN10:D".into()],
+//!         &["D100".into(), "X100".into(), "D50.3".into(), "LTN10:D".into()],
 //!     )
 //!     .await?;
 //!     println!("{snapshot:?}");
@@ -124,6 +120,6 @@ pub use model::{
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
     SlmpCpuOperationState, SlmpCpuOperationStatus, SlmpExtensionSpec, SlmpFrameType,
     SlmpLongTimerResult, SlmpNamedTarget,
-    SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
-    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
+    SlmpTraceDirection, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-14
+
+### Added
+- `SlmpPlcFamily` defaults and `SlmpConnectionOptions::for_plc_family(...)` for the high-level helper surface.
+
+### Changed
+- High-level string device parsing and device-range catalog reads now use explicit PLC-family rules. `X/Y` strings require explicit family, `iQ-F` uses octal, and other supported families use hexadecimal.
+
 ## [0.1.2] - 2026-04-14
 
 ### Added
