@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-14
+
+### Added
+- Public device-range catalog support, connection-profile probing, and runnable examples for device-range lookup and CPU operation-state inspection.
+
+### Changed
+- Refreshed the README and docs so the new device-range and profile-probe helpers are documented alongside the existing client surface.
+
 ## [0.1.1] - 2026-04-13
 
 ### Added
