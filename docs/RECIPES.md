@@ -8,8 +8,7 @@ These examples are intended to be runnable as-is with environment variables.
 | --- | --- | --- |
 | `SLMP_HOST` | `127.0.0.1` | PLC or mock server host |
 | `SLMP_PORT` | `1025` | TCP/UDP port |
-| `SLMP_FRAME` | `4e` | `3e` or `4e` |
-| `SLMP_SERIES` | `iqr` | `iqr` or `legacy` |
+| `SLMP_PLC_FAMILY` | `iq-r` | `iq-f`, `iq-r`, `iq-l`, `mx-f`, `mx-r`, `qcpu`, `lcpu`, `qnu`, or `qnudv` |
 | `SLMP_TRANSPORT` | `tcp` | `tcp` or `udp` |
 | `SLMP_TARGET` | unset | `SELF`, `SELF-CPU1`, `NW1-ST2`, or `NAME,NET,ST,IO,MD` |
 | `SLMP_TIMEOUT_MS` | `3000` | socket timeout |
@@ -22,8 +21,7 @@ These examples are intended to be runnable as-is with environment variables.
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_FRAME=4e \
-SLMP_SERIES=iqr \
+SLMP_PLC_FAMILY=iq-r \
 cargo run --example raw_read_write
 ```
 
@@ -41,6 +39,7 @@ cargo run --example raw_read_write
 ```bash
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
+SLMP_PLC_FAMILY=iq-f \
 SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
 cargo run --example named_helpers
 ```
@@ -61,6 +60,7 @@ cargo run --example named_helpers
 ```bash
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
+SLMP_PLC_FAMILY=iq-r \
 SLMP_RANDOM_WORDS='D100,R10' \
 SLMP_RANDOM_DWORDS='D200,LTN10' \
 SLMP_EXT_DEVICE='J1\W10' \
@@ -76,8 +76,7 @@ multiple read/write paths stay aligned on the same addresses.
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_FRAME=4e \
-SLMP_SERIES=iqr \
+SLMP_PLC_FAMILY=iq-r \
 cargo run --example device_matrix_compare
 ```
 

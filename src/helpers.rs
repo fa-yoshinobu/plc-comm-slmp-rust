@@ -287,7 +287,7 @@ pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<
     let plc_family = client.plc_family().await;
     for (address, value) in updates {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, plc_family)?;
+        let device = parse_device_for_family_hint(&parts.base, Some(plc_family))?;
         let resolved_dtype =
             resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
         validate_long_timer_entry(address, device, &resolved_dtype)?;
@@ -340,14 +340,14 @@ fn validate_single_request_values(count: usize, max: usize) -> Result<(), SlmpEr
 
 fn compile_read_plan(
     addresses: &[String],
-    plc_family: Option<SlmpPlcFamily>,
+    plc_family: SlmpPlcFamily,
 ) -> Result<NamedReadPlan, SlmpError> {
     let mut entries = Vec::new();
     let mut word_devices = Vec::new();
     let mut dword_devices = Vec::new();
     for address in addresses {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, plc_family)?;
+        let device = parse_device_for_family_hint(&parts.base, Some(plc_family))?;
         let dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
         validate_long_timer_entry(address, device, &dtype)?;
 

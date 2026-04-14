@@ -1,22 +1,19 @@
 use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpFrameType,
-    read_device_range_catalog_with_three_e_legacy_fallback,
+    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily,
+    SlmpFrameType, SlmpPlcFamily, read_device_range_catalog_with_three_e_legacy_fallback,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 #[tokio::test]
-async fn read_device_range_catalog_uses_type_name_and_family_sd_window() {
-    let type_payload = build_type_name_payload("Q00CPU", 0x0251);
+async fn read_device_range_catalog_uses_configured_family_sd_window() {
     let sd_values = [
         123u16, 456, 50000, 789, 50000, 50, 60, 70, 80, 90, 100, 110, 50000, 60000, 120,
     ];
 
-    let server = MultiResponseServer::start(vec![type_payload, build_word_payload(&sd_values)])
-        .await
-        .unwrap();
+    let server = MultiResponseServer::start(vec![build_word_payload(&sd_values)]).await.unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1");
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::QCpu);
     options.port = server.port;
     options.frame_type = SlmpFrameType::Frame4E;
     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
@@ -24,7 +21,7 @@ async fn read_device_range_catalog_uses_type_name_and_family_sd_window() {
 
     let catalog = client.read_device_range_catalog().await.unwrap();
 
-    assert_eq!(server.request_count().await, 2);
+    assert_eq!(server.request_count().await, 1);
     assert_eq!(catalog.family, SlmpDeviceRangeFamily::QCpu);
     assert_eq!(entry(&catalog, "X").point_count, Some(123));
     assert_eq!(entry(&catalog, "X").upper_bound, Some(122));
@@ -54,7 +51,7 @@ async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_windo
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1");
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqF);
     options.port = server.port;
     options.frame_type = SlmpFrameType::Frame4E;
     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
@@ -76,7 +73,6 @@ async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_windo
 
 #[tokio::test]
 async fn read_device_range_catalog_falls_back_to_three_e_legacy_when_type_name_does_not_return() {
-    let type_payload = build_type_name_payload("FX5UC-32MT/D", 0x4A91);
     let mut sd_values = vec![0u16; 46];
     sd_values[0] = 1024;
     sd_values[2] = 1024;
@@ -85,11 +81,9 @@ async fn read_device_range_catalog_falls_back_to_three_e_legacy_when_type_name_d
     sd_values[20] = 10000;
     sd_values[22] = 12000;
 
-    let server = FallbackServer::start(type_payload, build_word_payload(&sd_values))
-        .await
-        .unwrap();
+    let server = FallbackServer::start(build_word_payload(&sd_values)).await.unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1");
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqF);
     options.port = server.port;
     options.frame_type = SlmpFrameType::Frame4E;
     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
@@ -103,7 +97,7 @@ async fn read_device_range_catalog_falls_back_to_three_e_legacy_when_type_name_d
     assert_eq!(resolved.frame_type, SlmpFrameType::Frame3E);
     assert_eq!(resolved.compatibility_mode, SlmpCompatibilityMode::Legacy);
     assert_eq!(resolved.catalog.family, SlmpDeviceRangeFamily::IqF);
-    assert_eq!(resolved.catalog.model, "FX5UC-32MT/D");
+    assert_eq!(resolved.catalog.model, "IQ-F");
     assert_eq!(entry(&resolved.catalog, "X").address_range.as_deref(), Some("X0000-X1777"));
 }
 
@@ -116,13 +110,6 @@ fn entry<'a>(
         .iter()
         .find(|item| item.device == device)
         .unwrap()
-}
-
-fn build_type_name_payload(model: &str, model_code: u16) -> Vec<u8> {
-    let mut payload = vec![0u8; 18];
-    payload[..model.len()].copy_from_slice(model.as_bytes());
-    payload[16..18].copy_from_slice(&model_code.to_le_bytes());
-    payload
 }
 
 fn build_word_payload(values: &[u16]) -> Vec<u8> {
@@ -143,7 +130,7 @@ struct FallbackServer {
 }
 
 impl FallbackServer {
-    async fn start(type_payload: Vec<u8>, sd_payload: Vec<u8>) -> std::io::Result<Self> {
+    async fn start(sd_payload: Vec<u8>) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
         tokio::spawn(async move {
@@ -154,15 +141,6 @@ impl FallbackServer {
             }
 
             if let Ok((mut stream, _)) = listener.accept().await {
-                let type_request = match read_3e_request(&mut stream).await {
-                    Ok(request) => request,
-                    Err(_) => return,
-                };
-                let type_response = build_3e_response(&type_request, &type_payload);
-                if stream.write_all(&type_response).await.is_err() {
-                    return;
-                }
-
                 let sd_request = match read_3e_request(&mut stream).await {
                     Ok(request) => request,
                     Err(_) => return,

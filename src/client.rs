@@ -1,8 +1,6 @@
 use crate::device_ranges::{
-    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily, build_catalog as build_device_range_catalog,
-    build_catalog_for_family as build_device_range_catalog_for_family,
-    read_registers as read_device_range_registers,
-    resolve_profile as resolve_device_range_profile,
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily,
+    build_catalog_for_family as build_device_range_catalog_for_family, read_registers as read_device_range_registers,
     resolve_profile_for_family as resolve_device_range_profile_for_family,
 };
 use crate::address::device_spec_size;
@@ -90,7 +88,7 @@ impl SlmpClient {
         self.inner.lock().await.traffic_stats
     }
 
-    pub async fn plc_family(&self) -> Option<SlmpPlcFamily> {
+    pub async fn plc_family(&self) -> SlmpPlcFamily {
         self.inner.lock().await.options.plc_family
     }
 
@@ -103,15 +101,10 @@ impl SlmpClient {
     }
 
     pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
-        if let Some(family) = self.configured_device_range_family().await {
-            let profile = resolve_device_range_profile_for_family(family);
-            let registers = read_device_range_registers(self, &profile).await?;
-            return build_device_range_catalog_for_family(family, &registers);
-        }
-        let type_info = self.read_type_name().await?;
-        let profile = resolve_device_range_profile(&type_info)?;
+        let family = self.configured_device_range_family().await;
+        let profile = resolve_device_range_profile_for_family(family);
         let registers = read_device_range_registers(self, &profile).await?;
-        build_device_range_catalog(&type_info, &profile, &registers)
+        build_device_range_catalog_for_family(family, &registers)
     }
 
     pub async fn read_device_range_catalog_for_family(
@@ -123,13 +116,8 @@ impl SlmpClient {
         build_device_range_catalog_for_family(family, &registers)
     }
 
-    pub async fn configured_device_range_family(&self) -> Option<SlmpDeviceRangeFamily> {
-        self.inner
-            .lock()
-            .await
-            .options
-            .plc_family
-            .map(map_plc_family_to_range_family)
+    pub async fn configured_device_range_family(&self) -> SlmpDeviceRangeFamily {
+        map_plc_family_to_range_family(self.inner.lock().await.options.plc_family)
     }
 
     pub async fn read_words_raw(

@@ -19,7 +19,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut options = SlmpConnectionOptions::for_plc_family("192.168.250.100", SlmpPlcFamily::IqR);
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqR);
 //!     options.port = 1025;
 //!
 //!     let client = SlmpClient::connect(options).await?;
@@ -39,7 +39,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut options = SlmpConnectionOptions::for_plc_family("192.168.250.100", SlmpPlcFamily::IqF);
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqF);
 //!     options.port = 1025;
 //!     let client = SlmpClient::connect(options).await?;
 //!

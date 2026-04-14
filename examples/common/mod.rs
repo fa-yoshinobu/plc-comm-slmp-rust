@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
 use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType, SlmpTransportMode,
-    parse_named_target,
+    SlmpClient, SlmpConnectionOptions, SlmpPlcFamily, SlmpTransportMode, parse_named_target,
 };
 use std::env;
 use std::error::Error;
@@ -29,19 +28,9 @@ pub fn env_csv(key: &str, default: &str) -> Vec<String> {
 
 pub fn options_from_env() -> Result<SlmpConnectionOptions, Box<dyn Error>> {
     let host = env_string("SLMP_HOST", "127.0.0.1");
-    let mut options = SlmpConnectionOptions::new(host);
+    let family = parse_plc_family(&env_string("SLMP_PLC_FAMILY", "iq-r"))?;
+    let mut options = SlmpConnectionOptions::new(host, family);
     options.port = env_string("SLMP_PORT", "1025").parse()?;
-    options.frame_type = match env_string("SLMP_FRAME", "4e").to_ascii_lowercase().as_str() {
-        "3e" => SlmpFrameType::Frame3E,
-        _ => SlmpFrameType::Frame4E,
-    };
-    options.compatibility_mode = match env_string("SLMP_SERIES", "iqr")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "legacy" | "ql" => SlmpCompatibilityMode::Legacy,
-        _ => SlmpCompatibilityMode::Iqr,
-    };
     options.transport_mode = match env_string("SLMP_TRANSPORT", "tcp")
         .to_ascii_lowercase()
         .as_str()
@@ -63,13 +52,25 @@ pub async fn connect_from_env() -> Result<SlmpClient, Box<dyn Error>> {
 }
 
 pub fn print_connection_banner(example: &str) {
+    let family = env_string("SLMP_PLC_FAMILY", "iq-r");
     println!(
-        "{example}: host={} port={} frame={} series={} transport={} target={}",
+        "{example}: host={} port={} plc_family={} transport={} target={}",
         env_string("SLMP_HOST", "127.0.0.1"),
         env_string("SLMP_PORT", "1025"),
-        env_string("SLMP_FRAME", "4e"),
-        env_string("SLMP_SERIES", "iqr"),
+        family,
         env_string("SLMP_TRANSPORT", "tcp"),
         env::var("SLMP_TARGET").unwrap_or_else(|_| "default".to_string())
     );
+}
+
+fn parse_plc_family(value: &str) -> Result<SlmpPlcFamily, Box<dyn Error>> {
+    SlmpPlcFamily::parse_label(value).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+            "SLMP_PLC_FAMILY is required. Use iq-f, iq-r, iq-l, mx-f, mx-r, qcpu, lcpu, qnu, or qnudv."
+            ),
+        )
+        .into()
+    })
 }

@@ -39,6 +39,35 @@ pub struct SlmpPlcFamilyDefaults {
 }
 
 impl SlmpPlcFamily {
+    pub fn canonical_name(self) -> &'static str {
+        match self {
+            Self::IqF => "iq-f",
+            Self::IqR => "iq-r",
+            Self::IqL => "iq-l",
+            Self::MxF => "mx-f",
+            Self::MxR => "mx-r",
+            Self::QCpu => "qcpu",
+            Self::LCpu => "lcpu",
+            Self::QnU => "qnu",
+            Self::QnUDV => "qnudv",
+        }
+    }
+
+    pub fn parse_label(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace(['-', '_'], "").as_str() {
+            "iqf" => Some(Self::IqF),
+            "iqr" => Some(Self::IqR),
+            "iql" => Some(Self::IqL),
+            "mxf" => Some(Self::MxF),
+            "mxr" => Some(Self::MxR),
+            "qcpu" => Some(Self::QCpu),
+            "lcpu" => Some(Self::LCpu),
+            "qnu" => Some(Self::QnU),
+            "qnudv" => Some(Self::QnUDV),
+            _ => None,
+        }
+    }
+
     pub fn defaults(self) -> SlmpPlcFamilyDefaults {
         match self {
             Self::IqF => SlmpPlcFamilyDefaults {
@@ -489,7 +518,7 @@ pub struct SlmpConnectionOptions {
     pub host: String,
     pub port: u16,
     pub timeout: Duration,
-    pub plc_family: Option<SlmpPlcFamily>,
+    pub plc_family: SlmpPlcFamily,
     pub frame_type: SlmpFrameType,
     pub compatibility_mode: SlmpCompatibilityMode,
     pub target: SlmpTargetAddress,
@@ -498,27 +527,13 @@ pub struct SlmpConnectionOptions {
 }
 
 impl SlmpConnectionOptions {
-    pub fn new(host: impl Into<String>) -> Self {
-        Self {
-            host: host.into(),
-            port: 1025,
-            timeout: Duration::from_secs(3),
-            plc_family: None,
-            frame_type: SlmpFrameType::Frame4E,
-            compatibility_mode: SlmpCompatibilityMode::Iqr,
-            target: SlmpTargetAddress::default(),
-            transport_mode: SlmpTransportMode::Tcp,
-            monitoring_timer: 0x0010,
-        }
-    }
-
-    pub fn for_plc_family(host: impl Into<String>, family: SlmpPlcFamily) -> Self {
+    pub fn new(host: impl Into<String>, family: SlmpPlcFamily) -> Self {
         let defaults = family.defaults();
         Self {
             host: host.into(),
             port: 1025,
             timeout: Duration::from_secs(3),
-            plc_family: Some(family),
+            plc_family: family,
             frame_type: defaults.frame_type,
             compatibility_mode: defaults.compatibility_mode,
             target: SlmpTargetAddress::default(),
@@ -527,9 +542,9 @@ impl SlmpConnectionOptions {
         }
     }
 
-    pub fn apply_plc_family_defaults(&mut self, family: SlmpPlcFamily) {
+    pub fn set_plc_family(&mut self, family: SlmpPlcFamily) {
         let defaults = family.defaults();
-        self.plc_family = Some(family);
+        self.plc_family = family;
         self.frame_type = defaults.frame_type;
         self.compatibility_mode = defaults.compatibility_mode;
     }

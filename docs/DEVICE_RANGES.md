@@ -5,12 +5,10 @@ This document replaces `plc_device_range_registers - base.csv`.
 The crate now owns the device-range rules in source code and reads live upper
 bounds from the PLC itself after the caller chooses the PLC family:
 
-1. caller selects `SlmpDeviceRangeFamily`
-2. read the family-specific `SD` register window
-3. build a `SlmpDeviceRangeCatalog` with point counts and 0-based address ranges
-
-`read_type_name`-based auto resolution still exists, but it is not required for
-device-range reads and is no longer the recommended path for monitor tools.
+1. caller selects `SlmpPlcFamily`
+2. the library derives the matching device-range family
+3. read the family-specific `SD` register window
+4. build a `SlmpDeviceRangeCatalog` with point counts and 0-based address ranges
 
 `point_count` is the usable point count reported by the PLC or by a fixed
 family rule. `upper_bound` is the inclusive last address, so for 0-based
@@ -26,30 +24,23 @@ device but does not publish a finite bound register.
 `SlmpClient` exposes:
 
 ```rust
-pub async fn read_device_range_catalog_for_family(
-    &self,
-    family: SlmpDeviceRangeFamily,
-) -> Result<SlmpDeviceRangeCatalog, SlmpError>
+pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError>
 ```
 
 Example:
 
 ```rust
 use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpFrameType,
+    SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100");
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqF);
     options.port = 1025;
-    options.frame_type = SlmpFrameType::Frame3E;
-    options.compatibility_mode = SlmpCompatibilityMode::Legacy;
 
     let client = SlmpClient::connect(options).await?;
-    let catalog = client
-        .read_device_range_catalog_for_family(SlmpDeviceRangeFamily::IqF)
-        .await?;
+    let catalog = client.read_device_range_catalog().await?;
 
     println!("selected={} -> {:?}", catalog.model, catalog.family);
     for entry in catalog.entries.iter().filter(|x| x.supported) {
@@ -74,14 +65,13 @@ Returned types:
 `SlmpDeviceRangeEntry.notation` uses `Decimal`, `Octal`, or `Hexadecimal` for the public
 address text this crate expects.
 
-## Auto Resolution
+## Internal Mapping
 
-If you still need automatic family resolution, `read_device_range_catalog()`
-without a family argument uses `read_type_name`, then the model-code and
-model-text rules below.
+`read_device_range_catalog()` uses the `SlmpPlcFamily` configured on
+`SlmpConnectionOptions`. `iq-l` currently reuses the `iq-r` device-range rules.
 
-Resolution always prefers `model_code`. Normalized `model` text is used only as
-a fallback.
+The lower-level model-code and model-text resolution tables still exist for the
+diagnostic profile probe utilities.
 
 Embedded model-code tables cover the known codes shared during implementation
 for these families:

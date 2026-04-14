@@ -4,10 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- `SlmpConnectionOptions::new(...)` now requires `SlmpPlcFamily`, and the standard connection path derives frame/profile defaults from that explicit family.
+- `read_device_range_catalog()` now uses the configured PLC family directly instead of model-name auto resolution.
+
 ## [0.1.3] - 2026-04-14
 
 ### Added
-- `SlmpPlcFamily` defaults and `SlmpConnectionOptions::for_plc_family(...)` for the high-level helper surface.
+- `SlmpPlcFamily` defaults and the family-driven high-level helper surface.
 
 ### Changed
 - High-level string device parsing and device-range catalog reads now use explicit PLC-family rules. `X/Y` strings require explicit family, `iQ-F` uses octal, and other supported families use hexadecimal.

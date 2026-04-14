@@ -52,7 +52,7 @@ Requires Rust 1.85 or newer.
 
 ```toml
 [dependencies]
-plc-comm-slmp-rust = "0.1.1"
+plc-comm-slmp-rust = "0.1.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -62,15 +62,13 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 ```rust
 use plc_comm_slmp::{
-    SlmpAddress, SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType,
+    SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100");
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqR);
     options.port = 1025;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
 
     let client = SlmpClient::connect(options).await?;
     let values = client.read_words_raw(SlmpAddress::parse("D100")?, 2).await?;
@@ -83,16 +81,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use plc_comm_slmp::{
-    read_named, write_named, NamedAddress, SlmpClient, SlmpCompatibilityMode,
-    SlmpConnectionOptions, SlmpFrameType, SlmpValue,
+    read_named, write_named, NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
+    SlmpValue,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100");
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqF);
     options.port = 1025;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
 
     let client = SlmpClient::connect(options).await?;
 
@@ -143,8 +139,7 @@ Low-level word read plus optional write/read-back.
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_FRAME=4e \
-SLMP_SERIES=iqr \
+SLMP_PLC_FAMILY=iq-r \
 cargo run --example raw_read_write
 ```
 
@@ -164,6 +159,7 @@ tick.
 
 ```bash
 SLMP_HOST=192.168.250.100 \
+SLMP_PLC_FAMILY=iq-f \
 SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
 cargo run --example named_helpers
 ```
@@ -175,6 +171,7 @@ device read, and self-test loopback.
 
 ```bash
 SLMP_HOST=192.168.250.100 \
+SLMP_PLC_FAMILY=iq-r \
 SLMP_RANDOM_WORDS='D100,R10' \
 SLMP_RANDOM_DWORDS='D200,LTN10' \
 SLMP_EXT_DEVICE='J1\W10' \
@@ -189,9 +186,7 @@ Reads the family-specific `SD` window for a user-selected PLC family and prints
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_FRAME=3e \
-SLMP_SERIES=ql \
-SLMP_PLC_TYPE=iq-f \
+SLMP_PLC_FAMILY=iq-f \
 cargo run --example device_range_catalog
 ```
 
@@ -220,8 +215,7 @@ paths and checks that read-back stays aligned.
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_FRAME=4e \
-SLMP_SERIES=iqr \
+SLMP_PLC_FAMILY=iq-r \
 cargo run --example device_matrix_compare
 ```
 

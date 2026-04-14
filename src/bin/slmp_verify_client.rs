@@ -1,7 +1,7 @@
 use futures_util::StreamExt;
 use plc_comm_slmp::{
     NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCompatibilityMode,
-    SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpTargetAddress,
+    SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpPlcFamily, SlmpTargetAddress,
     parse_qualified_device, parse_scalar_for_named, parse_target_auto_number, poll_named,
     read_named, write_named,
 };
@@ -20,6 +20,7 @@ async fn main() {
     let command = args[3].as_str();
     let address = args.get(4).cloned().unwrap_or_default();
     let mut extras = Vec::new();
+    let mut family = SlmpPlcFamily::IqR;
     let mut frame = SlmpFrameType::Frame3E;
     let mut series = SlmpCompatibilityMode::Legacy;
     let mut target = None;
@@ -35,6 +36,10 @@ async fn main() {
     let mut index = 5usize;
     while index < args.len() {
         match args[index].as_str() {
+            "--family" => {
+                index += 1;
+                family = parse_plc_family(args.get(index).map(String::as_str).unwrap_or("iq-r"));
+            }
             "--frame" => {
                 index += 1;
                 frame = if args.get(index).map(String::as_str) == Some("4e") {
@@ -105,7 +110,7 @@ async fn main() {
         index += 1;
     }
 
-    let mut options = SlmpConnectionOptions::new(host);
+    let mut options = SlmpConnectionOptions::new(host, family);
     options.port = port;
     options.frame_type = frame;
     options.compatibility_mode = series;
@@ -141,6 +146,10 @@ async fn main() {
             json!({"status": "error", "message": error.message}).to_string()
         ),
     }
+}
+
+fn parse_plc_family(value: &str) -> SlmpPlcFamily {
+    SlmpPlcFamily::parse_label(value).unwrap_or(SlmpPlcFamily::IqR)
 }
 
 #[allow(clippy::too_many_arguments)]

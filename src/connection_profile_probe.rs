@@ -1,11 +1,11 @@
 use crate::client::SlmpClient;
 use crate::device_ranges::{
-    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily, build_catalog, read_registers, resolve_family,
-    resolve_profile,
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily, build_catalog_for_family, read_registers,
+    resolve_family, resolve_profile, resolve_profile_for_family,
 };
 use crate::model::{
-    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpFrameType,
-    SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
+    SlmpFrameType, SlmpPlcFamily, SlmpTransportMode, SlmpTypeNameInfo,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -168,9 +168,8 @@ pub async fn read_device_range_catalog_with_three_e_legacy_fallback(
         return Ok(result);
     }
 
-    if !initial.read_type_name_failed
-        || (options.frame_type == SlmpFrameType::Frame3E
-            && options.compatibility_mode == SlmpCompatibilityMode::Legacy)
+    if options.frame_type == SlmpFrameType::Frame3E
+        && options.compatibility_mode == SlmpCompatibilityMode::Legacy
     {
         return Err(initial
             .error
@@ -197,7 +196,6 @@ pub async fn read_device_range_catalog_with_three_e_legacy_fallback(
 struct TryReadDeviceRangeCatalogOutcome {
     result: Option<SlmpResolvedDeviceRangeCatalog>,
     error: Option<crate::error::SlmpError>,
-    read_type_name_failed: bool,
 }
 
 async fn try_read_device_range_catalog(
@@ -209,21 +207,35 @@ async fn try_read_device_range_catalog(
     attempt.frame_type = frame_type;
     attempt.compatibility_mode = compatibility_mode;
 
-    let client = SlmpClient::connect(attempt.clone()).await?;
-    let type_info = match client.read_type_name().await {
-        Ok(info) => info,
+    let client = match SlmpClient::connect(attempt.clone()).await {
+        Ok(client) => client,
         Err(error) => {
             return Ok(TryReadDeviceRangeCatalogOutcome {
                 result: None,
-                error: Some(crate::error::SlmpError::new(format!("read_type_name: {error}"))),
-                read_type_name_failed: true,
+                error: Some(error),
             })
         }
     };
-
-    let profile = resolve_profile(&type_info)?;
-    let registers = read_registers(&client, &profile).await?;
-    let catalog = build_catalog(&type_info, &profile, &registers)?;
+    let family = map_plc_family_to_range_family(attempt.plc_family);
+    let profile = resolve_profile_for_family(family);
+    let registers = match read_registers(&client, &profile).await {
+        Ok(registers) => registers,
+        Err(error) => {
+            return Ok(TryReadDeviceRangeCatalogOutcome {
+                result: None,
+                error: Some(error),
+            })
+        }
+    };
+    let catalog = match build_catalog_for_family(family, &registers) {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            return Ok(TryReadDeviceRangeCatalogOutcome {
+                result: None,
+                error: Some(error),
+            })
+        }
+    };
     Ok(TryReadDeviceRangeCatalogOutcome {
         result: Some(SlmpResolvedDeviceRangeCatalog {
             transport_mode: attempt.transport_mode,
@@ -233,8 +245,20 @@ async fn try_read_device_range_catalog(
             catalog,
         }),
         error: None,
-        read_type_name_failed: false,
     })
+}
+
+fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {
+    match family {
+        SlmpPlcFamily::IqF => SlmpDeviceRangeFamily::IqF,
+        SlmpPlcFamily::IqR | SlmpPlcFamily::IqL => SlmpDeviceRangeFamily::IqR,
+        SlmpPlcFamily::MxF => SlmpDeviceRangeFamily::MxF,
+        SlmpPlcFamily::MxR => SlmpDeviceRangeFamily::MxR,
+        SlmpPlcFamily::QCpu => SlmpDeviceRangeFamily::QCpu,
+        SlmpPlcFamily::LCpu => SlmpDeviceRangeFamily::LCpu,
+        SlmpPlcFamily::QnU => SlmpDeviceRangeFamily::QnU,
+        SlmpPlcFamily::QnUDV => SlmpDeviceRangeFamily::QnUDV,
+    }
 }
 
 #[cfg(test)]
@@ -244,6 +268,7 @@ mod tests {
     };
     use crate::{
         SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpFrameType,
+        SlmpPlcFamily,
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -257,7 +282,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut options = SlmpConnectionOptions::new("127.0.0.1");
+        let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
         options.port = server.port;
         options.frame_type = SlmpFrameType::Frame4E;
         options.compatibility_mode = SlmpCompatibilityMode::Iqr;
@@ -288,7 +313,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut options = SlmpConnectionOptions::new("127.0.0.1");
+        let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqF);
         options.port = server.port;
         options.frame_type = SlmpFrameType::Frame4E;
         options.compatibility_mode = SlmpCompatibilityMode::Iqr;
