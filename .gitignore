@@ -3,4 +3,5 @@
 node_modules
 *.node
 .codex
-scripts/
+scripts/__pycache__/
+*.pyc
