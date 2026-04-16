@@ -4,7 +4,7 @@ use crate::error::SlmpError;
 use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcFamily};
 use async_stream::try_stream;
 use futures_core::stream::Stream;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -313,8 +313,9 @@ pub fn poll_named<'a>(
     interval: Duration,
 ) -> impl Stream<Item = Result<NamedAddress, SlmpError>> + 'a {
     try_stream! {
+        let plan = compile_read_plan(addresses, client.plc_family().await)?;
         loop {
-            yield read_named(client, addresses).await?;
+            yield read_named_compiled(client, &plan).await?;
             tokio::time::sleep(interval).await;
         }
     }
@@ -342,9 +343,11 @@ fn compile_read_plan(
     addresses: &[String],
     plc_family: SlmpPlcFamily,
 ) -> Result<NamedReadPlan, SlmpError> {
-    let mut entries = Vec::new();
-    let mut word_devices = Vec::new();
-    let mut dword_devices = Vec::new();
+    let mut entries = Vec::with_capacity(addresses.len());
+    let mut word_devices = Vec::with_capacity(addresses.len());
+    let mut dword_devices = Vec::with_capacity(addresses.len());
+    let mut seen_word_devices = HashSet::with_capacity(addresses.len());
+    let mut seen_dword_devices = HashSet::with_capacity(addresses.len());
     for address in addresses {
         let parts = parse_named_address(address)?;
         let device = parse_device_for_family_hint(&parts.base, Some(plc_family))?;
@@ -353,15 +356,15 @@ fn compile_read_plan(
 
         if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
-            if device.code.is_word_batchable() && !word_devices.contains(&device) {
+            if device.code.is_word_batchable() && seen_word_devices.insert(device) {
                 word_devices.push(device);
             }
         } else if matches!(dtype.as_str(), "U" | "S") && device.code.is_word_batchable() {
-            if !word_devices.contains(&device) {
+            if seen_word_devices.insert(device) {
                 word_devices.push(device);
             }
         } else if matches!(dtype.as_str(), "D" | "L" | "F") && device.code.is_word_batchable() {
-            if !dword_devices.contains(&device) {
+            if seen_dword_devices.insert(device) {
                 dword_devices.push(device);
             }
         }
@@ -389,7 +392,8 @@ async fn read_named_compiled(
     let mut result = NamedAddress::new();
     let (word_values, dword_values) =
         read_random_maps(client, &plan.word_devices, &plan.dword_devices).await?;
-    let mut long_timer_cache: HashMap<(SlmpDeviceCode, u32), SlmpLongTimerResult> = HashMap::new();
+    let mut long_timer_cache: HashMap<(SlmpDeviceCode, u32), SlmpLongTimerResult> =
+        HashMap::with_capacity(plan.entries.len());
 
     for entry in &plan.entries {
         let value = if let Some(spec) = &entry.long_timer_read {
@@ -457,8 +461,8 @@ async fn read_random_maps(
     ),
     SlmpError,
 > {
-    let mut words = HashMap::new();
-    let mut dwords = HashMap::new();
+    let mut words = HashMap::with_capacity(word_devices.len());
+    let mut dwords = HashMap::with_capacity(dword_devices.len());
     let mut word_index = 0usize;
     let mut dword_index = 0usize;
 
