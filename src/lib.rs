@@ -17,8 +17,11 @@
 //!     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
 //! };
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let runtime = tokio::runtime::Builder::new_current_thread()
+//!     .enable_all()
+//!     .build()?;
+//! runtime.block_on(async {
 //!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqR);
 //!     options.port = 1025;
 //!
@@ -26,7 +29,8 @@
 //!     let words = client.read_words_raw(SlmpAddress::parse("D100")?, 2).await?;
 //!     println!("{words:?}");
 //!     Ok(())
-//! }
+//! })
+//! # }
 //! ```
 //!
 //! # Recommended High-Level Helpers
@@ -37,8 +41,11 @@
 //!     write_named,
 //! };
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let runtime = tokio::runtime::Builder::new_current_thread()
+//!     .enable_all()
+//!     .build()?;
+//! runtime.block_on(async {
 //!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqF);
 //!     options.port = 1025;
 //!     let client = SlmpClient::connect(options).await?;
@@ -55,7 +62,8 @@
 //!     updates.insert("D400:F".into(), SlmpValue::F32(3.14));
 //!     write_named(&client, &updates).await?;
 //!     Ok(())
-//! }
+//! })
+//! # }
 //! ```
 //!
 //! # Address Notes
@@ -79,7 +87,7 @@
 //! - `named_helpers`
 //! - `advanced_operations`
 //!
-//! Run them with `cargo run --example <name>`.
+//! Run them with `cargo run --features cli --example <name>`.
 //!
 //! # Verification
 //!
@@ -100,12 +108,13 @@ pub use address::{
 };
 pub use client::{SlmpClient, encode_device_spec};
 pub use connection_profile_probe::{
-    SlmpConnectionProfileProbeResult, SlmpConnectionProfileProbeStatus, SlmpResolvedDeviceRangeCatalog,
-    probe_connection_profiles, read_device_range_catalog_with_three_e_legacy_fallback,
+    SlmpConnectionProfileProbeResult, SlmpConnectionProfileProbeStatus,
+    SlmpResolvedDeviceRangeCatalog, probe_connection_profiles,
+    read_device_range_catalog_with_three_e_legacy_fallback,
 };
 pub use device_ranges::{
-    SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry,
-    SlmpDeviceRangeFamily, SlmpDeviceRangeNotation,
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeFamily,
+    SlmpDeviceRangeNotation,
 };
 pub use error::SlmpError;
 pub use helpers::{
@@ -117,9 +126,8 @@ pub use helpers::{
 };
 pub use model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
-    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpCpuOperationState, SlmpCpuOperationStatus, SlmpExtensionSpec, SlmpFrameType,
-    SlmpLongTimerResult, SlmpNamedTarget,
-    SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
-    SlmpTraceDirection, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLongTimerResult,
+    SlmpNamedTarget, SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult,
+    SlmpTargetAddress, SlmpTraceDirection, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };

@@ -1,16 +1,17 @@
+use crate::address::device_spec_size;
 use crate::device_ranges::{
     SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily,
-    build_catalog_for_family as build_device_range_catalog_for_family, read_registers as read_device_range_registers,
+    build_catalog_for_family as build_device_range_catalog_for_family,
+    read_registers as read_device_range_registers,
     resolve_profile_for_family as resolve_device_range_profile_for_family,
 };
-use crate::address::device_spec_size;
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
-    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpCpuOperationState, SlmpCpuOperationStatus, SlmpExtensionSpec, SlmpFrameType,
-    SlmpLongTimerResult, SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult,
-    SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLongTimerResult,
+    SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
+    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1185,28 +1186,34 @@ impl ClientInner {
         expect_response: bool,
     ) -> Result<Vec<u8>, SlmpError> {
         self.validate_request_payload(command, subcommand, payload)?;
-        let frame = self.build_request_frame(command, subcommand, payload);
-        self.last_request_frame = frame.clone();
-        let tx_len = frame.len() as u64;
+        self.build_request_frame(command, subcommand, payload);
+        let tx_len = self.last_request_frame.len() as u64;
 
         match &mut self.transport {
             Transport::Tcp(stream) => {
-                timeout(self.options.timeout, stream.write_all(&frame))
-                    .await
-                    .map_err(|_| SlmpError::new("tcp write timed out"))??;
+                timeout(
+                    self.options.timeout,
+                    stream.write_all(&self.last_request_frame),
+                )
+                .await
+                .map_err(|_| SlmpError::new("tcp write timed out"))??;
                 self.traffic_stats.request_count += 1;
                 self.traffic_stats.tx_bytes += tx_len;
                 if !expect_response {
                     self.last_response_frame.clear();
                     return Ok(Vec::new());
                 }
-                let response = Self::receive_tcp_frame(stream, self.options.timeout).await?;
-                self.last_response_frame = response.clone();
-                self.traffic_stats.rx_bytes += response.len() as u64;
-                Self::parse_response(command, subcommand, &response)
+                Self::receive_tcp_frame(
+                    stream,
+                    self.options.timeout,
+                    &mut self.last_response_frame,
+                )
+                .await?;
+                self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                Self::parse_response(command, subcommand, &self.last_response_frame)
             }
             Transport::Udp(socket) => {
-                timeout(self.options.timeout, socket.send(&frame))
+                timeout(self.options.timeout, socket.send(&self.last_request_frame))
                     .await
                     .map_err(|_| SlmpError::new("udp send timed out"))??;
                 self.traffic_stats.request_count += 1;
@@ -1215,14 +1222,16 @@ impl ClientInner {
                     self.last_response_frame.clear();
                     return Ok(Vec::new());
                 }
-                let mut buffer = vec![0u8; 8192];
-                let received = timeout(self.options.timeout, socket.recv(&mut buffer))
-                    .await
-                    .map_err(|_| SlmpError::new("udp receive timed out"))??;
-                buffer.truncate(received);
-                self.last_response_frame = buffer.clone();
-                self.traffic_stats.rx_bytes += buffer.len() as u64;
-                Self::parse_response(command, subcommand, &buffer)
+                self.last_response_frame.resize(8192, 0);
+                let received = timeout(
+                    self.options.timeout,
+                    socket.recv(&mut self.last_response_frame),
+                )
+                .await
+                .map_err(|_| SlmpError::new("udp receive timed out"))??;
+                self.last_response_frame.truncate(received);
+                self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                Self::parse_response(command, subcommand, &self.last_response_frame)
             }
         }
     }
@@ -1278,17 +1287,14 @@ impl ClientInner {
         Ok(())
     }
 
-    fn build_request_frame(
-        &mut self,
-        command: SlmpCommand,
-        subcommand: u16,
-        payload: &[u8],
-    ) -> Vec<u8> {
+    fn build_request_frame(&mut self, command: SlmpCommand, subcommand: u16, payload: &[u8]) {
         let header_size = match self.options.frame_type {
             SlmpFrameType::Frame4E => 19,
             SlmpFrameType::Frame3E => 15,
         };
-        let mut frame = vec![0u8; header_size + payload.len()];
+        self.last_request_frame
+            .resize(header_size + payload.len(), 0);
+        let frame = &mut self.last_request_frame;
         match self.options.frame_type {
             SlmpFrameType::Frame4E => {
                 frame[0] = 0x54;
@@ -1312,7 +1318,6 @@ impl ClientInner {
             }
         }
         frame[header_size..].copy_from_slice(payload);
-        frame
     }
 
     fn write_target(buffer: &mut [u8], target: SlmpTargetAddress) {
@@ -1325,7 +1330,8 @@ impl ClientInner {
     async fn receive_tcp_frame(
         stream: &mut TcpStream,
         timeout_duration: std::time::Duration,
-    ) -> Result<Vec<u8>, SlmpError> {
+        frame: &mut Vec<u8>,
+    ) -> Result<(), SlmpError> {
         let mut header = [0u8; 13];
         timeout(timeout_duration, stream.read_exact(&mut header[0..2]))
             .await
@@ -1336,12 +1342,12 @@ impl ClientInner {
                 .await
                 .map_err(|_| SlmpError::new("tcp read timed out"))??;
             let length = u16::from_le_bytes([header[11], header[12]]) as usize;
-            let mut frame = vec![0u8; 13 + length];
+            frame.resize(13 + length, 0);
             frame[0..13].copy_from_slice(&header);
             timeout(timeout_duration, stream.read_exact(&mut frame[13..]))
                 .await
                 .map_err(|_| SlmpError::new("tcp read timed out"))??;
-            return Ok(frame);
+            return Ok(());
         }
 
         if header[0] == 0xD0 && header[1] == 0x00 {
@@ -1349,12 +1355,12 @@ impl ClientInner {
                 .await
                 .map_err(|_| SlmpError::new("tcp read timed out"))??;
             let length = u16::from_le_bytes([header[7], header[8]]) as usize;
-            let mut frame = vec![0u8; 9 + length];
+            frame.resize(9 + length, 0);
             frame[0..9].copy_from_slice(&header[..9]);
             timeout(timeout_duration, stream.read_exact(&mut frame[9..]))
                 .await
                 .map_err(|_| SlmpError::new("tcp read timed out"))??;
-            return Ok(frame);
+            return Ok(());
         }
 
         Err(SlmpError::new("invalid response subheader"))

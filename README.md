@@ -140,7 +140,7 @@ Low-level word read plus optional write/read-back.
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
 SLMP_PLC_FAMILY=iq-r \
-cargo run --example raw_read_write
+cargo run --features cli --example raw_read_write
 ```
 
 Enable writes explicitly:
@@ -149,7 +149,7 @@ Enable writes explicitly:
 SLMP_ENABLE_WRITES=1 \
 SLMP_WRITE_ADDRESS=D600 \
 SLMP_WRITE_VALUES=111,222 \
-cargo run --example raw_read_write
+cargo run --features cli --example raw_read_write
 ```
 
 ### `named_helpers`
@@ -161,7 +161,7 @@ tick.
 SLMP_HOST=192.168.250.100 \
 SLMP_PLC_FAMILY=iq-f \
 SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
-cargo run --example named_helpers
+cargo run --features cli --example named_helpers
 ```
 
 ### `advanced_operations`
@@ -175,7 +175,7 @@ SLMP_PLC_FAMILY=iq-r \
 SLMP_RANDOM_WORDS='D100,R10' \
 SLMP_RANDOM_DWORDS='D200,LTN10' \
 SLMP_EXT_DEVICE='J1\W10' \
-cargo run --example advanced_operations
+cargo run --features cli --example advanced_operations
 ```
 
 ### `device_range_catalog`
@@ -187,7 +187,7 @@ Reads the family-specific `SD` window for a user-selected PLC family and prints
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
 SLMP_PLC_FAMILY=iq-f \
-cargo run --example device_range_catalog
+cargo run --features cli --example device_range_catalog
 ```
 
 ### `connection_profile_probe`
@@ -199,7 +199,7 @@ result is advisory only so the caller can choose which settings to use.
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-cargo run --example connection_profile_probe
+cargo run --features cli --example connection_profile_probe
 ```
 
 ### `device_matrix_compare`
@@ -216,7 +216,7 @@ paths and checks that read-back stays aligned.
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
 SLMP_PLC_FAMILY=iq-r \
-cargo run --example device_matrix_compare
+cargo run --features cli --example device_matrix_compare
 ```
 
 This example exits non-zero when command paths for the same address disagree.
@@ -225,7 +225,7 @@ Focus on a subset while debugging:
 
 ```bash
 SLMP_COMPARE_ONLY='LTS10,LTC10,LCS10,LCC10,LTN10,LSTN10' \
-cargo run --example device_matrix_compare
+cargo run --features cli --example device_matrix_compare
 ```
 
 The shared environment variables for these examples are documented in
@@ -327,7 +327,7 @@ This repo is designed to participate in:
 The wrapper binary used by the harness is:
 
 ```bash
-cargo run --bin slmp_verify_client -- 127.0.0.1 9000 read-type
+cargo run --features cli --bin slmp_verify_client -- 127.0.0.1 9000 read-type
 ```
 
 ## Development
