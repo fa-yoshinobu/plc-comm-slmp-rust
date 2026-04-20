@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-20
+
+### Fixed
+- `slmp_verify_client` now parses named write values with the active `SlmpPlcFamily`, so `X`/`Y` addresses work in cross-verify named-write flows.
+
+### Changed
+- CI now builds `slmp_verify_client` with the required `cli` feature enabled.
+
 ## [0.1.4] - 2026-04-14
 
 ### Changed
