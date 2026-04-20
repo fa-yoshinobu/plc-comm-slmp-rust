@@ -36,7 +36,7 @@ jobs:
 
       - name: Build verify client
         working-directory: plc-comm-slmp-rust
-        run: cargo build --bin slmp_verify_client
+        run: cargo build --features cli --bin slmp_verify_client
 
       - name: Build API docs
         working-directory: plc-comm-slmp-rust

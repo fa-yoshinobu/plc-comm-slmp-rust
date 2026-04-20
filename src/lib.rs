@@ -118,9 +118,9 @@ pub use device_ranges::{
 };
 pub use error::SlmpError;
 pub use helpers::{
-    NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_dwords_chunked,
-    read_dwords_single_request, read_named, read_typed, read_words_chunked,
-    read_words_single_request, write_bit_in_word, write_dwords_chunked,
+    NamedAddress, SlmpValue, parse_scalar_for_named, parse_scalar_for_named_with_family,
+    poll_named, read_dwords_chunked, read_dwords_single_request, read_named, read_typed,
+    read_words_chunked, read_words_single_request, write_bit_in_word, write_dwords_chunked,
     write_dwords_single_request, write_named, write_typed, write_words_chunked,
     write_words_single_request,
 };

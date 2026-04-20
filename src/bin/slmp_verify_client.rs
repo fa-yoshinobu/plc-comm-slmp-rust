@@ -2,7 +2,7 @@ use futures_util::StreamExt;
 use plc_comm_slmp::{
     NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCompatibilityMode,
     SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpPlcFamily, SlmpTargetAddress,
-    parse_qualified_device, parse_scalar_for_named, parse_target_auto_number, poll_named,
+    parse_qualified_device, parse_scalar_for_named_with_family, parse_target_auto_number, poll_named,
     read_named, write_named,
 };
 use serde_json::json;
@@ -234,7 +234,7 @@ async fn run_command(
             })
         }
         "write-named" => {
-            let updates = parse_named_updates(address)?;
+            let updates = parse_named_updates(address, client.plc_family().await)?;
             write_named(client, &updates).await?;
             json!({"status":"success"})
         }
@@ -484,7 +484,10 @@ fn parse_named_addresses(text: &str) -> Vec<String> {
     }
 }
 
-fn parse_named_updates(text: &str) -> Result<NamedAddress, plc_comm_slmp::SlmpError> {
+fn parse_named_updates(
+    text: &str,
+    plc_family: SlmpPlcFamily,
+) -> Result<NamedAddress, plc_comm_slmp::SlmpError> {
     let mut updates = BTreeMap::new();
     for item in parse_named_addresses(text) {
         let (key, value) = item
@@ -492,7 +495,7 @@ fn parse_named_updates(text: &str) -> Result<NamedAddress, plc_comm_slmp::SlmpEr
             .ok_or_else(|| plc_comm_slmp::SlmpError::new("Invalid named update."))?;
         updates.insert(
             key.trim().to_string(),
-            parse_scalar_for_named(key.trim(), value.trim())?,
+            parse_scalar_for_named_with_family(key.trim(), value.trim(), Some(plc_family))?,
         );
     }
     Ok(updates)

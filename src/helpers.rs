@@ -710,8 +710,16 @@ enum NamedWriteRoute {
 }
 
 pub fn parse_scalar_for_named(address: &str, value: &str) -> Result<SlmpValue, SlmpError> {
+    parse_scalar_for_named_with_family(address, value, None)
+}
+
+pub fn parse_scalar_for_named_with_family(
+    address: &str,
+    value: &str,
+    plc_family: Option<SlmpPlcFamily>,
+) -> Result<SlmpValue, SlmpError> {
     let parts = parse_named_address(address)?;
-    let device = parse_device_for_family_hint(&parts.base, None)?;
+    let device = parse_device_for_family_hint(&parts.base, plc_family)?;
     if parts.bit_index.is_some() || device.code.is_bit_device() {
         return Ok(SlmpValue::Bool(matches!(
             value,
