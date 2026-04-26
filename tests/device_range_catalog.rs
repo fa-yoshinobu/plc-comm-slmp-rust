@@ -1,6 +1,6 @@
 use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily,
-    SlmpFrameType, SlmpPlcFamily, read_device_range_catalog_with_three_e_legacy_fallback,
+    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpFrameType,
+    SlmpPlcFamily, read_device_range_catalog_with_three_e_legacy_fallback,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -11,7 +11,9 @@ async fn read_device_range_catalog_uses_configured_family_sd_window() {
         123u16, 456, 50000, 789, 50000, 50, 60, 70, 80, 90, 100, 110, 50000, 60000, 120,
     ];
 
-    let server = MultiResponseServer::start(vec![build_word_payload(&sd_values)]).await.unwrap();
+    let server = MultiResponseServer::start(vec![build_word_payload(&sd_values)])
+        .await
+        .unwrap();
 
     let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::QCpu);
     options.port = server.port;
@@ -25,14 +27,20 @@ async fn read_device_range_catalog_uses_configured_family_sd_window() {
     assert_eq!(catalog.family, SlmpDeviceRangeFamily::QCpu);
     assert_eq!(entry(&catalog, "X").point_count, Some(123));
     assert_eq!(entry(&catalog, "X").upper_bound, Some(122));
-    assert_eq!(entry(&catalog, "X").address_range.as_deref(), Some("X000-X07A"));
+    assert_eq!(
+        entry(&catalog, "X").address_range.as_deref(),
+        Some("X000-X07A")
+    );
     assert_eq!(entry(&catalog, "M").point_count, Some(32768));
     assert_eq!(entry(&catalog, "M").upper_bound, Some(32767));
     assert_eq!(entry(&catalog, "D").point_count, Some(32768));
     assert_eq!(entry(&catalog, "D").upper_bound, Some(32767));
     assert_eq!(entry(&catalog, "SW").point_count, Some(120));
     assert_eq!(entry(&catalog, "SW").upper_bound, Some(119));
-    assert_eq!(entry(&catalog, "SW").address_range.as_deref(), Some("SW000-SW077"));
+    assert_eq!(
+        entry(&catalog, "SW").address_range.as_deref(),
+        Some("SW000-SW077")
+    );
     assert_eq!(entry(&catalog, "Z").point_count, Some(10));
     assert_eq!(entry(&catalog, "Z").upper_bound, Some(9));
 }
@@ -66,9 +74,18 @@ async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_windo
     assert!(!catalog.has_model_code);
     assert_eq!(catalog.model, "IQ-F");
     assert_eq!(catalog.family, SlmpDeviceRangeFamily::IqF);
-    assert_eq!(entry(&catalog, "X").address_range.as_deref(), Some("X0000-X1777"));
-    assert_eq!(entry(&catalog, "D").address_range.as_deref(), Some("D0-D9999"));
-    assert_eq!(entry(&catalog, "SD").address_range.as_deref(), Some("SD0-SD11999"));
+    assert_eq!(
+        entry(&catalog, "X").address_range.as_deref(),
+        Some("X0000-X1777")
+    );
+    assert_eq!(
+        entry(&catalog, "D").address_range.as_deref(),
+        Some("D0-D9999")
+    );
+    assert_eq!(
+        entry(&catalog, "SD").address_range.as_deref(),
+        Some("SD0-SD11999")
+    );
 }
 
 #[tokio::test]
@@ -81,7 +98,9 @@ async fn read_device_range_catalog_falls_back_to_three_e_legacy_when_type_name_d
     sd_values[20] = 10000;
     sd_values[22] = 12000;
 
-    let server = FallbackServer::start(build_word_payload(&sd_values)).await.unwrap();
+    let server = FallbackServer::start(build_word_payload(&sd_values))
+        .await
+        .unwrap();
 
     let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqF);
     options.port = server.port;
@@ -98,7 +117,10 @@ async fn read_device_range_catalog_falls_back_to_three_e_legacy_when_type_name_d
     assert_eq!(resolved.compatibility_mode, SlmpCompatibilityMode::Legacy);
     assert_eq!(resolved.catalog.family, SlmpDeviceRangeFamily::IqF);
     assert_eq!(resolved.catalog.model, "IQ-F");
-    assert_eq!(entry(&resolved.catalog, "X").address_range.as_deref(), Some("X0000-X1777"));
+    assert_eq!(
+        entry(&resolved.catalog, "X").address_range.as_deref(),
+        Some("X0000-X1777")
+    );
 }
 
 fn entry<'a>(
@@ -207,9 +229,7 @@ fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
     response
 }
 
-async fn read_3e_request(
-    stream: &mut tokio::net::TcpStream,
-) -> Result<Vec<u8>, std::io::Error> {
+async fn read_3e_request(stream: &mut tokio::net::TcpStream) -> Result<Vec<u8>, std::io::Error> {
     let mut header = [0u8; 15];
     stream.read_exact(&mut header).await?;
     let body_len = u16::from_le_bytes([header[7], header[8]]) as usize - 6;

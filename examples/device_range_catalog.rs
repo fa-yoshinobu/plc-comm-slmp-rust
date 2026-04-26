@@ -10,13 +10,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let options = options_from_env()?;
     let plc_type = parse_plc_type(&env_string("SLMP_PLC_TYPE", ""))?;
     let client = plc_comm_slmp::SlmpClient::connect(options).await?;
-    let catalog = client.read_device_range_catalog_for_family(plc_type).await?;
+    let catalog = client
+        .read_device_range_catalog_for_family(plc_type)
+        .await?;
     println!(
         "catalog -> selected_family={:?} model={} code=0x{:04X} family={:?}",
-        plc_type,
-        catalog.model,
-        catalog.model_code,
-        catalog.family
+        plc_type, catalog.model, catalog.model_code, catalog.family
     );
 
     for entry in &catalog.entries {

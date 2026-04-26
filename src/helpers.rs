@@ -65,6 +65,10 @@ pub async fn read_typed(
 ) -> Result<SlmpValue, SlmpError> {
     let normalized_dtype = dtype.to_uppercase();
     if let Some(spec) = long_timer_read_spec(device.code) {
+        if is_long_counter_state_device(device.code) {
+            return Ok(SlmpValue::Bool(client.read_bits(device, 1).await?[0]));
+        }
+
         let timer = read_long_like_point(client, spec.base_code, device.number).await?;
         return decode_long_like_value(&normalized_dtype, &spec, &timer);
     }
@@ -397,13 +401,17 @@ async fn read_named_compiled(
 
     for entry in &plan.entries {
         let value = if let Some(spec) = &entry.long_timer_read {
-            let key = (spec.base_code, entry.device.number);
-            if !long_timer_cache.contains_key(&key) {
-                let timer =
-                    read_long_like_point(client, spec.base_code, entry.device.number).await?;
-                long_timer_cache.insert(key, timer);
+            if is_long_counter_state_device(entry.device.code) {
+                SlmpValue::Bool(client.read_bits(entry.device, 1).await?[0])
+            } else {
+                let key = (spec.base_code, entry.device.number);
+                if !long_timer_cache.contains_key(&key) {
+                    let timer =
+                        read_long_like_point(client, spec.base_code, entry.device.number).await?;
+                    long_timer_cache.insert(key, timer);
+                }
+                decode_long_like_value(&entry.dtype, spec, long_timer_cache.get(&key).unwrap())?
             }
-            decode_long_like_value(&entry.dtype, spec, long_timer_cache.get(&key).unwrap())?
         } else if entry.dtype == "BIT_IN_WORD" {
             let word = if let Some(word) = word_values.get(&entry.device) {
                 *word
@@ -580,6 +588,8 @@ fn resolve_write_route(device: SlmpDeviceAddress, dtype: &str) -> NamedWriteRout
         dtype.to_uppercase()
     };
     match normalized.as_str() {
+        // Long-family state writes must use Device Write Random (0x1402).
+        // Direct bit write (0x1401) is guarded in the low-level client.
         "BIT"
             if matches!(
                 device.code,
@@ -587,6 +597,8 @@ fn resolve_write_route(device: SlmpDeviceAddress, dtype: &str) -> NamedWriteRout
                     | SlmpDeviceCode::LTC
                     | SlmpDeviceCode::LSTS
                     | SlmpDeviceCode::LSTC
+                    | SlmpDeviceCode::LCS
+                    | SlmpDeviceCode::LCC
             ) =>
         {
             NamedWriteRoute::RandomBits
@@ -603,6 +615,10 @@ fn resolve_write_route(device: SlmpDeviceAddress, dtype: &str) -> NamedWriteRout
         "D" | "L" | "F" => NamedWriteRoute::ContiguousDWords,
         _ => NamedWriteRoute::ContiguousWords,
     }
+}
+
+fn is_long_counter_state_device(code: SlmpDeviceCode) -> bool {
+    matches!(code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC)
 }
 
 fn long_timer_read_spec(code: SlmpDeviceCode) -> Option<LongTimerReadSpec> {

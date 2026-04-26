@@ -164,11 +164,7 @@ fn device_radix(code: SlmpDeviceCode, family: Option<SlmpPlcFamily>) -> u32 {
     {
         return 8;
     }
-    if code.is_hex_addressed() {
-        16
-    } else {
-        10
-    }
+    if code.is_hex_addressed() { 16 } else { 10 }
 }
 
 fn parse_u32_with_radix(text: &str, radix: u32) -> Result<u32, std::num::ParseIntError> {
@@ -308,9 +304,7 @@ pub fn device_spec_size(mode: SlmpCompatibilityMode) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SlmpAddress, parse_device_for_family_hint, parse_device_for_plc_family,
-    };
+    use super::{SlmpAddress, parse_device_for_family_hint, parse_device_for_plc_family};
     use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcFamily};
 
     #[test]

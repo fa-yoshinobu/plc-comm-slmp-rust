@@ -2,8 +2,8 @@ use futures_util::StreamExt;
 use plc_comm_slmp::{
     NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCompatibilityMode,
     SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpPlcFamily, SlmpTargetAddress,
-    parse_qualified_device, parse_scalar_for_named_with_family, parse_target_auto_number, poll_named,
-    read_named, write_named,
+    parse_qualified_device, parse_scalar_for_named_with_family, parse_target_auto_number,
+    poll_named, read_named, write_named,
 };
 use serde_json::json;
 use std::collections::BTreeMap;

@@ -94,8 +94,8 @@ pub(crate) struct SlmpDeviceRangeProfile {
 }
 
 const ORDERED_ITEMS: &[&str] = &[
-    "X", "Y", "M", "B", "SB", "F", "V", "L", "S", "D", "W", "SW", "R", "T", "ST", "C", "LT",
-    "LST", "LC", "Z", "LZ", "ZR", "RD", "SM", "SD",
+    "X", "Y", "M", "B", "SB", "F", "V", "L", "S", "D", "W", "SW", "R", "T", "ST", "C", "LT", "LST",
+    "LC", "Z", "LZ", "ZR", "RD", "SM", "SD",
 ];
 
 const T_DEVICES: &[(&str, bool)] = &[("TS", true), ("TC", true), ("TN", false)];
@@ -106,10 +106,16 @@ const LST_DEVICES: &[(&str, bool)] = &[("LSTS", true), ("LSTC", true), ("LSTN", 
 const LC_DEVICES: &[(&str, bool)] = &[("LCS", true), ("LCC", true), ("LCN", false)];
 
 pub(crate) fn normalize_model(model: &str) -> String {
-    model.trim().trim_end_matches('\0').trim().to_ascii_uppercase()
+    model
+        .trim()
+        .trim_end_matches('\0')
+        .trim()
+        .to_ascii_uppercase()
 }
 
-pub(crate) fn resolve_family(type_info: &SlmpTypeNameInfo) -> Result<SlmpDeviceRangeFamily, SlmpError> {
+pub(crate) fn resolve_family(
+    type_info: &SlmpTypeNameInfo,
+) -> Result<SlmpDeviceRangeFamily, SlmpError> {
     if type_info.has_model_code {
         if let Some(family) = family_from_model_code(type_info.model_code) {
             return Ok(family);
@@ -131,7 +137,9 @@ pub(crate) fn resolve_family(type_info: &SlmpTypeNameInfo) -> Result<SlmpDeviceR
     )))
 }
 
-pub(crate) fn resolve_profile(type_info: &SlmpTypeNameInfo) -> Result<SlmpDeviceRangeProfile, SlmpError> {
+pub(crate) fn resolve_profile(
+    type_info: &SlmpTypeNameInfo,
+) -> Result<SlmpDeviceRangeProfile, SlmpError> {
     Ok(match resolve_family(type_info)? {
         SlmpDeviceRangeFamily::IqR => create_iqr_profile(),
         SlmpDeviceRangeFamily::MxF => create_mxf_profile(),
@@ -328,10 +336,11 @@ fn read_dword(registers: &BTreeMap<u16, u16>, register: u16) -> Result<u32, Slmp
         .copied()
         .ok_or_else(|| SlmpError::new(format!("Device-range resolver is missing SD{register}.")))?;
     let high_register = register + 1;
-    let high = registers
-        .get(&high_register)
-        .copied()
-        .ok_or_else(|| SlmpError::new(format!("Device-range resolver is missing SD{high_register}.")))?;
+    let high = registers.get(&high_register).copied().ok_or_else(|| {
+        SlmpError::new(format!(
+            "Device-range resolver is missing SD{high_register}."
+        ))
+    })?;
     Ok(u32::from(low) | (u32::from(high) << 16))
 }
 
@@ -483,22 +492,23 @@ fn family_from_model_code(model_code: u16) -> Option<SlmpDeviceRangeFamily> {
         0x0250 | 0x0251 | 0x0041 | 0x0042 | 0x0043 | 0x0044 | 0x004B | 0x004C | 0x0230 => {
             SlmpDeviceRangeFamily::QCpu
         }
-        0x0260 | 0x0261 | 0x0262 | 0x0263 | 0x0268 | 0x0269 | 0x026A | 0x0266 | 0x026B
-        | 0x0267 | 0x026C | 0x026D | 0x026E => SlmpDeviceRangeFamily::QnU,
+        0x0260 | 0x0261 | 0x0262 | 0x0263 | 0x0268 | 0x0269 | 0x026A | 0x0266 | 0x026B | 0x0267
+        | 0x026C | 0x026D | 0x026E => SlmpDeviceRangeFamily::QnU,
         0x0366 | 0x0367 | 0x0368 | 0x036A | 0x036C => SlmpDeviceRangeFamily::QnUDV,
-        0x0543 | 0x0541 | 0x0544 | 0x0545 | 0x0542 | 0x48C0 | 0x48C1 | 0x48C2 | 0x48C3
-        | 0x0641 => SlmpDeviceRangeFamily::LCpu,
-        0x48A0 | 0x48A1 | 0x48A2 | 0x4800 | 0x4801 | 0x4802 | 0x4803 | 0x4804 | 0x4805
-        | 0x4806 | 0x4807 | 0x4808 | 0x4809 | 0x4841 | 0x4842 | 0x4843 | 0x4844 | 0x4851
-        | 0x4852 | 0x4853 | 0x4854 | 0x4891 | 0x4892 | 0x4893 | 0x4894 | 0x4820 | 0x4E01
-        | 0x4860 | 0x4861 | 0x4862 | 0x0642 => SlmpDeviceRangeFamily::IqR,
+        0x0543 | 0x0541 | 0x0544 | 0x0545 | 0x0542 | 0x48C0 | 0x48C1 | 0x48C2 | 0x48C3 | 0x0641 => {
+            SlmpDeviceRangeFamily::LCpu
+        }
+        0x48A0 | 0x48A1 | 0x48A2 | 0x4800 | 0x4801 | 0x4802 | 0x4803 | 0x4804 | 0x4805 | 0x4806
+        | 0x4807 | 0x4808 | 0x4809 | 0x4841 | 0x4842 | 0x4843 | 0x4844 | 0x4851 | 0x4852
+        | 0x4853 | 0x4854 | 0x4891 | 0x4892 | 0x4893 | 0x4894 | 0x4820 | 0x4E01 | 0x4860
+        | 0x4861 | 0x4862 | 0x0642 => SlmpDeviceRangeFamily::IqR,
         0x48E9 | 0x48EA | 0x48EB | 0x48EE | 0x48EF => SlmpDeviceRangeFamily::MxR,
-        0x4A21 | 0x4A23 | 0x4A24 | 0x4A29 | 0x4A2B | 0x4A2C | 0x4A31 | 0x4A33 | 0x4A34
-        | 0x4A41 | 0x4A43 | 0x4A44 | 0x4A49 | 0x4A4B | 0x4A4C | 0x4A51 | 0x4A53 | 0x4A54
-        | 0x4A91 | 0x4A92 | 0x4A93 | 0x4A99 | 0x4A9A | 0x4A9B | 0x4AA9 | 0x4AB1 | 0x4AB9
-        | 0x4B0D | 0x4B0E | 0x4B0F | 0x4B14 | 0x4B15 | 0x4B16 | 0x4B1B | 0x4B1C | 0x4B1D
-        | 0x4B4E | 0x4B4F | 0x4B50 | 0x4B51 | 0x4B55 | 0x4B56 | 0x4B57 | 0x4B58 | 0x4B5C
-        | 0x4B5D | 0x4B5E | 0x4B5F => SlmpDeviceRangeFamily::IqF,
+        0x4A21 | 0x4A23 | 0x4A24 | 0x4A29 | 0x4A2B | 0x4A2C | 0x4A31 | 0x4A33 | 0x4A34 | 0x4A41
+        | 0x4A43 | 0x4A44 | 0x4A49 | 0x4A4B | 0x4A4C | 0x4A51 | 0x4A53 | 0x4A54 | 0x4A91
+        | 0x4A92 | 0x4A93 | 0x4A99 | 0x4A9A | 0x4A9B | 0x4AA9 | 0x4AB1 | 0x4AB9 | 0x4B0D
+        | 0x4B0E | 0x4B0F | 0x4B14 | 0x4B15 | 0x4B16 | 0x4B1B | 0x4B1C | 0x4B1D | 0x4B4E
+        | 0x4B4F | 0x4B50 | 0x4B51 | 0x4B55 | 0x4B56 | 0x4B57 | 0x4B58 | 0x4B5C | 0x4B5D
+        | 0x4B5E | 0x4B5F => SlmpDeviceRangeFamily::IqF,
         _ => return None,
     })
 }
@@ -592,7 +602,11 @@ fn fixed(value: u32, source: &'static str) -> SlmpRangeValueSpec {
     }
 }
 
-fn word_register(register: u16, source: &'static str, notes: Option<&'static str>) -> SlmpRangeValueSpec {
+fn word_register(
+    register: u16,
+    source: &'static str,
+    notes: Option<&'static str>,
+) -> SlmpRangeValueSpec {
     SlmpRangeValueSpec {
         kind: SlmpRangeValueKind::WordRegister,
         register,
@@ -603,7 +617,11 @@ fn word_register(register: u16, source: &'static str, notes: Option<&'static str
     }
 }
 
-fn dword_register(register: u16, source: &'static str, notes: Option<&'static str>) -> SlmpRangeValueSpec {
+fn dword_register(
+    register: u16,
+    source: &'static str,
+    notes: Option<&'static str>,
+) -> SlmpRangeValueSpec {
     SlmpRangeValueSpec {
         kind: SlmpRangeValueKind::DWordRegister,
         register,
@@ -714,18 +732,30 @@ fn create_iqr_profile() -> SlmpDeviceRangeProfile {
 fn create_mxf_profile() -> SlmpDeviceRangeProfile {
     let mut profile = create_iqr_profile();
     profile.family = SlmpDeviceRangeFamily::MxF;
-    profile.rules.insert("S", unsupported("Not supported on MX-F."));
-    profile.rules.insert("SM", fixed(10000, "Fixed family limit"));
-    profile.rules.insert("SD", fixed(10000, "Fixed family limit"));
+    profile
+        .rules
+        .insert("S", unsupported("Not supported on MX-F."));
+    profile
+        .rules
+        .insert("SM", fixed(10000, "Fixed family limit"));
+    profile
+        .rules
+        .insert("SD", fixed(10000, "Fixed family limit"));
     profile
 }
 
 fn create_mxr_profile() -> SlmpDeviceRangeProfile {
     let mut profile = create_iqr_profile();
     profile.family = SlmpDeviceRangeFamily::MxR;
-    profile.rules.insert("S", unsupported("Not supported on MX-R."));
-    profile.rules.insert("SM", fixed(4496, "Fixed family limit"));
-    profile.rules.insert("SD", fixed(4496, "Fixed family limit"));
+    profile
+        .rules
+        .insert("S", unsupported("Not supported on MX-R."));
+    profile
+        .rules
+        .insert("SM", fixed(4496, "Fixed family limit"));
+    profile
+        .rules
+        .insert("SD", fixed(4496, "Fixed family limit"));
     profile
 }
 
@@ -848,7 +878,10 @@ fn create_qcpu_profile() -> SlmpDeviceRangeProfile {
     )
 }
 
-fn create_lcpu_like_profile(family: SlmpDeviceRangeFamily, family_name: &'static str) -> SlmpDeviceRangeProfile {
+fn create_lcpu_like_profile(
+    family: SlmpDeviceRangeFamily,
+    family_name: &'static str,
+) -> SlmpDeviceRangeProfile {
     let unsupported_note = match family {
         SlmpDeviceRangeFamily::LCpu => "Not supported on LCPU.",
         SlmpDeviceRangeFamily::QnU => "Not supported on QnU.",
@@ -930,7 +963,11 @@ mod tests {
     }
 
     fn entry<'a>(catalog: &'a SlmpDeviceRangeCatalog, device: &str) -> &'a SlmpDeviceRangeEntry {
-        catalog.entries.iter().find(|item| item.device == device).unwrap()
+        catalog
+            .entries
+            .iter()
+            .find(|item| item.device == device)
+            .unwrap()
     }
 
     #[test]
@@ -978,7 +1015,10 @@ mod tests {
         assert_eq!(catalog.family, SlmpDeviceRangeFamily::QCpu);
         assert_eq!(entry(&catalog, "X").point_count, Some(123));
         assert_eq!(entry(&catalog, "X").upper_bound, Some(122));
-        assert_eq!(entry(&catalog, "X").address_range.as_deref(), Some("X000-X07A"));
+        assert_eq!(
+            entry(&catalog, "X").address_range.as_deref(),
+            Some("X000-X07A")
+        );
         assert_eq!(entry(&catalog, "M").point_count, Some(32768));
         assert_eq!(entry(&catalog, "M").upper_bound, Some(32767));
         assert_eq!(entry(&catalog, "D").point_count, Some(32768));
@@ -1026,7 +1066,10 @@ mod tests {
         assert_eq!(entry(&catalog, "LTS").upper_bound, Some(0x0001_4320));
         assert_eq!(entry(&catalog, "R").point_count, Some(32768));
         assert_eq!(entry(&catalog, "R").upper_bound, Some(32767));
-        assert_eq!(entry(&catalog, "R").address_range.as_deref(), Some("R0-R32767"));
+        assert_eq!(
+            entry(&catalog, "R").address_range.as_deref(),
+            Some("R0-R32767")
+        );
     }
 
     #[test]
@@ -1045,15 +1088,27 @@ mod tests {
 
         let catalog = build_catalog(&type_info, &profile, &snapshot).unwrap();
 
-        assert_eq!(entry(&catalog, "X").notation, SlmpDeviceRangeNotation::Octal);
+        assert_eq!(
+            entry(&catalog, "X").notation,
+            SlmpDeviceRangeNotation::Octal
+        );
         assert_eq!(entry(&catalog, "X").point_count, Some(1024));
         assert_eq!(entry(&catalog, "X").upper_bound, Some(1023));
-        assert_eq!(entry(&catalog, "X").address_range.as_deref(), Some("X0000-X1777"));
+        assert_eq!(
+            entry(&catalog, "X").address_range.as_deref(),
+            Some("X0000-X1777")
+        );
 
-        assert_eq!(entry(&catalog, "Y").notation, SlmpDeviceRangeNotation::Octal);
+        assert_eq!(
+            entry(&catalog, "Y").notation,
+            SlmpDeviceRangeNotation::Octal
+        );
         assert_eq!(entry(&catalog, "Y").point_count, Some(1024));
         assert_eq!(entry(&catalog, "Y").upper_bound, Some(1023));
-        assert_eq!(entry(&catalog, "Y").address_range.as_deref(), Some("Y0000-Y1777"));
+        assert_eq!(
+            entry(&catalog, "Y").address_range.as_deref(),
+            Some("Y0000-Y1777")
+        );
     }
 
     #[test]
@@ -1074,18 +1129,33 @@ mod tests {
         assert_eq!(catalog.family, SlmpDeviceRangeFamily::QnU);
         assert_eq!(entry(&catalog, "STS").point_count, Some(16));
         assert_eq!(entry(&catalog, "STS").upper_bound, Some(15));
-        assert_eq!(entry(&catalog, "STS").address_range.as_deref(), Some("STS0-STS15"));
+        assert_eq!(
+            entry(&catalog, "STS").address_range.as_deref(),
+            Some("STS0-STS15")
+        );
         assert_eq!(entry(&catalog, "STC").point_count, Some(16));
         assert_eq!(entry(&catalog, "STC").upper_bound, Some(15));
-        assert_eq!(entry(&catalog, "STC").address_range.as_deref(), Some("STC0-STC15"));
+        assert_eq!(
+            entry(&catalog, "STC").address_range.as_deref(),
+            Some("STC0-STC15")
+        );
         assert_eq!(entry(&catalog, "STN").point_count, Some(16));
         assert_eq!(entry(&catalog, "STN").upper_bound, Some(15));
-        assert_eq!(entry(&catalog, "STN").address_range.as_deref(), Some("STN0-STN15"));
+        assert_eq!(
+            entry(&catalog, "STN").address_range.as_deref(),
+            Some("STN0-STN15")
+        );
         assert_eq!(entry(&catalog, "CS").point_count, Some(1024));
         assert_eq!(entry(&catalog, "CS").upper_bound, Some(1023));
-        assert_eq!(entry(&catalog, "CS").address_range.as_deref(), Some("CS0-CS1023"));
+        assert_eq!(
+            entry(&catalog, "CS").address_range.as_deref(),
+            Some("CS0-CS1023")
+        );
         assert_eq!(entry(&catalog, "Z").point_count, Some(20));
         assert_eq!(entry(&catalog, "Z").upper_bound, Some(19));
-        assert_eq!(entry(&catalog, "Z").address_range.as_deref(), Some("Z0-Z19"));
+        assert_eq!(
+            entry(&catalog, "Z").address_range.as_deref(),
+            Some("Z0-Z19")
+        );
     }
 }

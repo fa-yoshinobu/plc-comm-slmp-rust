@@ -54,7 +54,12 @@ impl SlmpPlcFamily {
     }
 
     pub fn parse_label(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().replace(['-', '_'], "").as_str() {
+        match value
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['-', '_'], "")
+            .as_str()
+        {
             "iqf" => Some(Self::IqF),
             "iqr" => Some(Self::IqR),
             "iql" => Some(Self::IqL),

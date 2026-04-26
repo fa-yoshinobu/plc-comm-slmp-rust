@@ -4,8 +4,8 @@ use crate::device_ranges::{
     resolve_family, resolve_profile, resolve_profile_for_family,
 };
 use crate::model::{
-    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpFrameType, SlmpPlcFamily, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpFrameType,
+    SlmpPlcFamily, SlmpTransportMode, SlmpTypeNameInfo,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -158,12 +158,9 @@ pub(crate) async fn probe_connection_profile(
 pub async fn read_device_range_catalog_with_three_e_legacy_fallback(
     options: &SlmpConnectionOptions,
 ) -> Result<SlmpResolvedDeviceRangeCatalog, crate::error::SlmpError> {
-    let initial = try_read_device_range_catalog(
-        options,
-        options.frame_type,
-        options.compatibility_mode,
-    )
-    .await?;
+    let initial =
+        try_read_device_range_catalog(options, options.frame_type, options.compatibility_mode)
+            .await?;
     if let Some(result) = initial.result {
         return Ok(result);
     }
@@ -213,7 +210,7 @@ async fn try_read_device_range_catalog(
             return Ok(TryReadDeviceRangeCatalogOutcome {
                 result: None,
                 error: Some(error),
-            })
+            });
         }
     };
     let family = map_plc_family_to_range_family(attempt.plc_family);
@@ -224,7 +221,7 @@ async fn try_read_device_range_catalog(
             return Ok(TryReadDeviceRangeCatalogOutcome {
                 result: None,
                 error: Some(error),
-            })
+            });
         }
     };
     let catalog = match build_catalog_for_family(family, &registers) {
@@ -233,7 +230,7 @@ async fn try_read_device_range_catalog(
             return Ok(TryReadDeviceRangeCatalogOutcome {
                 result: None,
                 error: Some(error),
-            })
+            });
         }
     };
     Ok(TryReadDeviceRangeCatalogOutcome {
@@ -263,9 +260,7 @@ fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamil
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SlmpConnectionProfileProbeStatus, probe_connection_profile,
-    };
+    use super::{SlmpConnectionProfileProbeStatus, probe_connection_profile};
     use crate::{
         SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpFrameType,
         SlmpPlcFamily,
@@ -287,12 +282,9 @@ mod tests {
         options.frame_type = SlmpFrameType::Frame4E;
         options.compatibility_mode = SlmpCompatibilityMode::Iqr;
 
-        let result = probe_connection_profile(
-            &options,
-            SlmpFrameType::Frame4E,
-            SlmpCompatibilityMode::Iqr,
-        )
-        .await;
+        let result =
+            probe_connection_profile(&options, SlmpFrameType::Frame4E, SlmpCompatibilityMode::Iqr)
+                .await;
 
         assert_eq!(result.status, SlmpConnectionProfileProbeStatus::Validated);
         assert!(result.sd_read_succeeded);
@@ -318,25 +310,30 @@ mod tests {
         options.frame_type = SlmpFrameType::Frame4E;
         options.compatibility_mode = SlmpCompatibilityMode::Iqr;
 
-        let result = probe_connection_profile(
-            &options,
-            SlmpFrameType::Frame4E,
-            SlmpCompatibilityMode::Iqr,
-        )
-        .await;
+        let result =
+            probe_connection_profile(&options, SlmpFrameType::Frame4E, SlmpCompatibilityMode::Iqr)
+                .await;
 
-        assert_eq!(result.status, SlmpConnectionProfileProbeStatus::TypeNameOnly);
+        assert_eq!(
+            result.status,
+            SlmpConnectionProfileProbeStatus::TypeNameOnly
+        );
         assert!(!result.sd_read_succeeded);
-        assert_eq!(result.type_name_info.as_ref().unwrap().model, "FX5UC-32MT/D");
+        assert_eq!(
+            result.type_name_info.as_ref().unwrap().model,
+            "FX5UC-32MT/D"
+        );
         assert_eq!(result.type_name_info.as_ref().unwrap().model_code, 0x4A91);
         assert_eq!(result.family, Some(SlmpDeviceRangeFamily::IqF));
         assert_eq!(result.sd_register_start, Some(260));
         assert_eq!(result.sd_register_count, Some(46));
-        assert!(result
-            .error_message
-            .as_deref()
-            .unwrap()
-            .contains("read_sd_block:"));
+        assert!(
+            result
+                .error_message
+                .as_deref()
+                .unwrap()
+                .contains("read_sd_block:")
+        );
     }
 
     struct ProbeResponse {
@@ -346,7 +343,10 @@ mod tests {
 
     impl ProbeResponse {
         fn new(payload: Vec<u8>) -> Self {
-            Self { payload, end_code: 0 }
+            Self {
+                payload,
+                end_code: 0,
+            }
         }
 
         fn with_end_code(payload: Vec<u8>, end_code: u16) -> Self {

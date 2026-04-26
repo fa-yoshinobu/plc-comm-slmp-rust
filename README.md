@@ -303,14 +303,21 @@ libraries:
 
 - `LTN`, `LSTN`, `LCN`, and `LZ` default to 32-bit reads
 - `LTS`, `LTC`, `LSTS`, `LSTC`, `LCS`, and `LCC` are state reads
-- `LCS` and `LCC` are decoded from the `LCN` 4-word status block, not by a
-  standalone direct-bit batch read
+- `LCS` and `LCC` reads use direct bit read through `read_typed` / `read_named`
 - `LCS` and `LCC` are rejected for `Read Random (0x0403)`, `Read Block (0x0406)`,
   `Write Block (0x1406)`, and `Entry Monitor Device (0x0801)`
-- direct reads for `LTS`, `LTC`, `LSTS`, and `LSTC` are rejected by the Rust
-  client API; use helper APIs or 4-word block reads from `LTN` / `LSTN`
+- direct bit reads/writes (`0x0401` / `0x1401`) and Read Random (`0x0403`) for
+  `LTS`, `LTC`, `LSTS`, and `LSTC` are rejected by the Rust client API; use
+  helper APIs, random bit write (`0x1402`), or 4-word block reads from
+  `LTN` / `LSTN`
+- direct bit writes (`0x1401`) for `LCS` and `LCC` are also rejected; use
+  `write_typed` / `write_named` so random bit write (`0x1402`) is selected
 - direct dword reads for `LTN` and `LSTN` are rejected; use helper APIs or
   explicit 4-word block reads
+
+Route guard note: keep low-level direct bit routes guarded for
+`LTS`/`LTC`/`LSTS`/`LSTC` and direct bit writes guarded for `LCS`/`LCC`.
+High-level writes must continue to resolve to random bit write (`0x1402`).
 
 That behavior is intentional and is enforced through
 `plc-comm-slmp-cross-verify`.

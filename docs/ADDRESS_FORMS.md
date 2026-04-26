@@ -78,8 +78,9 @@ Notes:
   aligned across languages
 - `LCS` and `LCC` are rejected for `Read Random (0x0403)`, `Read Block (0x0406)`,
   `Write Block (0x1406)`, and `Entry Monitor Device (0x0801)`
-- `LTS`, `LTC`, `LSTS`, and `LSTC` are not exposed as direct bit reads in the
-  Rust client API
+- `LTS`, `LTC`, `LSTS`, and `LSTC` are not exposed through direct bit
+  read/write (`0x0401` / `0x1401`) or Read Random (`0x0403`) in the Rust client
+  API; use helper APIs for reads and random bit write (`0x1402`) for writes
 - `LTN` and `LSTN` are not exposed as direct dword reads in the Rust client API;
   use helper APIs or 4-word block reads instead
 

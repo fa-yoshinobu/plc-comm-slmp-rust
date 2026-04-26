@@ -526,6 +526,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[bool],
     ) -> Result<(), SlmpError> {
+        Self::validate_direct_bit_write(device)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(&words), true);
@@ -655,6 +656,7 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
+        Self::validate_direct_bit_read(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, true);
@@ -680,6 +682,7 @@ impl ClientInner {
         values: &[bool],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
+        Self::validate_direct_bit_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload = self.build_read_write_payload_extended(
@@ -710,7 +713,7 @@ impl ClientInner {
         word_devices: &[SlmpDeviceAddress],
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
-        Self::validate_no_lcs_lcc_random(word_devices, dword_devices)?;
+        Self::validate_random_read_devices(word_devices, dword_devices)?;
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -1279,7 +1282,7 @@ impl ClientInner {
             };
             if code == SlmpDeviceCode::LCS.as_u16() || code == SlmpDeviceCode::LCC.as_u16() {
                 return Err(SlmpError::new(
-                    "Entry Monitor Device (0x0801) does not support LCS/LCC. Use read_typed/read_named or read the LCN 4-word status block.",
+                    "Entry Monitor Device (0x0801) does not support LCS/LCC. Poll them through read_typed/read_named instead.",
                 ));
             }
             offset += spec_size;
@@ -1422,15 +1425,25 @@ impl ClientInner {
     }
 
     fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-        match device.code {
-            SlmpDeviceCode::LTS
-            | SlmpDeviceCode::LTC
-            | SlmpDeviceCode::LSTS
-            | SlmpDeviceCode::LSTC => Err(SlmpError::new(
+        // Long timer state bits are decoded from the LTN/LSTN 4-word status block.
+        // Do not send direct bit read (0x0401) for these devices.
+        if Self::is_long_timer_state_device(device.code) {
+            return Err(SlmpError::new(
                 "Direct bit read is not supported for long timer state devices. Use read_typed/read_named or a 4-word current-value block read.",
-            )),
-            _ => Ok(()),
+            ));
         }
+        Ok(())
+    }
+
+    fn validate_direct_bit_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        // PLCs reject direct bit write (0x1401) for these state bits. The
+        // supported write path is write_typed/write_named, which selects 0x1402.
+        if Self::requires_random_bit_write(device.code) {
+            return Err(SlmpError::new(
+                "Direct bit write is not supported for long-family state devices. Use write_typed/write_named so random bit write (0x1402) is selected.",
+            ));
+        }
+        Ok(())
     }
 
     fn validate_direct_word_read(device: SlmpDeviceAddress, points: u16) -> Result<(), SlmpError> {
@@ -1453,18 +1466,38 @@ impl ClientInner {
         }
     }
 
-    fn validate_no_lcs_lcc_random(
+    fn validate_random_read_devices(
         word_devices: &[SlmpDeviceAddress],
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<(), SlmpError> {
         for device in word_devices.iter().chain(dword_devices.iter()) {
+            // LTS/LTC/LSTS/LSTC can be written by random bit write, but they are
+            // not readable by Read Random (0x0403); use status-block reads.
+            if Self::is_long_timer_state_device(device.code) {
+                return Err(SlmpError::new(
+                    "Read Random (0x0403) does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read.",
+                ));
+            }
+
             if matches!(device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
                 return Err(SlmpError::new(
-                    "Read Random (0x0403) does not support LCS/LCC. Use read_typed/read_named or read the LCN 4-word status block.",
+                    "Read Random (0x0403) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
                 ));
             }
         }
         Ok(())
+    }
+
+    fn is_long_timer_state_device(code: SlmpDeviceCode) -> bool {
+        matches!(
+            code,
+            SlmpDeviceCode::LTS | SlmpDeviceCode::LTC | SlmpDeviceCode::LSTS | SlmpDeviceCode::LSTC
+        )
+    }
+
+    fn requires_random_bit_write(code: SlmpDeviceCode) -> bool {
+        Self::is_long_timer_state_device(code)
+            || matches!(code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC)
     }
 
     fn validate_no_lcs_lcc_block_read(
@@ -1474,7 +1507,7 @@ impl ClientInner {
         for block in word_blocks.iter().chain(bit_blocks.iter()) {
             if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
                 return Err(SlmpError::new(
-                    "Read Block (0x0406) does not support LCS/LCC. Use read_typed/read_named or read the LCN 4-word status block.",
+                    "Read Block (0x0406) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
                 ));
             }
         }
