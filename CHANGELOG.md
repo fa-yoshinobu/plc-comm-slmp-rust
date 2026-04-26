@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-04-27
+
+### Added
+- Added label array and label random read/write APIs, model types, tests, and `slmp_verify_client` command coverage.
+
+### Changed
+- Expanded the Rust cross-verify wrapper so label commands participate in the shared SLMP parity suite.
+
 ## [0.1.6] - 2026-04-27
 
 ### Changed

@@ -1,7 +1,8 @@
 use futures_util::StreamExt;
 use plc_comm_slmp::{
     NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCompatibilityMode,
-    SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpPlcFamily, SlmpTargetAddress,
+    SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
+    SlmpLabelArrayWritePoint, SlmpLabelRandomWritePoint, SlmpPlcFamily, SlmpTargetAddress,
     SlmpTransportMode, parse_qualified_device, parse_scalar_for_named_with_family,
     parse_target_auto_number, poll_named, read_named, write_named,
 };
@@ -404,6 +405,42 @@ async fn run_command(
                 .await?;
             json!({"status":"success"})
         }
+        "label-random-read" => {
+            let labels = parse_label_names(address);
+            let results = client.read_random_labels(&labels, &[]).await?;
+            json!({"status":"success","values": results.into_iter().map(|item| item.data).collect::<Vec<_>>()})
+        }
+        "label-random-write" => {
+            let data = parse_byte_values(extras);
+            let points = parse_label_names(address)
+                .into_iter()
+                .map(|label| SlmpLabelRandomWritePoint {
+                    label,
+                    data: data.clone(),
+                })
+                .collect::<Vec<_>>();
+            client.write_random_labels(&points, &[]).await?;
+            json!({"status":"success"})
+        }
+        "label-array-read" => {
+            let points = parse_array_label_read_points(address)?;
+            let results = client.read_array_labels(&points, &[]).await?;
+            json!({"status":"success","values": results.into_iter().map(|item| item.data).collect::<Vec<_>>()})
+        }
+        "label-array-write" => {
+            let data = parse_byte_values(extras);
+            let points = parse_array_label_read_points(address)?
+                .into_iter()
+                .map(|point| SlmpLabelArrayWritePoint {
+                    label: point.label,
+                    unit_specification: point.unit_specification,
+                    array_data_length: point.array_data_length,
+                    data: data.clone(),
+                })
+                .collect::<Vec<_>>();
+            client.write_array_labels(&points, &[]).await?;
+            json!({"status":"success"})
+        }
         "read-ext" => {
             let device = parse_qualified_device(address)?;
             let count = extras
@@ -531,4 +568,46 @@ fn parse_module_head(text: &str) -> Result<(u16, u32), plc_comm_slmp::SlmpError>
         0
     };
     Ok((module_no, head))
+}
+
+fn parse_label_names(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn parse_array_label_read_points(
+    text: &str,
+) -> Result<Vec<SlmpLabelArrayReadPoint>, plc_comm_slmp::SlmpError> {
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    text.split(',')
+        .map(|item| {
+            let parts = item.split(':').map(str::trim).collect::<Vec<_>>();
+            if parts.is_empty() || parts[0].is_empty() {
+                return Err(plc_comm_slmp::SlmpError::new("Invalid label array point."));
+            }
+            Ok(SlmpLabelArrayReadPoint {
+                label: parts[0].to_string(),
+                unit_specification: parts
+                    .get(1)
+                    .and_then(|value| value.parse::<u8>().ok())
+                    .unwrap_or(0),
+                array_data_length: parts
+                    .get(2)
+                    .and_then(|value| value.parse::<u16>().ok())
+                    .unwrap_or(1),
+            })
+        })
+        .collect()
+}
+
+fn parse_byte_values(values: &[String]) -> Vec<u8> {
+    values
+        .iter()
+        .map(|value| parse_target_auto_number(value).unwrap_or(0) as u8)
+        .collect()
 }

@@ -129,7 +129,9 @@ pub use helpers::{
 pub use model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLongTimerResult,
-    SlmpNamedTarget, SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult,
-    SlmpTargetAddress, SlmpTraceDirection, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
+    SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
+    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpNamedTarget, SlmpPlcFamily,
+    SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
+    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };

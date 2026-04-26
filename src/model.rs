@@ -474,6 +474,43 @@ pub struct SlmpBlockReadResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlmpLabelArrayReadPoint {
+    pub label: String,
+    pub unit_specification: u8,
+    pub array_data_length: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlmpLabelArrayWritePoint {
+    pub label: String,
+    pub unit_specification: u8,
+    pub array_data_length: u16,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlmpLabelRandomWritePoint {
+    pub label: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlmpLabelArrayReadResult {
+    pub data_type_id: u8,
+    pub unit_specification: u8,
+    pub array_data_length: u16,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlmpLabelRandomReadResult {
+    pub data_type_id: u8,
+    pub spare: u8,
+    pub read_data_length: u16,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SlmpLongTimerResult {
     pub index: u32,
     pub device: String,

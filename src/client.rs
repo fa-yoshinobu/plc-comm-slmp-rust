@@ -1,17 +1,18 @@
 use crate::address::device_spec_size;
 use crate::device_ranges::{
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily,
     build_catalog_for_family as build_device_range_catalog_for_family,
     read_registers as read_device_range_registers,
-    resolve_profile_for_family as resolve_device_range_profile_for_family, SlmpDeviceRangeCatalog,
-    SlmpDeviceRangeFamily,
+    resolve_profile_for_family as resolve_device_range_profile_for_family,
 };
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLongTimerResult,
-    SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
-    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
+    SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
+    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpPlcFamily, SlmpQualifiedDeviceAddress,
+    SlmpRandomReadResult, SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -380,6 +381,54 @@ impl SlmpClient {
             .lock()
             .await
             .extend_unit_write_words(head_address, module_no, values)
+            .await
+    }
+
+    pub async fn read_array_labels(
+        &self,
+        points: &[SlmpLabelArrayReadPoint],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<SlmpLabelArrayReadResult>, SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .read_array_labels(points, abbreviation_labels)
+            .await
+    }
+
+    pub async fn write_array_labels(
+        &self,
+        points: &[SlmpLabelArrayWritePoint],
+        abbreviation_labels: &[String],
+    ) -> Result<(), SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .write_array_labels(points, abbreviation_labels)
+            .await
+    }
+
+    pub async fn read_random_labels(
+        &self,
+        labels: &[String],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<SlmpLabelRandomReadResult>, SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .read_random_labels(labels, abbreviation_labels)
+            .await
+    }
+
+    pub async fn write_random_labels(
+        &self,
+        points: &[SlmpLabelRandomWritePoint],
+        abbreviation_labels: &[String],
+    ) -> Result<(), SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .write_random_labels(points, abbreviation_labels)
             .await
     }
 
@@ -1155,6 +1204,277 @@ impl ClientInner {
         }
         self.request(SlmpCommand::ExtendUnitWrite, 0x0000, &payload, true)
             .await?;
+        Ok(())
+    }
+
+    async fn read_array_labels(
+        &mut self,
+        points: &[SlmpLabelArrayReadPoint],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<SlmpLabelArrayReadResult>, SlmpError> {
+        let payload = Self::build_label_array_read_payload(points, abbreviation_labels)?;
+        let data = self
+            .request(SlmpCommand::LabelArrayRead, 0x0000, &payload, true)
+            .await?;
+        Self::parse_array_label_read_response(&data, points.len())
+    }
+
+    async fn write_array_labels(
+        &mut self,
+        points: &[SlmpLabelArrayWritePoint],
+        abbreviation_labels: &[String],
+    ) -> Result<(), SlmpError> {
+        let payload = Self::build_label_array_write_payload(points, abbreviation_labels)?;
+        self.request(SlmpCommand::LabelArrayWrite, 0x0000, &payload, true)
+            .await?;
+        Ok(())
+    }
+
+    async fn read_random_labels(
+        &mut self,
+        labels: &[String],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<SlmpLabelRandomReadResult>, SlmpError> {
+        let payload = Self::build_label_random_read_payload(labels, abbreviation_labels)?;
+        let data = self
+            .request(SlmpCommand::LabelReadRandom, 0x0000, &payload, true)
+            .await?;
+        Self::parse_label_random_read_response(&data, labels.len())
+    }
+
+    async fn write_random_labels(
+        &mut self,
+        points: &[SlmpLabelRandomWritePoint],
+        abbreviation_labels: &[String],
+    ) -> Result<(), SlmpError> {
+        let payload = Self::build_label_random_write_payload(points, abbreviation_labels)?;
+        self.request(SlmpCommand::LabelWriteRandom, 0x0000, &payload, true)
+            .await?;
+        Ok(())
+    }
+
+    fn build_label_array_read_payload(
+        points: &[SlmpLabelArrayReadPoint],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<u8>, SlmpError> {
+        Self::validate_non_empty_u16_count(points.len(), "array label points")?;
+        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
+        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        for label in abbreviation_labels {
+            Self::append_label_name(&mut payload, label)?;
+        }
+        for point in points {
+            Self::append_label_name(&mut payload, &point.label)?;
+            Self::label_array_data_bytes(point.unit_specification, point.array_data_length)?;
+            payload.push(point.unit_specification);
+            payload.push(0x00);
+            payload.extend_from_slice(&point.array_data_length.to_le_bytes());
+        }
+        Ok(payload)
+    }
+
+    fn build_label_array_write_payload(
+        points: &[SlmpLabelArrayWritePoint],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<u8>, SlmpError> {
+        Self::validate_non_empty_u16_count(points.len(), "array label points")?;
+        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
+        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        for label in abbreviation_labels {
+            Self::append_label_name(&mut payload, label)?;
+        }
+        for point in points {
+            let expected =
+                Self::label_array_data_bytes(point.unit_specification, point.array_data_length)?;
+            if point.data.len() != expected {
+                return Err(SlmpError::new(format!(
+                    "array label write data size mismatch: expected={expected} actual={}",
+                    point.data.len()
+                )));
+            }
+            Self::append_label_name(&mut payload, &point.label)?;
+            payload.push(point.unit_specification);
+            payload.push(0x00);
+            payload.extend_from_slice(&point.array_data_length.to_le_bytes());
+            payload.extend_from_slice(&point.data);
+        }
+        Ok(payload)
+    }
+
+    fn build_label_random_read_payload(
+        labels: &[String],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<u8>, SlmpError> {
+        Self::validate_non_empty_u16_count(labels.len(), "labels")?;
+        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&(labels.len() as u16).to_le_bytes());
+        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        for label in abbreviation_labels {
+            Self::append_label_name(&mut payload, label)?;
+        }
+        for label in labels {
+            Self::append_label_name(&mut payload, label)?;
+        }
+        Ok(payload)
+    }
+
+    fn build_label_random_write_payload(
+        points: &[SlmpLabelRandomWritePoint],
+        abbreviation_labels: &[String],
+    ) -> Result<Vec<u8>, SlmpError> {
+        Self::validate_non_empty_u16_count(points.len(), "random label points")?;
+        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
+        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        for label in abbreviation_labels {
+            Self::append_label_name(&mut payload, label)?;
+        }
+        for point in points {
+            Self::validate_u16_count(point.data.len(), "write data length")?;
+            Self::append_label_name(&mut payload, &point.label)?;
+            payload.extend_from_slice(&(point.data.len() as u16).to_le_bytes());
+            payload.extend_from_slice(&point.data);
+        }
+        Ok(payload)
+    }
+
+    fn parse_array_label_read_response(
+        data: &[u8],
+        expected_points: usize,
+    ) -> Result<Vec<SlmpLabelArrayReadResult>, SlmpError> {
+        if data.len() < 2 {
+            return Err(SlmpError::new("array label read response too short"));
+        }
+        let count = u16::from_le_bytes([data[0], data[1]]) as usize;
+        if count != expected_points {
+            return Err(SlmpError::new(format!(
+                "array label read point count mismatch: expected={expected_points} actual={count}"
+            )));
+        }
+        let mut offset = 2usize;
+        let mut results = Vec::with_capacity(count);
+        for _ in 0..count {
+            if offset + 4 > data.len() {
+                return Err(SlmpError::new(
+                    "array label read response truncated before metadata",
+                ));
+            }
+            let data_type_id = data[offset];
+            let unit_specification = data[offset + 1];
+            let array_data_length = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+            offset += 4;
+            let data_size = Self::label_array_data_bytes(unit_specification, array_data_length)?;
+            if offset + data_size > data.len() {
+                return Err(SlmpError::new(
+                    "array label read response truncated in data payload",
+                ));
+            }
+            results.push(SlmpLabelArrayReadResult {
+                data_type_id,
+                unit_specification,
+                array_data_length,
+                data: data[offset..offset + data_size].to_vec(),
+            });
+            offset += data_size;
+        }
+        if offset != data.len() {
+            return Err(SlmpError::new(
+                "array label read response has trailing bytes",
+            ));
+        }
+        Ok(results)
+    }
+
+    fn parse_label_random_read_response(
+        data: &[u8],
+        expected_points: usize,
+    ) -> Result<Vec<SlmpLabelRandomReadResult>, SlmpError> {
+        if data.len() < 2 {
+            return Err(SlmpError::new("label random read response too short"));
+        }
+        let count = u16::from_le_bytes([data[0], data[1]]) as usize;
+        if count != expected_points {
+            return Err(SlmpError::new(format!(
+                "label random read point count mismatch: expected={expected_points} actual={count}"
+            )));
+        }
+        let mut offset = 2usize;
+        let mut results = Vec::with_capacity(count);
+        for _ in 0..count {
+            if offset + 4 > data.len() {
+                return Err(SlmpError::new(
+                    "label random read response truncated before metadata",
+                ));
+            }
+            let data_type_id = data[offset];
+            let spare = data[offset + 1];
+            let read_data_length = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+            offset += 4;
+            let data_size = read_data_length as usize;
+            if offset + data_size > data.len() {
+                return Err(SlmpError::new(
+                    "label random read response truncated in data payload",
+                ));
+            }
+            results.push(SlmpLabelRandomReadResult {
+                data_type_id,
+                spare,
+                read_data_length,
+                data: data[offset..offset + data_size].to_vec(),
+            });
+            offset += data_size;
+        }
+        if offset != data.len() {
+            return Err(SlmpError::new(
+                "label random read response has trailing bytes",
+            ));
+        }
+        Ok(results)
+    }
+
+    fn append_label_name(payload: &mut Vec<u8>, label: &str) -> Result<(), SlmpError> {
+        if label.is_empty() {
+            return Err(SlmpError::new("label must not be empty"));
+        }
+        let utf16: Vec<u16> = label.encode_utf16().collect();
+        Self::validate_u16_count(utf16.len(), "label name length")?;
+        payload.extend_from_slice(&(utf16.len() as u16).to_le_bytes());
+        for ch in utf16 {
+            payload.extend_from_slice(&ch.to_le_bytes());
+        }
+        Ok(())
+    }
+
+    fn label_array_data_bytes(
+        unit_specification: u8,
+        array_data_length: u16,
+    ) -> Result<usize, SlmpError> {
+        match unit_specification {
+            0 => Ok(array_data_length as usize * 2),
+            1 => Ok(array_data_length as usize),
+            other => Err(SlmpError::new(format!(
+                "unit_specification must be 0(word) or 1(byte): {other}"
+            ))),
+        }
+    }
+
+    fn validate_non_empty_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
+        if count == 0 {
+            return Err(SlmpError::new(format!("{name} must not be empty")));
+        }
+        Self::validate_u16_count(count, name)
+    }
+
+    fn validate_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
+        if count > u16::MAX as usize {
+            return Err(SlmpError::new(format!("{name} must be <= 65535")));
+        }
         Ok(())
     }
 
