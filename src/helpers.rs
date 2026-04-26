@@ -65,6 +65,17 @@ pub async fn read_typed(
 ) -> Result<SlmpValue, SlmpError> {
     let normalized_dtype = dtype.to_uppercase();
     if let Some(spec) = long_timer_read_spec(device.code) {
+        validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
+        if matches!(spec.base_code, SlmpDeviceCode::LCN)
+            && matches!(spec.kind, LongTimerReadKind::Current)
+        {
+            let raw = read_random_dword_scalar(client, device).await?;
+            return Ok(if normalized_dtype == "L" {
+                SlmpValue::I32(raw as i32)
+            } else {
+                SlmpValue::U32(raw)
+            });
+        }
         if is_long_counter_state_device(device.code) {
             return Ok(SlmpValue::Bool(client.read_bits(device, 1).await?[0]));
         }
@@ -95,6 +106,14 @@ pub async fn write_typed(
     dtype: &str,
     value: &SlmpValue,
 ) -> Result<(), SlmpError> {
+    let normalized_dtype = if dtype.eq_ignore_ascii_case("U") && device.code.is_bit_device() {
+        "BIT".to_string()
+    } else {
+        dtype.to_uppercase()
+    };
+    if long_timer_read_spec(device.code).is_some() {
+        validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
+    }
     match resolve_write_route(device, dtype) {
         NamedWriteRoute::RandomBits => {
             client
@@ -401,7 +420,20 @@ async fn read_named_compiled(
 
     for entry in &plan.entries {
         let value = if let Some(spec) = &entry.long_timer_read {
-            if is_long_counter_state_device(entry.device.code) {
+            if matches!(spec.base_code, SlmpDeviceCode::LCN)
+                && matches!(spec.kind, LongTimerReadKind::Current)
+            {
+                let raw = if let Some(value) = dword_values.get(&entry.device) {
+                    *value
+                } else {
+                    read_random_dword_scalar(client, entry.device).await?
+                };
+                if entry.dtype == "L" {
+                    SlmpValue::I32(raw as i32)
+                } else {
+                    SlmpValue::U32(raw)
+                }
+            } else if is_long_counter_state_device(entry.device.code) {
                 SlmpValue::Bool(client.read_bits(entry.device, 1).await?[0])
             } else {
                 let key = (spec.base_code, entry.device.number);
@@ -504,6 +536,18 @@ async fn read_random_maps(
     Ok((words, dwords))
 }
 
+async fn read_random_dword_scalar(
+    client: &SlmpClient,
+    device: SlmpDeviceAddress,
+) -> Result<u32, SlmpError> {
+    let result = client.read_random(&[], &[device]).await?;
+    result
+        .dword_values
+        .first()
+        .copied()
+        .ok_or_else(|| SlmpError::new("Read Random dword response did not contain a value."))
+}
+
 async fn read_long_like_point(
     client: &SlmpClient,
     base_code: SlmpDeviceCode,
@@ -512,20 +556,9 @@ async fn read_long_like_point(
     match base_code {
         SlmpDeviceCode::LTN => Ok(client.read_long_timer(number, 1).await?.remove(0)),
         SlmpDeviceCode::LSTN => Ok(client.read_long_retentive_timer(number, 1).await?.remove(0)),
-        SlmpDeviceCode::LCN => {
-            let raw_words = client
-                .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::LCN, number), 4)
-                .await?;
-            Ok(SlmpLongTimerResult {
-                index: number,
-                device: format!("LCN{number}"),
-                current_value: raw_words[0] as u32 | ((raw_words[1] as u32) << 16),
-                contact: (raw_words[2] & 0x0002) != 0,
-                coil: (raw_words[2] & 0x0001) != 0,
-                status_word: raw_words[2],
-                raw_words,
-            })
-        }
+        SlmpDeviceCode::LCN => Err(SlmpError::new(
+            "LCN current values use random dword read; LCS/LCC state reads use direct bit read.",
+        )),
         _ => Err(SlmpError::new("Unsupported long-family base code.")),
     }
 }
@@ -607,7 +640,10 @@ fn resolve_write_route(device: SlmpDeviceAddress, dtype: &str) -> NamedWriteRout
         "D" | "L"
             if matches!(
                 device.code,
-                SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN | SlmpDeviceCode::LZ
+                SlmpDeviceCode::LTN
+                    | SlmpDeviceCode::LSTN
+                    | SlmpDeviceCode::LCN
+                    | SlmpDeviceCode::LZ
             ) =>
         {
             NamedWriteRoute::RandomDWords

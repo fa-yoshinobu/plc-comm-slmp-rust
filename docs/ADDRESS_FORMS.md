@@ -73,16 +73,16 @@ These families are normalized so that reads match the other libraries.
 Notes:
 
 - `LTN`, `LSTN`, `LCN`, and `LZ` are 32-bit values
+- `LCN` high-level reads and writes use random dword access (`0x0403` / `0x1402`)
 - `LTS`, `LTC`, `LSTS`, `LSTC`, `LCS`, and `LCC` are state reads
-- `LCS` and `LCC` are read through the `LCN` state block so behavior stays
-  aligned across languages
+- `LCS` and `LCC` use direct bit read through `read_typed` / `read_named`
 - `LCS` and `LCC` are rejected for `Read Random (0x0403)`, `Read Block (0x0406)`,
   `Write Block (0x1406)`, and `Entry Monitor Device (0x0801)`
 - `LTS`, `LTC`, `LSTS`, and `LSTC` are not exposed through direct bit
   read/write (`0x0401` / `0x1401`) or Read Random (`0x0403`) in the Rust client
   API; use helper APIs for reads and random bit write (`0x1402`) for writes
-- `LTN` and `LSTN` are not exposed as direct dword reads in the Rust client API;
-  use helper APIs or 4-word block reads instead
+- `LTN`, `LSTN`, `LCN`, and `LZ` are not exposed as direct dword reads in the Rust client API;
+  use helper APIs, random dword high-level access, or 4-word block reads where supported
 
 ## Extended Devices
 

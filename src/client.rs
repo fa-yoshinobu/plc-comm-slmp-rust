@@ -1,9 +1,9 @@
 use crate::address::device_spec_size;
 use crate::device_ranges::{
-    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily,
     build_catalog_for_family as build_device_range_catalog_for_family,
     read_registers as read_device_range_registers,
-    resolve_profile_for_family as resolve_device_range_profile_for_family,
+    resolve_profile_for_family as resolve_device_range_profile_for_family, SlmpDeviceRangeCatalog,
+    SlmpDeviceRangeFamily,
 };
 use crate::error::SlmpError;
 use crate::model::{
@@ -494,6 +494,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u16],
     ) -> Result<(), SlmpError> {
+        Self::validate_direct_word_write(device)?;
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(values), false);
         let sub = self.word_subcommand(false);
@@ -559,6 +560,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u32],
     ) -> Result<(), SlmpError> {
+        Self::validate_direct_dword_write(device)?;
         let mut words = Vec::with_capacity(values.len() * 2);
         for value in values {
             words.push((value & 0xFFFF) as u16);
@@ -595,6 +597,7 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
+        Self::validate_direct_word_read(device.device, points)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, false);
@@ -626,6 +629,7 @@ impl ClientInner {
         values: &[u16],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
+        Self::validate_direct_word_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let payload = self.build_read_write_payload_extended(
             device.device,
@@ -773,6 +777,7 @@ impl ClientInner {
         word_entries: &[(SlmpDeviceAddress, u16)],
         dword_entries: &[(SlmpDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
+        Self::validate_random_write_word_devices(word_entries)?;
         if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -1448,7 +1453,12 @@ impl ClientInner {
 
     fn validate_direct_word_read(device: SlmpDeviceAddress, points: u16) -> Result<(), SlmpError> {
         match device.code {
-            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN if points == 0 || points % 4 != 0 => {
+            code if Self::is_random_dword_only_read_device(code) => Err(SlmpError::new(
+                "Direct word read is not supported for LCN/LZ. Use read_typed/read_named for 32-bit access.",
+            )),
+            code if matches!(code, SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN)
+                && (points == 0 || points % 4 != 0) =>
+            {
                 Err(SlmpError::new(
                     "Long timer and long retentive timer current values must be read as 4-word blocks.",
                 ))
@@ -1457,13 +1467,37 @@ impl ClientInner {
         }
     }
 
-    fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-        match device.code {
-            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN => Err(SlmpError::new(
-                "Direct dword read is not supported for long timer current values. Use read_typed/read_named or a 4-word block read.",
-            )),
-            _ => Ok(()),
+    fn validate_direct_word_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        if Self::is_long_current_value_device(device.code)
+            || Self::is_dword_only_scalar_device(device.code)
+        {
+            return Err(SlmpError::new(
+                "Direct word write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named with ':D' or ':L' instead.",
+            ));
         }
+        Ok(())
+    }
+
+    fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        if Self::is_long_current_value_device(device.code)
+            || Self::is_dword_only_scalar_device(device.code)
+        {
+            return Err(SlmpError::new(
+                "Direct dword read is not supported for LTN/LSTN/LCN/LZ. Use read_typed/read_named or the supported long-family helper route.",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_direct_dword_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        if Self::is_long_current_value_device(device.code)
+            || Self::is_dword_only_scalar_device(device.code)
+        {
+            return Err(SlmpError::new(
+                "Direct dword write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named so random dword write (0x1402) is selected.",
+            ));
+        }
+        Ok(())
     }
 
     fn validate_random_read_devices(
@@ -1485,6 +1519,30 @@ impl ClientInner {
                 ));
             }
         }
+        for device in word_devices {
+            if Self::is_long_current_value_device(device.code)
+                || Self::is_dword_only_scalar_device(device.code)
+            {
+                return Err(SlmpError::new(
+                    "Read Random (0x0403) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead.",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_random_write_word_devices(
+        word_entries: &[(SlmpDeviceAddress, u16)],
+    ) -> Result<(), SlmpError> {
+        for (device, _) in word_entries {
+            if Self::is_long_current_value_device(device.code)
+                || Self::is_dword_only_scalar_device(device.code)
+            {
+                return Err(SlmpError::new(
+                    "Write Random (0x1402) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or write_typed/write_named with ':D' or ':L' instead.",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -1500,10 +1558,43 @@ impl ClientInner {
             || matches!(code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC)
     }
 
+    fn is_long_current_value_device(code: SlmpDeviceCode) -> bool {
+        matches!(
+            code,
+            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN | SlmpDeviceCode::LCN
+        )
+    }
+
+    fn is_dword_only_scalar_device(code: SlmpDeviceCode) -> bool {
+        matches!(code, SlmpDeviceCode::LZ)
+    }
+
+    fn is_random_dword_only_read_device(code: SlmpDeviceCode) -> bool {
+        matches!(code, SlmpDeviceCode::LCN | SlmpDeviceCode::LZ)
+    }
+
     fn validate_no_lcs_lcc_block_read(
         word_blocks: &[SlmpBlockRead],
         bit_blocks: &[SlmpBlockRead],
     ) -> Result<(), SlmpError> {
+        for block in word_blocks {
+            if matches!(
+                block.device.code,
+                SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN
+            ) && block.points % 4 != 0
+            {
+                return Err(SlmpError::new(
+                    "Read Block (0x0406) direct long timer current reads require 4-word blocks.",
+                ));
+            }
+        }
+        for block in word_blocks.iter().chain(bit_blocks.iter()) {
+            if Self::is_random_dword_only_read_device(block.device.code) {
+                return Err(SlmpError::new(
+                    "Read Block (0x0406) does not support LCN/LZ as word or bit blocks. Use read_typed/read_named so random dword read is selected.",
+                ));
+            }
+        }
         for block in word_blocks.iter().chain(bit_blocks.iter()) {
             if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
                 return Err(SlmpError::new(
@@ -1518,6 +1609,15 @@ impl ClientInner {
         word_blocks: &[SlmpBlockWrite],
         bit_blocks: &[SlmpBlockWrite],
     ) -> Result<(), SlmpError> {
+        for block in word_blocks.iter().chain(bit_blocks.iter()) {
+            if Self::is_long_current_value_device(block.device.code)
+                || Self::is_dword_only_scalar_device(block.device.code)
+            {
+                return Err(SlmpError::new(
+                    "Write Block (0x1406) does not support LTN/LSTN/LCN/LZ as word or bit blocks. Use write_typed/write_named with ':D' or ':L' instead.",
+                ));
+            }
+        }
         for block in word_blocks.iter().chain(bit_blocks.iter()) {
             if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
                 return Err(SlmpError::new(

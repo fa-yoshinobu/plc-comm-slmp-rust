@@ -2,8 +2,8 @@ use futures_util::StreamExt;
 use plc_comm_slmp::{
     NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCompatibilityMode,
     SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpPlcFamily, SlmpTargetAddress,
-    parse_qualified_device, parse_scalar_for_named_with_family, parse_target_auto_number,
-    poll_named, read_named, write_named,
+    SlmpTransportMode, parse_qualified_device, parse_scalar_for_named_with_family,
+    parse_target_auto_number, poll_named, read_named, write_named,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -23,6 +23,7 @@ async fn main() {
     let mut family = SlmpPlcFamily::IqR;
     let mut frame = SlmpFrameType::Frame3E;
     let mut series = SlmpCompatibilityMode::Legacy;
+    let mut transport = SlmpTransportMode::Tcp;
     let mut target = None;
     let mut mode = "word".to_string();
     let mut word_devs = String::new();
@@ -54,6 +55,14 @@ async fn main() {
                     SlmpCompatibilityMode::Iqr
                 } else {
                     SlmpCompatibilityMode::Legacy
+                };
+            }
+            "--transport" => {
+                index += 1;
+                transport = if args.get(index).map(String::as_str) == Some("udp") {
+                    SlmpTransportMode::Udp
+                } else {
+                    SlmpTransportMode::Tcp
                 };
             }
             "--mode" => {
@@ -114,6 +123,7 @@ async fn main() {
     options.port = port;
     options.frame_type = frame;
     options.compatibility_mode = series;
+    options.transport_mode = transport;
     if let Some(target) = target {
         options.target = target;
     }

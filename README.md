@@ -52,7 +52,7 @@ Requires Rust 1.85 or newer.
 
 ```toml
 [dependencies]
-plc-comm-slmp-rust = "0.1.5"
+plc-comm-slmp-rust = "0.1.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -302,6 +302,7 @@ The Rust implementation follows the same normalized behavior as the other
 libraries:
 
 - `LTN`, `LSTN`, `LCN`, and `LZ` default to 32-bit reads
+- `LCN` high-level reads and writes use random dword access (`0x0403` / `0x1402`)
 - `LTS`, `LTC`, `LSTS`, `LSTC`, `LCS`, and `LCC` are state reads
 - `LCS` and `LCC` reads use direct bit read through `read_typed` / `read_named`
 - `LCS` and `LCC` are rejected for `Read Random (0x0403)`, `Read Block (0x0406)`,
@@ -312,8 +313,8 @@ libraries:
   `LTN` / `LSTN`
 - direct bit writes (`0x1401`) for `LCS` and `LCC` are also rejected; use
   `write_typed` / `write_named` so random bit write (`0x1402`) is selected
-- direct dword reads for `LTN` and `LSTN` are rejected; use helper APIs or
-  explicit 4-word block reads
+- direct dword reads for `LTN`, `LSTN`, `LCN`, and `LZ` are rejected; use helper APIs,
+  random dword high-level access, or explicit 4-word block reads where supported
 
 Route guard note: keep low-level direct bit routes guarded for
 `LTS`/`LTC`/`LSTS`/`LSTC` and direct bit writes guarded for `LCS`/`LCC`.

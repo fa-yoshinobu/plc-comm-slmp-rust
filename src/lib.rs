@@ -75,9 +75,11 @@
 //! - Long current values: `LTN10:D`, `LSTN20:D`, `LCN30:D`
 //! - Extended devices: `J1\\W10`, `U3\\G100`, `U1\\HG0`
 //!
-//! `.bit` notation is only valid for word devices. Long timer and long counter
-//! state reads (`LTS`, `LTC`, `LSTS`, `LSTC`, `LCS`, `LCC`) are normalized
-//! through the corresponding current-value block reads.
+//! `.bit` notation is only valid for word devices. Long timer state reads
+//! (`LTS`, `LTC`, `LSTS`, `LSTC`) are decoded through the corresponding
+//! current-value blocks. Long counter state reads (`LCS`, `LCC`) use direct bit
+//! read. `LCN` current values use random dword access in the high-level helpers,
+//! and high-level state writes use random bit write (`0x1402`).
 //!
 //! # Examples
 //!

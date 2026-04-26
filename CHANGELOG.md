@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-04-27
+
+### Changed
+- Tightened long-device route guards so `LTN/LSTN/LCN/LZ` avoid unsupported direct/raw word and dword paths, while supported random/named dword paths remain available.
+- Aligned `LCS/LCC` write validation with the random/named bit route policy.
+- Added UDP transport selection to `slmp_verify_client` for cross-library real-device validation.
+
 ## [0.1.5] - 2026-04-20
 
 ### Fixed
