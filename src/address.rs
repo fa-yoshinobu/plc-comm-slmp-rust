@@ -146,10 +146,12 @@ fn parse_device_internal(
         {
             let number_text = &token[prefix.len()..];
             let radix = device_radix(code, family);
-            let number = parse_u32_with_radix(number_text, radix);
-            if let Ok(number) = number {
-                return Ok(SlmpDeviceAddress::new(code, number));
-            }
+            let number = parse_u32_with_radix(number_text, radix).map_err(|_| {
+                SlmpError::new(format!(
+                    "Invalid SLMP device number '{number_text}' for device code '{prefix}' in '{text}'."
+                ))
+            })?;
+            return Ok(SlmpDeviceAddress::new(code, number));
         }
     }
 
@@ -304,7 +306,7 @@ pub fn device_spec_size(mode: SlmpCompatibilityMode) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{SlmpAddress, parse_device_for_family_hint, parse_device_for_plc_family};
+    use super::{SlmpAddress, parse_device, parse_device_for_family_hint, parse_device_for_plc_family};
     use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcFamily};
 
     #[test]
@@ -334,6 +336,24 @@ mod tests {
                 SlmpPlcFamily::IqR,
             ),
             "X1A"
+        );
+    }
+
+    #[test]
+    fn hex_number_can_be_all_letters() {
+        assert_eq!(
+            parse_device("XFF").unwrap(),
+            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0xff)
+        );
+    }
+
+    #[test]
+    fn known_code_with_invalid_number_does_not_fallback() {
+        let error = parse_device("DFFFF").unwrap_err();
+        assert!(
+            error.message.contains("device code 'D'"),
+            "unexpected error: {}",
+            error.message
         );
     }
 

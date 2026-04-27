@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-04-27
+
+### Fixed
+- Tightened SLMP device-name parsing so a matched device code with an invalid number fails immediately instead of checking shorter code candidates.
+- Added regression coverage for hexadecimal device numbers whose number text is entirely `A-F`.
+
 ## [0.1.7] - 2026-04-27
 
 ### Added
