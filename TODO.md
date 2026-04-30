@@ -20,17 +20,18 @@ This file tracks active follow-up items for the SLMP Rust library.
 
 ## 2. Protocol Follow-Up
 
-- **`G/HG` Extended Specification live coverage expansion**
+- **Extended Specification live coverage expansion**
   Keep Rust aligned with the .NET, Python, and Node-RED stacks after broader
-  address-range, transport, and PLC-family coverage is validated.
+  address-range, transport, and PLC-family coverage is validated. QnUDV has no
+  `HG`; `U0\G10` read-only on the current QnUDV target returned `0xC070` with
+  command `0x0401` subcommand `0x0080`.
 
 - **Mixed block write root cause**
   Keep Rust behavior aligned if the root cause for one-request mixed `1406`
-  write rejection is identified in the shared SLMP libraries.
-
-- **`1617` Clear Error operator-visible effect**
-  Keep Rust behavior aligned after the real hardware operator-visible effect is
-  documented.
+  write rejection is identified in the shared SLMP libraries. On the current
+  QnUDV target, word-only, bit-only, and mixed `1406` block writes returned
+  `0xC059`, so this appears to be block-write command support rather than a
+  mixed-only rejection on that target.
 
 ## 3. Practical Limits
 
