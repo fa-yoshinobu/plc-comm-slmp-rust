@@ -20,6 +20,8 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
+const MAX_RUNTIME_RANGE_PROBE_COUNT: u32 = 1_048_576;
+
 #[derive(Clone)]
 pub struct SlmpClient {
     inner: Arc<Mutex<ClientInner>>,
@@ -106,7 +108,8 @@ impl SlmpClient {
         let family = self.configured_device_range_family().await;
         let profile = resolve_device_range_profile_for_family(family);
         let registers = read_device_range_registers(self, &profile).await?;
-        build_device_range_catalog_for_family(family, &registers)
+        let catalog = build_device_range_catalog_for_family(family, &registers)?;
+        self.resolve_device_range_runtime_limits(catalog).await
     }
 
     pub async fn read_device_range_catalog_for_family(
@@ -115,7 +118,98 @@ impl SlmpClient {
     ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
         let profile = resolve_device_range_profile_for_family(family);
         let registers = read_device_range_registers(self, &profile).await?;
-        build_device_range_catalog_for_family(family, &registers)
+        let catalog = build_device_range_catalog_for_family(family, &registers)?;
+        self.resolve_device_range_runtime_limits(catalog).await
+    }
+
+    async fn resolve_device_range_runtime_limits(
+        &self,
+        mut catalog: SlmpDeviceRangeCatalog,
+    ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
+        if !matches!(
+            catalog.family,
+            SlmpDeviceRangeFamily::QCpu
+                | SlmpDeviceRangeFamily::LCpu
+                | SlmpDeviceRangeFamily::QnU
+                | SlmpDeviceRangeFamily::QnUDV
+        ) {
+            return Ok(catalog);
+        }
+
+        if catalog.family == SlmpDeviceRangeFamily::QCpu {
+            let z_count = if self
+                .can_read_one_word(SlmpDeviceCode::Z, 15)
+                .await
+            {
+                16
+            } else {
+                10
+            };
+            catalog = crate::device_ranges::replace_fixed_point_count(
+                catalog,
+                "Z",
+                z_count,
+                "Runtime access check",
+                "QCPU Z register count is selected by probing Z15.",
+            );
+        }
+
+        let zr_count = self.resolve_readable_point_count(SlmpDeviceCode::ZR).await;
+        catalog = crate::device_ranges::replace_fixed_point_count(
+            catalog,
+            "ZR",
+            zr_count,
+            "Runtime access check",
+            "ZR register count is selected by probing readable ZR addresses.",
+        );
+        Ok(crate::device_ranges::replace_fixed_point_count(
+            catalog,
+            "R",
+            zr_count.min(32_768),
+            "Runtime access check",
+            "R register count follows the probed ZR count and is capped at R32767.",
+        ))
+    }
+
+    async fn resolve_readable_point_count(&self, device: SlmpDeviceCode) -> u32 {
+        if !self.can_read_one_word(device, 0).await {
+            return 0;
+        }
+
+        let upper_limit = MAX_RUNTIME_RANGE_PROBE_COUNT - 1;
+        let mut low = 0;
+        let mut high = 1;
+        while high < upper_limit && self.can_read_one_word(device, high).await {
+            low = high;
+            high = ((high * 2) + 1).min(upper_limit);
+        }
+
+        if high == upper_limit && self.can_read_one_word(device, high).await {
+            return MAX_RUNTIME_RANGE_PROBE_COUNT;
+        }
+
+        let mut left = low + 1;
+        let mut right = high - 1;
+        while left <= right {
+            let mid = left + ((right - left) / 2);
+            if self.can_read_one_word(device, mid).await {
+                low = mid;
+                left = mid + 1;
+            } else {
+                if mid == 0 {
+                    break;
+                }
+                right = mid - 1;
+            }
+        }
+
+        low + 1
+    }
+
+    async fn can_read_one_word(&self, device: SlmpDeviceCode, number: u32) -> bool {
+        self.read_words_raw(SlmpDeviceAddress::new(device, number), 1)
+            .await
+            .is_ok()
     }
 
     pub async fn configured_device_range_family(&self) -> SlmpDeviceRangeFamily {

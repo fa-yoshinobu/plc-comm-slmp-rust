@@ -245,6 +245,29 @@ pub(crate) fn build_catalog_for_family(
     )
 }
 
+pub(crate) fn replace_fixed_point_count(
+    mut catalog: SlmpDeviceRangeCatalog,
+    device: &str,
+    point_count: u32,
+    source: &str,
+    note: &str,
+) -> SlmpDeviceRangeCatalog {
+    let upper_bound = point_count_to_upper_bound(Some(point_count));
+    for entry in &mut catalog.entries {
+        if entry.device == device {
+            entry.upper_bound = upper_bound;
+            entry.point_count = Some(point_count);
+            entry.address_range = format_address_range(&entry.device, entry.notation, upper_bound);
+            entry.source = source.to_string();
+            entry.notes = Some(match &entry.notes {
+                Some(existing) if !existing.is_empty() => format!("{existing} {note}"),
+                _ => note.to_string(),
+            });
+        }
+    }
+    catalog
+}
+
 pub(crate) fn family_label(family: SlmpDeviceRangeFamily) -> &'static str {
     match family {
         SlmpDeviceRangeFamily::IqR => "IQ-R",
@@ -921,14 +944,7 @@ fn create_lcpu_like_profile(
             ("LT", unsupported(unsupported_note)),
             ("LST", unsupported(unsupported_note)),
             ("LC", unsupported(unsupported_note)),
-            (
-                "Z",
-                word_register(
-                    305,
-                    "SD305",
-                    Some("Requires ZZ = FFFFh for the reported upper bound."),
-                ),
-            ),
+            ("Z", fixed(20, "Fixed family limit")),
             ("LZ", unsupported(unsupported_note)),
             ("ZR", dword_register(306, "SD306-SD307 (32-bit)", None)),
             ("RD", unsupported(unsupported_note)),
