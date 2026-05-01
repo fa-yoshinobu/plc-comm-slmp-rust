@@ -1139,7 +1139,7 @@ mod tests {
     }
 
     #[test]
-    fn build_catalog_qnu_uses_sd300_for_st_family_and_sd305_for_z() {
+    fn build_catalog_qnu_uses_sd300_for_st_family_and_fixed_z_limit() {
         let type_info = SlmpTypeNameInfo {
             model: "Q03UDECPU".to_string(),
             model_code: 0x0268,
@@ -1149,7 +1149,6 @@ mod tests {
         let mut snapshot = create_snapshot(&profile);
         snapshot.insert(300, 16);
         snapshot.insert(301, 1024);
-        snapshot.insert(305, 20);
 
         let catalog = build_catalog(&type_info, &profile, &snapshot).unwrap();
 
