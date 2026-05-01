@@ -34,9 +34,3 @@ This file tracks active follow-up items for the SLMP Rust library.
 ## 3. Practical Limits
 
 - ASCII mode is intentionally out of scope.
-
-## 4. Completed Recently
-
-- [x] **Validate iQ-F X/Y octal handling on sibling stacks**: FX5UC-32MT/D returned `X0000-X1777` and `Y0000-Y1777` as `Base8`; `X100` and `Y100` read successfully through iQ-F octal address parsing in .NET, Python, and Node-RED. The Rust local test suite is now green as well.
-- [x] **Split iQ-L from iQ-R range rules in source**: `SlmpPlcFamily::IqL` now maps to `SlmpDeviceRangeFamily::IqL`, model codes `0x48C0-0x48C3` and `L04HCPU/L08HCPU/L16HCPU/L32HCPU` resolve to `IqL`, docs/tests were updated, and a live `L16HCPU` target validated the dedicated iQ-L range catalog over TCP/1025. This is separate from legacy `LCPU`.
-- [x] **Resolve Q-series runtime device ranges**: QCPU/LCPU/QnU/QnUDV `ZR` ranges are selected by probing readable addresses, `R` follows the probed `ZR` count capped at `R32767`, QCPU `Z` is selected by probing `Z15`, and LCPU/QnU/QnUDV `Z` is fixed at 20 points.
