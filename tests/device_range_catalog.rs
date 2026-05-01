@@ -89,6 +89,53 @@ async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_windo
 }
 
 #[tokio::test]
+async fn read_device_range_catalog_for_family_exposes_iql_family() {
+    let mut sd_values = vec![0u16; 50];
+    sd_values[0] = 0x3000;
+    sd_values[2] = 0x3000;
+    sd_values[4] = 12288;
+    sd_values[6] = 0x2000;
+    sd_values[20] = 18432;
+    sd_values[22] = 0x2000;
+    sd_values[24] = 0x0800;
+    sd_values[28] = 2048;
+    sd_values[30] = 32;
+    sd_values[32] = 512;
+    sd_values[34] = 1024;
+    sd_values[36] = 32;
+    sd_values[38] = 512;
+    sd_values[40] = 20;
+    sd_values[42] = 2;
+    sd_values[46] = 0xffff;
+    sd_values[47] = 0x000b;
+    sd_values[48] = 0x0000;
+    sd_values[49] = 0x0008;
+
+    let server = MultiResponseServer::start(vec![build_word_payload(&sd_values)])
+        .await
+        .unwrap();
+
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqL);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let catalog = client
+        .read_device_range_catalog_for_family(SlmpDeviceRangeFamily::IqL)
+        .await
+        .unwrap();
+
+    assert_eq!(catalog.model, "iQ-L");
+    assert_eq!(catalog.family, SlmpDeviceRangeFamily::IqL);
+    assert_eq!(entry(&catalog, "SM").address_range.as_deref(), Some("SM0-SM4095"));
+    assert_eq!(entry(&catalog, "SD").address_range.as_deref(), Some("SD0-SD4095"));
+    assert_eq!(entry(&catalog, "D").address_range.as_deref(), Some("D0-D18431"));
+    assert_eq!(entry(&catalog, "LZ").address_range.as_deref(), Some("LZ0-LZ1"));
+    assert_eq!(entry(&catalog, "LTN").address_range.as_deref(), Some("LTN0-LTN1023"));
+    assert_eq!(entry(&catalog, "LSTN").address_range.as_deref(), Some("LSTN0-LSTN31"));
+    assert_eq!(entry(&catalog, "LCN").address_range.as_deref(), Some("LCN0-LCN511"));
+}
+
+#[tokio::test]
 async fn read_device_range_catalog_falls_back_to_three_e_legacy_when_type_name_does_not_return() {
     let mut sd_values = vec![0u16; 46];
     sd_values[0] = 1024;

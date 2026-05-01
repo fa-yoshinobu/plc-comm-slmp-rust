@@ -568,7 +568,8 @@ impl SlmpClient {
 fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {
     match family {
         SlmpPlcFamily::IqF => SlmpDeviceRangeFamily::IqF,
-        SlmpPlcFamily::IqR | SlmpPlcFamily::IqL => SlmpDeviceRangeFamily::IqR,
+        SlmpPlcFamily::IqR => SlmpDeviceRangeFamily::IqR,
+        SlmpPlcFamily::IqL => SlmpDeviceRangeFamily::IqL,
         SlmpPlcFamily::MxF => SlmpDeviceRangeFamily::MxF,
         SlmpPlcFamily::MxR => SlmpDeviceRangeFamily::MxR,
         SlmpPlcFamily::QCpu => SlmpDeviceRangeFamily::QCpu,
