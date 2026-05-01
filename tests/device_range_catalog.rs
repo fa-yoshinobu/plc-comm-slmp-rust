@@ -126,13 +126,34 @@ async fn read_device_range_catalog_for_family_exposes_iql_family() {
 
     assert_eq!(catalog.model, "iQ-L");
     assert_eq!(catalog.family, SlmpDeviceRangeFamily::IqL);
-    assert_eq!(entry(&catalog, "SM").address_range.as_deref(), Some("SM0-SM4095"));
-    assert_eq!(entry(&catalog, "SD").address_range.as_deref(), Some("SD0-SD4095"));
-    assert_eq!(entry(&catalog, "D").address_range.as_deref(), Some("D0-D18431"));
-    assert_eq!(entry(&catalog, "LZ").address_range.as_deref(), Some("LZ0-LZ1"));
-    assert_eq!(entry(&catalog, "LTN").address_range.as_deref(), Some("LTN0-LTN1023"));
-    assert_eq!(entry(&catalog, "LSTN").address_range.as_deref(), Some("LSTN0-LSTN31"));
-    assert_eq!(entry(&catalog, "LCN").address_range.as_deref(), Some("LCN0-LCN511"));
+    assert_eq!(
+        entry(&catalog, "SM").address_range.as_deref(),
+        Some("SM0-SM4095")
+    );
+    assert_eq!(
+        entry(&catalog, "SD").address_range.as_deref(),
+        Some("SD0-SD4095")
+    );
+    assert_eq!(
+        entry(&catalog, "D").address_range.as_deref(),
+        Some("D0-D18431")
+    );
+    assert_eq!(
+        entry(&catalog, "LZ").address_range.as_deref(),
+        Some("LZ0-LZ1")
+    );
+    assert_eq!(
+        entry(&catalog, "LTN").address_range.as_deref(),
+        Some("LTN0-LTN1023")
+    );
+    assert_eq!(
+        entry(&catalog, "LSTN").address_range.as_deref(),
+        Some("LSTN0-LSTN31")
+    );
+    assert_eq!(
+        entry(&catalog, "LCN").address_range.as_deref(),
+        Some("LCN0-LCN511")
+    );
 }
 
 #[tokio::test]

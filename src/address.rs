@@ -306,7 +306,9 @@ pub fn device_spec_size(mode: SlmpCompatibilityMode) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{SlmpAddress, parse_device, parse_device_for_family_hint, parse_device_for_plc_family};
+    use super::{
+        SlmpAddress, parse_device, parse_device_for_family_hint, parse_device_for_plc_family,
+    };
     use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcFamily};
 
     #[test]

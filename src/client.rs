@@ -134,10 +134,7 @@ impl SlmpClient {
         }
 
         if catalog.family == SlmpDeviceRangeFamily::QCpu {
-            let z_count = if self
-                .can_read_one_word(SlmpDeviceCode::Z, 15)
-                .await
-            {
+            let z_count = if self.can_read_one_word(SlmpDeviceCode::Z, 15).await {
                 16
             } else {
                 10
