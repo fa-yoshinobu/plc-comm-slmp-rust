@@ -12,6 +12,8 @@ This file tracks active follow-up items for the SLMP Rust library.
   - QCPU/LCPU/QnU/QnUDV `ZR` is selected by probing readable addresses and may
     resolve to 0 points.
   - `R` follows the probed `ZR` count and is capped at `R32767`.
+  - `LCPU` was live-checked on 2026-05-01: `Z19`, `ZR393215`, and `R32767`
+    read successfully; `Z20`, `ZR393216`, and `R32768` returned `0x4031`.
 
 ## 2. Protocol Follow-Up
 
