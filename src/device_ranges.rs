@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SlmpDeviceRangeFamily {
     IqR,
+    IqL,
     MxF,
     MxR,
     IqF,
@@ -142,6 +143,7 @@ pub(crate) fn resolve_profile(
 ) -> Result<SlmpDeviceRangeProfile, SlmpError> {
     Ok(match resolve_family(type_info)? {
         SlmpDeviceRangeFamily::IqR => create_iqr_profile(),
+        SlmpDeviceRangeFamily::IqL => create_iql_profile(),
         SlmpDeviceRangeFamily::MxF => create_mxf_profile(),
         SlmpDeviceRangeFamily::MxR => create_mxr_profile(),
         SlmpDeviceRangeFamily::IqF => create_iqf_profile(),
@@ -155,6 +157,7 @@ pub(crate) fn resolve_profile(
 pub(crate) fn resolve_profile_for_family(family: SlmpDeviceRangeFamily) -> SlmpDeviceRangeProfile {
     match family {
         SlmpDeviceRangeFamily::IqR => create_iqr_profile(),
+        SlmpDeviceRangeFamily::IqL => create_iql_profile(),
         SlmpDeviceRangeFamily::MxF => create_mxf_profile(),
         SlmpDeviceRangeFamily::MxR => create_mxr_profile(),
         SlmpDeviceRangeFamily::IqF => create_iqf_profile(),
@@ -271,6 +274,7 @@ pub(crate) fn replace_fixed_point_count(
 pub(crate) fn family_label(family: SlmpDeviceRangeFamily) -> &'static str {
     match family {
         SlmpDeviceRangeFamily::IqR => "IQ-R",
+        SlmpDeviceRangeFamily::IqL => "iQ-L",
         SlmpDeviceRangeFamily::MxF => "MX-F",
         SlmpDeviceRangeFamily::MxR => "MX-R",
         SlmpDeviceRangeFamily::IqF => "IQ-F",
@@ -518,9 +522,10 @@ fn family_from_model_code(model_code: u16) -> Option<SlmpDeviceRangeFamily> {
         0x0260 | 0x0261 | 0x0262 | 0x0263 | 0x0268 | 0x0269 | 0x026A | 0x0266 | 0x026B | 0x0267
         | 0x026C | 0x026D | 0x026E => SlmpDeviceRangeFamily::QnU,
         0x0366 | 0x0367 | 0x0368 | 0x036A | 0x036C => SlmpDeviceRangeFamily::QnUDV,
-        0x0543 | 0x0541 | 0x0544 | 0x0545 | 0x0542 | 0x48C0 | 0x48C1 | 0x48C2 | 0x48C3 | 0x0641 => {
+        0x0543 | 0x0541 | 0x0544 | 0x0545 | 0x0542 | 0x0641 => {
             SlmpDeviceRangeFamily::LCpu
         }
+        0x48C0 | 0x48C1 | 0x48C2 | 0x48C3 => SlmpDeviceRangeFamily::IqL,
         0x48A0 | 0x48A1 | 0x48A2 | 0x4800 | 0x4801 | 0x4802 | 0x4803 | 0x4804 | 0x4805 | 0x4806
         | 0x4807 | 0x4808 | 0x4809 | 0x4841 | 0x4842 | 0x4843 | 0x4844 | 0x4851 | 0x4852
         | 0x4853 | 0x4854 | 0x4891 | 0x4892 | 0x4893 | 0x4894 | 0x4820 | 0x4E01 | 0x4860
@@ -572,10 +577,10 @@ fn family_from_model_name(model: &str) -> Option<SlmpDeviceRangeFamily> {
         ("L02CPU", SlmpDeviceRangeFamily::LCpu),
         ("L06CPU", SlmpDeviceRangeFamily::LCpu),
         ("L26CPU", SlmpDeviceRangeFamily::LCpu),
-        ("L04HCPU", SlmpDeviceRangeFamily::LCpu),
-        ("L08HCPU", SlmpDeviceRangeFamily::LCpu),
-        ("L16HCPU", SlmpDeviceRangeFamily::LCpu),
-        ("L32HCPU", SlmpDeviceRangeFamily::LCpu),
+        ("L04HCPU", SlmpDeviceRangeFamily::IqL),
+        ("L08HCPU", SlmpDeviceRangeFamily::IqL),
+        ("L16HCPU", SlmpDeviceRangeFamily::IqL),
+        ("L32HCPU", SlmpDeviceRangeFamily::IqL),
         ("RJ72GF15-T2", SlmpDeviceRangeFamily::IqR),
         ("NZ2GF-ETB", SlmpDeviceRangeFamily::IqR),
         ("MI5122-VW", SlmpDeviceRangeFamily::IqR),
@@ -750,6 +755,12 @@ fn create_iqr_profile() -> SlmpDeviceRangeProfile {
             ("SD", fixed(4096, "Fixed family limit")),
         ],
     )
+}
+
+fn create_iql_profile() -> SlmpDeviceRangeProfile {
+    let mut profile = create_iqr_profile();
+    profile.family = SlmpDeviceRangeFamily::IqL;
+    profile
 }
 
 fn create_mxf_profile() -> SlmpDeviceRangeProfile {

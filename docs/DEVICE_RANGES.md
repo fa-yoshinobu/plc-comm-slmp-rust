@@ -68,7 +68,7 @@ address text this crate expects.
 ## Internal Mapping
 
 `read_device_range_catalog()` uses the `SlmpPlcFamily` configured on
-`SlmpConnectionOptions`. `iq-l` currently reuses the `iq-r` device-range rules.
+`SlmpConnectionOptions`. `iq-l` uses independent iQ-L device-range rules.
 
 The lower-level model-code and model-text resolution tables still exist for the
 diagnostic profile probe utilities.
@@ -77,6 +77,7 @@ Embedded model-code tables cover the known codes shared during implementation
 for these families:
 
 - `IqR`
+- `IqL`
 - `MxR`
 - `IqF`
 - `QCpu`
@@ -98,7 +99,8 @@ Other notable model-name fallback groups:
 - `FX5U...`, `FX5UC...`, `FX5UJ...`, `FX5S...` -> `IqF`
 - `Q00U...`, `Q03UD...`, `Q50UDEH...` -> `QnU`
 - `Q03UDV...`, `Q04UDPV...` -> `QnUDV`
-- `L02...`, `L04HCPU`, `LJ72GF15-T2` -> `LCpu`
+- `L02...`, `LJ72GF15-T2` -> `LCpu`
+- `L04HCPU`, `L08HCPU`, `L16HCPU`, `L32HCPU` -> `IqL`
 
 Unknown models return `SlmpError`.
 
