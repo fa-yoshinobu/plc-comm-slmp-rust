@@ -164,7 +164,7 @@ impl SlmpClient {
             "R",
             zr_count.min(32_768),
             "Runtime access check",
-            "R register count follows the probed ZR count and is capped at R32767.",
+            "R register count matches the probed ZR size and is capped at R32767.",
         ))
     }
 
