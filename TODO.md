@@ -12,9 +12,9 @@ This file tracks active follow-up items for the SLMP Rust library.
   - QCPU/LCPU/QnU/QnUDV `ZR` is selected by probing readable addresses and may
     resolve to 0 points.
   - `R` matches the probed `ZR` size and is capped at `R32767`.
-  - `LCPU` was live-checked on 2026-05-01: `Z19` and `ZR393215` read
-    successfully; `Z20` and `ZR393216` returned `0x4031`. `R` matches that
-    `ZR` size, capped at `R32767`.
+  - `LCPU` was live-checked on 2026-05-01: `Z` remains the spec-fixed
+    `Z0-Z19` range, `ZR393215` read successfully, and `ZR393216` returned
+    `0x4031`. `R` matches that `ZR` size, capped at `R32767`.
 
 ## 2. Protocol Follow-Up
 
