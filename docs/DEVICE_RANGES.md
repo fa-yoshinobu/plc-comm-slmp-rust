@@ -69,6 +69,8 @@ address text this crate expects.
 
 `read_device_range_catalog()` uses the `SlmpPlcFamily` configured on
 `SlmpConnectionOptions`. `iq-l` uses independent iQ-L device-range rules.
+`iQ-L` and legacy `LCPU` are treated as different PLC families in this crate;
+they are not interchangeable.
 
 The lower-level model-code and model-text resolution tables still exist for the
 diagnostic profile probe utilities.

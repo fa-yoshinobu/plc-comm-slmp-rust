@@ -92,6 +92,9 @@ impl SlmpPlcFamily {
 
     pub fn address_family(self) -> Self {
         match self {
+            // iQ-L keeps its own PLC family and device-range family. We only
+            // reuse iQ-R-style address parsing rules here where the notation
+            // grammar matches.
             Self::IqL => Self::IqR,
             other => other,
         }

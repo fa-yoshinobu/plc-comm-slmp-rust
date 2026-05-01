@@ -42,6 +42,7 @@ fn parse_plc_type(value: &str) -> Result<SlmpDeviceRangeFamily, std::io::Error> 
     let normalized = value.trim().to_ascii_lowercase().replace(['-', '_'], "");
     match normalized.as_str() {
         "iqr" => Ok(SlmpDeviceRangeFamily::IqR),
+        "iql" => Ok(SlmpDeviceRangeFamily::IqL),
         "mxf" => Ok(SlmpDeviceRangeFamily::MxF),
         "mxr" => Ok(SlmpDeviceRangeFamily::MxR),
         "iqf" => Ok(SlmpDeviceRangeFamily::IqF),
@@ -51,7 +52,7 @@ fn parse_plc_type(value: &str) -> Result<SlmpDeviceRangeFamily, std::io::Error> 
         "qnudv" | "qnudvcpu" => Ok(SlmpDeviceRangeFamily::QnUDV),
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "SLMP_PLC_TYPE is required. Use iq-r, mx-f, mx-r, iq-f, qcpu, lcpu, qnu, or qnudv.",
+            "SLMP_PLC_TYPE is required. Use iq-r, iq-l, mx-f, mx-r, iq-f, qcpu, lcpu, qnu, or qnudv.",
         )),
     }
 }

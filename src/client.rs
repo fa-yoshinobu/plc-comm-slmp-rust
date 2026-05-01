@@ -14,10 +14,12 @@ use crate::model::{
     SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpPlcFamily, SlmpQualifiedDeviceAddress,
     SlmpRandomReadResult, SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
+use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
+use tokio::task;
 use tokio::time::timeout;
 
 const MAX_RUNTIME_RANGE_PROBE_COUNT: u32 = 1_048_576;
@@ -45,12 +47,7 @@ impl SlmpClient {
     pub async fn connect(options: SlmpConnectionOptions) -> Result<Self, SlmpError> {
         let transport = match options.transport_mode {
             SlmpTransportMode::Tcp => {
-                let stream = timeout(
-                    options.timeout,
-                    TcpStream::connect((options.host.as_str(), options.port)),
-                )
-                .await
-                .map_err(|_| SlmpError::new("tcp connect timed out"))??;
+                let stream = connect_tcp_stream(&options).await?;
                 Transport::Tcp(stream)
             }
             SlmpTransportMode::Udp => {
@@ -563,6 +560,39 @@ impl SlmpClient {
             .request(command, subcommand, payload, expect_response)
             .await
     }
+}
+
+async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream, SlmpError> {
+    let host = options.host.clone();
+    let port = options.port;
+    let timeout_duration = options.timeout;
+    let std_stream = task::spawn_blocking(move || {
+        let addrs: Vec<_> = (host.as_str(), port).to_socket_addrs()?.collect();
+        if addrs.is_empty() {
+            return Err(SlmpError::new(format!(
+                "tcp connect failed: no socket addresses resolved for {host}:{port}"
+            )));
+        }
+
+        let mut last_error = None;
+        for addr in addrs {
+            match StdTcpStream::connect_timeout(&addr, timeout_duration) {
+                Ok(stream) => {
+                    stream.set_nonblocking(true)?;
+                    return Ok(stream);
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+
+        Err(last_error
+            .map(SlmpError::from)
+            .unwrap_or_else(|| SlmpError::new("tcp connect failed")))
+    })
+    .await
+    .map_err(|error| SlmpError::new(format!("tcp connect task failed: {error}")))??;
+
+    TcpStream::from_std(std_stream).map_err(SlmpError::from)
 }
 
 fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {

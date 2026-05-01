@@ -237,7 +237,7 @@ pub(crate) fn build_catalog_for_family(
     registers: &BTreeMap<u16, u16>,
 ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
     let profile = resolve_profile_for_family(family);
-    build_catalog(
+    let mut catalog = build_catalog(
         &SlmpTypeNameInfo {
             model: family_label(family).to_string(),
             model_code: 0,
@@ -245,7 +245,9 @@ pub(crate) fn build_catalog_for_family(
         },
         &profile,
         registers,
-    )
+    )?;
+    catalog.model = family_label(family).to_string();
+    Ok(catalog)
 }
 
 pub(crate) fn replace_fixed_point_count(
