@@ -5,9 +5,10 @@ This file tracks active follow-up items for the SLMP Rust library.
 ## 1. Validation
 
 - **Run Rust test suite in an environment with Cargo**
-  The Q-series runtime range changes were ported, but `cargo` was not available
-  in the current Windows environment. Run the device-range tests and full suite
-  once the Rust toolchain is installed.
+  The Q-series runtime range changes and iQ-F X/Y octal handling are present in
+  source, but `cargo` was not available in the current Windows environment. Run
+  the device-range/address tests and full suite once the Rust toolchain is
+  installed.
 
 - **Live-check Q-series runtime ranges**
   Confirm QCPU/LCPU/QnU/QnUDV `Z`, `ZR`, and `R` runtime range behavior on real
@@ -39,4 +40,5 @@ This file tracks active follow-up items for the SLMP Rust library.
 
 ## 4. Completed Recently
 
+- [x] **Validate iQ-F X/Y octal handling on sibling stacks**: FX5UC-32MT/D returned `X0000-X1777` and `Y0000-Y1777` as `Base8`; `X100` and `Y100` read successfully through iQ-F octal address parsing in .NET, Python, and Node-RED. Rust still needs Cargo-based local execution.
 - [x] **Resolve Q-series runtime device ranges**: QCPU/LCPU/QnU/QnUDV `ZR` ranges are selected by probing readable addresses, `R` follows the probed `ZR` count capped at `R32767`, QCPU `Z` is selected by probing `Z15`, and LCPU/QnU/QnUDV `Z` is fixed at 20 points.
