@@ -105,8 +105,8 @@ mod helpers;
 mod model;
 
 pub use address::{
-    SlmpAddress, normalize_named_address, parse_named_address, parse_named_target,
-    parse_qualified_device, parse_target_auto_number,
+    SlmpAddress, normalize_named_address, parse_device_for_plc_family, parse_named_address,
+    parse_named_target, parse_qualified_device, parse_target_auto_number,
 };
 pub use client::{SlmpClient, encode_device_spec};
 pub use connection_profile_probe::{

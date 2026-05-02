@@ -2,9 +2,10 @@ mod common;
 
 use common::{env_csv, options_from_env, print_connection_banner};
 use plc_comm_slmp::{
-    NamedAddress, SlmpAddress, SlmpClient, SlmpCommand, SlmpCompatibilityMode, SlmpDeviceAddress,
+    NamedAddress, SlmpClient, SlmpCommand, SlmpCompatibilityMode, SlmpDeviceAddress,
     SlmpDeviceCode, SlmpExtensionSpec, SlmpQualifiedDeviceAddress, SlmpValue, encode_device_spec,
-    parse_qualified_device, read_named, read_typed, write_named, write_typed,
+    parse_device_for_plc_family, parse_qualified_device, read_named, read_typed, write_named,
+    write_typed,
 };
 use std::error::Error;
 
@@ -30,6 +31,21 @@ const EXT_WORD_DEVICES: &[&str] = &["J1\\W10", "J1\\SW10"];
 
 fn make_error(message: impl Into<String>) -> Box<dyn Error> {
     Box::new(std::io::Error::other(message.into()))
+}
+
+fn is_skippable_unsupported_device(error: &(dyn Error + 'static)) -> bool {
+    let message = error.to_string();
+    message.contains("not supported for plc_family") || message.contains("UnsupportedDevice")
+}
+
+async fn parse_device_for_client(
+    client: &SlmpClient,
+    address: &str,
+) -> Result<SlmpDeviceAddress, Box<dyn Error>> {
+    Ok(parse_device_for_plc_family(
+        address,
+        client.plc_family().await,
+    )?)
 }
 
 fn subcommand(mode: SlmpCompatibilityMode, bit_unit: bool) -> u16 {
@@ -462,7 +478,7 @@ async fn assert_long_timer_state_reads(
     address: &str,
     expected: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     let (base_device, contact) = long_timer_state_base(device)
         .ok_or_else(|| make_error(format!("{address} is not a long timer state device")))?;
     let named = read_named(client, &[address.to_string()]).await?;
@@ -514,7 +530,7 @@ async fn assert_long_timer_current_reads(
     named_address: &str,
     expected: u32,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     let named = read_named(client, &[named_address.to_string()]).await?;
     let typed = match read_typed(client, device, "D").await? {
         SlmpValue::U32(value) => value,
@@ -554,7 +570,7 @@ async fn assert_bit_reads(
     address: &str,
     expected: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     let named = read_named(client, &[address.to_string()]).await?;
     let observed = [
         ("read_bits", client.read_bits(device, 1).await?[0]),
@@ -586,7 +602,7 @@ async fn assert_word_reads(
     address: &str,
     expected: u16,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     let named = read_named(client, &[address.to_string()]).await?;
     let random = client.read_random(&[device], &[]).await?;
     let typed = match read_typed(client, device, "U").await? {
@@ -624,7 +640,7 @@ async fn assert_dword_reads(
     named_address: &str,
     expected: u32,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     let named = read_named(client, &[named_address.to_string()]).await?;
     let random = client.read_random(&[], &[device]).await?;
     let typed = match read_typed(client, device, "D").await? {
@@ -661,7 +677,7 @@ async fn compare_bit_device(
     mode: SlmpCompatibilityMode,
     address: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     if long_timer_state_base(device).is_some() {
         let original =
             value_from_named_bool(&read_named(client, &[address.to_string()]).await?, address)?;
@@ -743,7 +759,7 @@ async fn compare_word_device(
     mode: SlmpCompatibilityMode,
     address: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     let original = client.read_words_raw(device, 1).await?[0];
     let value_a = seeded_u16(address, 0x11);
     let value_b = seeded_u16(address, 0x22);
@@ -791,7 +807,7 @@ async fn compare_dword_device(
     address: &str,
     named_address: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let device = SlmpAddress::parse(address)?;
+    let device = parse_device_for_client(client, address).await?;
     if matches!(device.code, SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN) {
         let original = value_from_named_u32(
             &read_named(client, &[named_address.to_string()]).await?,
@@ -982,6 +998,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let wants = |address: &str| run_all || selected.iter().any(|item| item == address);
     let mut failures = Vec::new();
     let mut passed = 0usize;
+    let mut skipped = 0usize;
 
     for address in BIT_DEVICES {
         if !wants(address) {
@@ -991,6 +1008,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(()) => {
                 passed += 1;
                 println!("PASS bit   {address}");
+            }
+            Err(error) if is_skippable_unsupported_device(error.as_ref()) => {
+                skipped += 1;
+                println!("SKIP bit   {address}: {error}");
             }
             Err(error) => failures.push(format!("{address}: {error}")),
         }
@@ -1005,6 +1026,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 passed += 1;
                 println!("PASS word  {address}");
             }
+            Err(error) if is_skippable_unsupported_device(error.as_ref()) => {
+                skipped += 1;
+                println!("SKIP word  {address}: {error}");
+            }
             Err(error) => failures.push(format!("{address}: {error}")),
         }
     }
@@ -1017,6 +1042,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(()) => {
                 passed += 1;
                 println!("PASS dword {address}");
+            }
+            Err(error) if is_skippable_unsupported_device(error.as_ref()) => {
+                skipped += 1;
+                println!("SKIP dword {address}: {error}");
             }
             Err(error) => failures.push(format!("{address}: {error}")),
         }
@@ -1031,6 +1060,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 passed += 1;
                 println!("PASS ext-bit  {address}");
             }
+            Err(error) if is_skippable_unsupported_device(error.as_ref()) => {
+                skipped += 1;
+                println!("SKIP ext-bit  {address}: {error}");
+            }
             Err(error) => failures.push(format!("{address}: {error}")),
         }
     }
@@ -1043,6 +1076,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(()) => {
                 passed += 1;
                 println!("PASS ext-word {address}");
+            }
+            Err(error) if is_skippable_unsupported_device(error.as_ref()) => {
+                skipped += 1;
+                println!("SKIP ext-word {address}: {error}");
             }
             Err(error) => failures.push(format!("{address}: {error}")),
         }
@@ -1058,7 +1095,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         selected.len()
     };
     println!(
-        "summary: passed={passed} failed={} total={total}",
+        "summary: passed={passed} skipped={skipped} failed={} total={total}",
         failures.len()
     );
 
