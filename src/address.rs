@@ -144,6 +144,7 @@ fn parse_device_internal(
         if token.starts_with(prefix)
             && let Some(code) = SlmpDeviceCode::parse_prefix(prefix)
         {
+            ensure_device_supported_for_family(prefix, code, family)?;
             let number_text = &token[prefix.len()..];
             let radix = device_radix(code, family);
             let number = parse_u32_with_radix(number_text, radix).map_err(|_| {
@@ -158,6 +159,21 @@ fn parse_device_internal(
     Err(SlmpError::new(format!(
         "Invalid SLMP device string '{text}'."
     )))
+}
+
+fn ensure_device_supported_for_family(
+    prefix: &str,
+    code: SlmpDeviceCode,
+    family: Option<SlmpPlcFamily>,
+) -> Result<(), SlmpError> {
+    if family.is_some_and(|family| family.address_family() == SlmpPlcFamily::IqF)
+        && matches!(code, SlmpDeviceCode::DX | SlmpDeviceCode::DY)
+    {
+        return Err(SlmpError::new(format!(
+            "SLMP device code '{prefix}' is not supported for plc_family 'iq-f'."
+        )));
+    }
+    Ok(())
 }
 
 fn device_radix(code: SlmpDeviceCode, family: Option<SlmpPlcFamily>) -> u32 {
@@ -339,6 +355,18 @@ mod tests {
             ),
             "X1A"
         );
+    }
+
+    #[test]
+    fn iq_f_direct_io_devices_are_rejected() {
+        for address in ["DX10", "DY10"] {
+            let error = parse_device_for_plc_family(address, SlmpPlcFamily::IqF).unwrap_err();
+            assert!(
+                error.message.contains("not supported"),
+                "unexpected error: {}",
+                error.message
+            );
+        }
     }
 
     #[test]

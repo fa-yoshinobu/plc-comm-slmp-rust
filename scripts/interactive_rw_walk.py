@@ -140,6 +140,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=1025)
     parser.add_argument("--frame", default="4e", choices=["3e", "4e"])
     parser.add_argument("--series", default="iqr", choices=["legacy", "iqr"])
+    parser.add_argument(
+        "--family",
+        default="iq-r",
+        choices=["iq-f", "iq-r", "iq-l", "mx-f", "mx-r", "qcpu", "lcpu", "qnu", "qnudv"],
+    )
     parser.add_argument("--seed", type=int, default=20260413)
     parser.add_argument("--start-at", default="")
     parser.add_argument("--client-bin", default=str(default_bin))
@@ -183,6 +188,7 @@ def run_json(
     port: int,
     frame: str,
     series: str,
+    family: str,
     command: str,
     address: str,
     *extras: str,
@@ -192,7 +198,7 @@ def run_json(
     cmd.extend(str(item) for item in extras)
     if mode:
         cmd.extend(["--mode", mode])
-    cmd.extend(["--frame", frame, "--series", series])
+    cmd.extend(["--frame", frame, "--series", series, "--family", family])
     last_error = None
     for attempt in range(retries + 1):
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -258,6 +264,7 @@ def read_value(args: argparse.Namespace, address: str):
             args.port,
             args.frame,
             args.series,
+            args.family,
             "read-ext",
             address,
             "1",
@@ -274,6 +281,7 @@ def read_value(args: argparse.Namespace, address: str):
         args.port,
         args.frame,
         args.series,
+        args.family,
         "read-named",
         address,
     )
@@ -293,6 +301,7 @@ def write_value(args: argparse.Namespace, address: str, value: int) -> dict:
             args.port,
             args.frame,
             args.series,
+            args.family,
             "write-ext",
             address,
             str(value),
@@ -309,6 +318,7 @@ def write_value(args: argparse.Namespace, address: str, value: int) -> dict:
             args.port,
             args.frame,
             args.series,
+            args.family,
             "random-write-words",
             "",
             "--dwords",
@@ -324,6 +334,7 @@ def write_value(args: argparse.Namespace, address: str, value: int) -> dict:
         args.port,
         args.frame,
         args.series,
+        args.family,
         "write-named",
         f"{address}={value}",
     )
@@ -368,7 +379,7 @@ def main() -> int:
     rng = random.Random(args.seed)
     print(
         f"interactive_rw_walk host={args.host}:{args.port} frame={args.frame} "
-        f"series={args.series} seed={args.seed} "
+        f"series={args.series} family={args.family} seed={args.seed} "
         f"retries={args.retries} retry_delay_ms={args.retry_delay_ms} "
         f"request_delay_ms={args.request_delay_ms}"
     )
@@ -386,6 +397,11 @@ def main() -> int:
                 continue
 
         kind = device_kind(address)
+        if args.family == "iq-f" and device_prefix(address) in {"DX", "DY"}:
+            print("=" * 72)
+            print(f"[{index}/{total}] {address} skipped: not supported for plc_family iq-f")
+            continue
+
         extended, _ = split_extended(address)
         print("=" * 72)
         print(

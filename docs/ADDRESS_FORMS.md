@@ -19,6 +19,10 @@ Use plain device names when you want the default type for that device.
 | `TS10` | timer contact |
 | `TC10` | timer coil |
 
+Family-aware parsers reject `DX` and `DY` for `SlmpPlcFamily::IqF` before
+transport. They remain normal hex-addressed device codes for non-`iQ-F`
+families.
+
 ## Typed Suffixes
 
 Use `:suffix` when the same word address should be interpreted as a specific
