@@ -4,8 +4,7 @@ This file tracks active follow-up items for the SLMP Rust library.
 
 ## 1. Validation
 
-- **Live-check Q-series runtime ranges**
-  Confirm QCPU/LCPU/QnU/QnUDV `Z`, `ZR`, and `R` runtime range behavior on real
+- [ ] **Live-check Q-series runtime ranges**: Confirm QCPU/LCPU/QnU/QnUDV `Z`, `ZR`, and `R` runtime range behavior on real
   hardware. The expected behavior is:
   - QCPU `Z` is selected by probing `Z15` and resolves to 10 or 16 points.
   - LCPU/QnU/QnUDV `Z` is fixed at 20 points.
@@ -22,14 +21,12 @@ This file tracks active follow-up items for the SLMP Rust library.
 
 ## 2. Protocol Follow-Up
 
-- **Extended Specification live coverage expansion**
-  Keep Rust aligned with the .NET, Python, and Node-RED stacks after broader
+- [ ] **Extended Specification live coverage expansion**: Keep Rust aligned with the .NET, Python, and Node-RED stacks after broader
   address-range, transport, and PLC-family coverage is validated. QnUDV has no
   `HG`; `U0\G10` read-only on the current QnUDV target returned `0xC070` with
   command `0x0401` subcommand `0x0080`.
 
-- **Mixed block write root cause**
-  Keep Rust behavior aligned if the root cause for one-request mixed `1406`
+- [ ] **Mixed block write root cause**: Keep Rust behavior aligned if the root cause for one-request mixed `1406`
   write rejection is identified in the shared SLMP libraries. On the current
   QnUDV target, word-only, bit-only, and mixed `1406` block writes returned
   `0xC059`, so this appears to be block-write command support rather than a
@@ -37,4 +34,4 @@ This file tracks active follow-up items for the SLMP Rust library.
 
 ## 3. Practical Limits
 
-- ASCII mode is intentionally out of scope.
+- [x] **ASCII mode out of scope**: ASCII mode is intentionally out of scope.
