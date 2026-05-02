@@ -9,7 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 fn spec_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../plc-comm-slmp-cross-verify/specs/shared")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/shared-spec")
 }
 
 fn load_json(name: &str) -> Value {
