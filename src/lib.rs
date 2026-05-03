@@ -98,21 +98,22 @@
 //!
 mod address;
 mod client;
-mod connection_profile_probe;
+mod device_range_sample;
 mod device_ranges;
 mod error;
 mod helpers;
 mod model;
+mod route_validation;
 
 pub use address::{
     SlmpAddress, normalize_named_address, parse_device_for_plc_family, parse_named_address,
     parse_named_target, parse_qualified_device, parse_target_auto_number,
 };
 pub use client::{SlmpClient, encode_device_spec};
-pub use connection_profile_probe::{
-    SlmpConnectionProfileProbeResult, SlmpConnectionProfileProbeStatus,
-    SlmpResolvedDeviceRangeCatalog, probe_connection_profiles,
-    read_device_range_catalog_with_three_e_legacy_fallback,
+pub use device_range_sample::{
+    SlmpDeviceRangeSampleDeviceReport, SlmpDeviceRangeSampleFailure, SlmpDeviceRangeSampleOptions,
+    SlmpDeviceRangeSampleReport, SlmpDeviceRangeSampleSummary, SlmpDeviceRangeSampleValueKind,
+    run_device_range_sample_compare,
 };
 pub use device_ranges::{
     SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeFamily,
@@ -134,4 +135,8 @@ pub use model::{
     SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpNamedTarget, SlmpPlcFamily,
     SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
     SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+};
+pub use route_validation::{
+    SlmpRouteValidationCase, SlmpRouteValidationOptions, SlmpRouteValidationReport,
+    SlmpRouteValidationStatus, SlmpRouteValidationSummary, run_route_validation_compare,
 };

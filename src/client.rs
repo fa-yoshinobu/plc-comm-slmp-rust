@@ -72,6 +72,9 @@ impl SlmpClient {
 
     pub async fn close(&self) -> Result<(), SlmpError> {
         let mut inner = self.inner.lock().await;
+        if let Transport::Tcp(stream) = &mut inner.transport {
+            stream.shutdown().await?;
+        }
         inner.last_request_frame.clear();
         inner.last_response_frame.clear();
         Ok(())

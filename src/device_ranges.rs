@@ -114,6 +114,7 @@ pub(crate) fn normalize_model(model: &str) -> String {
         .to_ascii_uppercase()
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_family(
     type_info: &SlmpTypeNameInfo,
 ) -> Result<SlmpDeviceRangeFamily, SlmpError> {
@@ -138,6 +139,7 @@ pub(crate) fn resolve_family(
     )))
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_profile(
     type_info: &SlmpTypeNameInfo,
 ) -> Result<SlmpDeviceRangeProfile, SlmpError> {
@@ -516,6 +518,7 @@ fn multi(
     }
 }
 
+#[cfg(test)]
 fn family_from_model_code(model_code: u16) -> Option<SlmpDeviceRangeFamily> {
     Some(match model_code {
         0x0250 | 0x0251 | 0x0041 | 0x0042 | 0x0043 | 0x0044 | 0x004B | 0x004C | 0x0230 => {
@@ -541,6 +544,7 @@ fn family_from_model_code(model_code: u16) -> Option<SlmpDeviceRangeFamily> {
     })
 }
 
+#[cfg(test)]
 fn family_from_model_name(model: &str) -> Option<SlmpDeviceRangeFamily> {
     const PREFIXES: &[(&str, SlmpDeviceRangeFamily)] = &[
         ("Q04UDPV", SlmpDeviceRangeFamily::QnUDV),

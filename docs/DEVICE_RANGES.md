@@ -72,8 +72,8 @@ address text this crate expects.
 `iQ-L` and legacy `LCPU` are treated as different PLC families in this crate;
 they are not interchangeable.
 
-The lower-level model-code and model-text resolution tables still exist for the
-diagnostic profile probe utilities.
+The lower-level model-code and model-text resolution tables are used only by
+explicit device-range catalog calls.
 
 Embedded model-code tables cover the known codes shared during implementation
 for these families:
