@@ -1,5 +1,6 @@
 use plc_comm_slmp::{
-    SlmpClient, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec,
+    SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpCompatibilityMode,
+    SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType,
     SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue, read_dwords_chunked,
     read_dwords_single_request, read_named, read_typed, write_typed,
 };
@@ -47,8 +48,55 @@ impl MultiResponseServer {
     }
 }
 
+struct CapturingResponseServer {
+    port: u16,
+    requests: std::sync::Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
+}
+
+impl CapturingResponseServer {
+    async fn start(responses: Vec<(u16, Vec<u8>)>) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let requests = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let request_clone = requests.clone();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut pending = std::collections::VecDeque::from(responses);
+                while let Some((end_code, payload)) = pending.pop_front() {
+                    let mut header = [0u8; 13];
+                    if stream.read_exact(&mut header).await.is_err() {
+                        return;
+                    }
+                    let body_len = u16::from_le_bytes([header[11], header[12]]) as usize;
+                    let mut body = vec![0u8; body_len];
+                    if stream.read_exact(&mut body).await.is_err() {
+                        return;
+                    }
+                    let mut request = header.to_vec();
+                    request.extend_from_slice(&body);
+                    request_clone.lock().await.push(request.clone());
+                    let response = build_4e_response_with_end_code(&request, end_code, &payload);
+                    if stream.write_all(&response).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        Ok(Self { port, requests })
+    }
+
+    async fn requests(&self) -> Vec<Vec<u8>> {
+        self.requests.lock().await.clone()
+    }
+}
+
 fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
+    build_4e_response_with_end_code(request, 0, response_data)
+}
+
+fn build_4e_response_with_end_code(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
     let mut payload = vec![0u8; 2 + response_data.len()];
+    payload[0..2].copy_from_slice(&end_code.to_le_bytes());
     payload[2..].copy_from_slice(response_data);
 
     let mut response = vec![0u8; 13 + payload.len()];
@@ -415,4 +463,52 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("does not support LTN/LSTN/LCN/LZ"));
+}
+
+#[tokio::test]
+async fn mixed_block_write_retries_as_split_requests_after_plc_rejects_one_request_shape() {
+    let server = CapturingResponseServer::start(vec![
+        (0xC05B, Vec::new()),
+        (0x0000, Vec::new()),
+        (0x0000, Vec::new()),
+    ])
+    .await
+    .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    options.port = server.port;
+    options.frame_type = SlmpFrameType::Frame4E;
+    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    client
+        .write_block(
+            &[SlmpBlockWrite {
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                values: vec![0x1234],
+            }],
+            &[SlmpBlockWrite {
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 200),
+                values: vec![0x0005],
+            }],
+            Some(SlmpBlockWriteOptions {
+                split_mixed_blocks: false,
+                retry_mixed_on_error: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 3);
+    assert_block_write_shape(&requests[0], 1, 1);
+    assert_block_write_shape(&requests[1], 1, 0);
+    assert_block_write_shape(&requests[2], 0, 1);
+}
+
+fn assert_block_write_shape(request: &[u8], word_blocks: u8, bit_blocks: u8) {
+    let body = &request[13..];
+    assert_eq!(u16::from_le_bytes([body[2], body[3]]), 0x1406);
+    assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0002);
+    assert_eq!(body[6], word_blocks);
+    assert_eq!(body[7], bit_blocks);
 }

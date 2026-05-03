@@ -58,6 +58,11 @@ path = "examples/device_matrix_compare.rs"
 required-features = ["cli"]
 
 [[example]]
+name = "extended_device_coverage"
+path = "examples/extended_device_coverage.rs"
+required-features = ["cli"]
+
+[[example]]
 name = "device_range_sample_compare"
 path = "examples/device_range_sample_compare.rs"
 required-features = ["cli"]

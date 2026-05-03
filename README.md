@@ -239,6 +239,23 @@ SLMP_COMPARE_ONLY='LTS10,LTC10,LCS10,LCC10,LTN10,LSTN10' \
 cargo run --features cli --example device_matrix_compare
 ```
 
+### `extended_device_coverage`
+
+Real-PLC sweep for Extended Specification devices. It reads every
+`SLMP_EXT_DEVICES` x `SLMP_EXT_POINTS` x `SLMP_EXT_DIRECT_MEMORIES` candidate,
+optionally writes and restores with `SLMP_EXT_WRITE_CHECK=1`, and writes a
+Markdown report with OK/NG kept visible.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_PLC_FAMILY=iq-r \
+SLMP_EXT_DEVICES='U3E0\G10' \
+SLMP_EXT_POINTS='1,2' \
+SLMP_EXT_WRITE_CHECK=1 \
+cargo run --features cli --example extended_device_coverage
+```
+
 ### `device_range_sample_compare`
 
 Real-PLC range sample that reads the live device-range catalog, then tests up to

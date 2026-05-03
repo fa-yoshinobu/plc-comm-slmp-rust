@@ -125,28 +125,10 @@ This file tracks active follow-up items for the SLMP Rust library.
 
 ## 2. Protocol Follow-Up
 
-- [ ] **Extended Specification live coverage expansion**: Keep Rust aligned with the .NET, Python, and Node-RED stacks after broader
-  address-range, transport, and PLC-family coverage is validated. QnUDV has no
-  `HG`; `U0\G10` read-only on the current QnUDV target returned `0xC070` with
-  command `0x0401` subcommand `0x0080`.
-
-- [ ] **Mixed block write root cause**: Keep Rust behavior aligned if the root cause for one-request mixed `1406`
-  write rejection is identified in the shared SLMP libraries. On the current
-  QnUDV target, word-only, bit-only, and mixed `1406` block writes returned
-  `0xC059`, so this appears to be block-write command support rather than a
-  mixed-only rejection on that target.
-
-- [ ] **RD compatibility-mode coverage**: Keep MELSEC `RD` supported in the SLMP Rust library even
-  though PLC IO Checker apps should keep `RD` hidden for now. `RD0` exists on the live iQ-L
-  `L16HCPU`, and the range catalog reported `RD0-RD524287` on 2026-05-03. Follow-up investigation
-  showed the route is compatibility-mode dependent: legacy subcommand `0x0000` returns `0xC05B`,
-  while Iqr subcommand `0x0002` reads `RD0` and `RD524287` successfully and rejects `RD524288`
-  with range error `0x4031`. Add explicit coverage and avoid verification tooling that silently
-  forces legacy mode for iQ-L.
-
-## 3. Practical Limits
-
-- [x] **ASCII mode out of scope**: ASCII mode is intentionally out of scope.
-- [x] **MELSEC S device out of scope for now**: The live iQ-L `L16HCPU` reported an `S0-S1023`
-  range on 2026-05-03, but `S` remains intentionally unsupported until parser/client behavior and
-  downstream app handling are explicitly designed and live-validated.
+- [ ] **Extended Specification live coverage expansion**: Run the expanded
+  `extended_device_coverage` sweep across the remaining PLC-family and transport
+  matrix. Keep OK/NG rows visible in the generated report. QnUDV has no `HG`;
+  `U0\G10` read-only on the current QnUDV target returned `0xC070` with command
+  `0x0401` subcommand `0x0080`. On the current iQ-L target, `U3E0\G...` is the
+  valid Extended Specification live-coverage path; `HG` and `J` paths are not
+  part of that PLC's executable coverage set.
