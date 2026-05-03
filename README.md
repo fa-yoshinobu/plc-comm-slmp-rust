@@ -35,6 +35,29 @@ verification clients.
 - `slmp_verify_client` wrapper for `plc-comm-slmp-cross-verify`
 - minimal `napi-rs` Node binding scaffold in `crates/slmp-node`
 
+## PLC Family Defaults
+
+`SlmpConnectionOptions::new(host, family)` applies the default SLMP frame and
+compatibility profile for the selected PLC family. PLC IO Checker iOS and
+Android store the selected model label only and rely on this mapping instead of
+persisting frame or compatibility settings.
+
+| PLC family | Default frame | Default compatibility |
+| --- | --- | --- |
+| `iQ-R`, `iQ-L`, `MX-R`, `MX-F` | `Frame4E` | `Iqr` |
+| `iQ-F` | `Frame3E` | `Legacy` |
+| `QCPU`, `LCPU`, `QnU`, `QnUDV` | `Frame3E` | `Legacy` |
+
+`RD` is a real MELSEC device on the live iQ-L target that was checked, but it is
+profile-sensitive: legacy word subcommand `0x0000` returned `0xC05B`, while Iqr
+word subcommand `0x0002` read `RD0` and `RD524287` successfully and rejected
+`RD524288` with range error `0x4031`. Use the `iQ-L` family defaults or set
+`compatibility_mode = SlmpCompatibilityMode::Iqr` explicitly when probing `RD`
+on iQ-L class PLCs.
+
+For `iQ-F` and legacy PLC families, do not select `Frame4E`; use the selected
+PLC family defaults instead of probing alternate profiles.
+
 ## Installation
 
 Install from crates.io:
@@ -190,18 +213,6 @@ SLMP_PLC_FAMILY=iq-f \
 cargo run --features cli --example device_range_catalog
 ```
 
-### `connection_profile_probe`
-
-Tries the standard frame and compatibility candidates, reads `read_type_name`,
-then validates the resolved family by reading its full `SD` block once. The
-result is advisory only so the caller can choose which settings to use.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_PORT=1025 \
-cargo run --features cli --example connection_profile_probe
-```
-
 ### `device_matrix_compare`
 
 Real-PLC regression sample that writes the same address through multiple command
@@ -228,6 +239,43 @@ SLMP_COMPARE_ONLY='LTS10,LTC10,LCS10,LCC10,LTN10,LSTN10' \
 cargo run --features cli --example device_matrix_compare
 ```
 
+### `device_range_sample_compare`
+
+Real-PLC range sample that reads the live device-range catalog, then tests up to
+10 addresses for each supported device: start, end, middle, and additional
+distributed points. Each point is read, written with two values, verified, and
+restored. Normal bit devices also compare contiguous `read_bits` results with
+`DeviceReadBlock` packed bit-word values.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_PLC_FAMILY=iq-l \
+cargo run --features cli --example device_range_sample_compare
+```
+
+Focus on a subset while debugging:
+
+```bash
+SLMP_SAMPLE_ONLY='D,M,RD' \
+cargo run --features cli --example device_range_sample_compare
+```
+
+### `route_validation_compare`
+
+Real-PLC route sample aligned with the more advanced `plc-comm-slmp-dotnet`
+coverage. It compares block, random, typed, `LZ`, and range-error routes so that
+helper APIs keep resolving to the intended SLMP commands.
+
+```bash
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_PLC_FAMILY=iq-l \
+cargo run --features cli --example route_validation_compare
+```
+
+Use `SLMP_PORT=1027 SLMP_TRANSPORT=udp` for the iQ-L UDP path.
+
 The shared environment variables for these examples are documented in
 [`docs/RECIPES.md`](docs/RECIPES.md).
 
@@ -241,12 +289,13 @@ Main exports:
 - `SlmpConnectionOptions`
 - `SlmpClient`
 - `SlmpAddress`
-- `probe_connection_profiles`
 - `read_type_name` / `read_device_range_catalog` / `read_device_range_catalog_for_family`
 - `read_typed` / `write_typed`
 - `write_bit_in_word`
 - `read_named` / `write_named`
 - `poll_named`
+- `run_device_range_sample_compare`
+- `run_route_validation_compare`
 - `read_words_single_request` / `read_dwords_single_request`
 - `read_words_chunked` / `read_dwords_chunked`
 - `write_words_single_request` / `write_dwords_single_request`

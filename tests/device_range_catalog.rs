@@ -1,6 +1,6 @@
 use plc_comm_slmp::{
     SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpFrameType,
-    SlmpPlcFamily, read_device_range_catalog_with_three_e_legacy_fallback,
+    SlmpPlcFamily,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -156,41 +156,6 @@ async fn read_device_range_catalog_for_family_exposes_iql_family() {
     );
 }
 
-#[tokio::test]
-async fn read_device_range_catalog_falls_back_to_three_e_legacy_when_type_name_does_not_return() {
-    let mut sd_values = vec![0u16; 46];
-    sd_values[0] = 1024;
-    sd_values[2] = 1024;
-    sd_values[4] = 7680;
-    sd_values[10] = 8000;
-    sd_values[20] = 10000;
-    sd_values[22] = 12000;
-
-    let server = FallbackServer::start(build_word_payload(&sd_values))
-        .await
-        .unwrap();
-
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqF);
-    options.port = server.port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
-    options.timeout = std::time::Duration::from_secs(1);
-
-    let resolved = read_device_range_catalog_with_three_e_legacy_fallback(&options)
-        .await
-        .unwrap();
-
-    assert!(resolved.used_three_e_legacy_fallback);
-    assert_eq!(resolved.frame_type, SlmpFrameType::Frame3E);
-    assert_eq!(resolved.compatibility_mode, SlmpCompatibilityMode::Legacy);
-    assert_eq!(resolved.catalog.family, SlmpDeviceRangeFamily::IqF);
-    assert_eq!(resolved.catalog.model, "IQ-F");
-    assert_eq!(
-        entry(&resolved.catalog, "X").address_range.as_deref(),
-        Some("X0000-X1777")
-    );
-}
-
 fn entry<'a>(
     catalog: &'a plc_comm_slmp::SlmpDeviceRangeCatalog,
     device: &str,
@@ -213,34 +178,6 @@ fn build_word_payload(values: &[u16]) -> Vec<u8> {
 struct MultiResponseServer {
     port: u16,
     requests: std::sync::Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
-}
-
-struct FallbackServer {
-    port: u16,
-}
-
-impl FallbackServer {
-    async fn start(sd_payload: Vec<u8>) -> std::io::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let port = listener.local_addr()?.port();
-        tokio::spawn(async move {
-            if let Ok((stream, _)) = listener.accept().await {
-                drop(stream);
-            } else {
-                return;
-            }
-
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let sd_request = match read_3e_request(&mut stream).await {
-                    Ok(request) => request,
-                    Err(_) => return,
-                };
-                let sd_response = build_3e_response(&sd_request, &sd_payload);
-                let _ = stream.write_all(&sd_response).await;
-            }
-        });
-        Ok(Self { port })
-    }
 }
 
 impl MultiResponseServer {
@@ -294,29 +231,5 @@ fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
     response[6..11].copy_from_slice(&request[6..11]);
     response[11..13].copy_from_slice(&(payload.len() as u16).to_le_bytes());
     response[13..].copy_from_slice(&payload);
-    response
-}
-
-async fn read_3e_request(stream: &mut tokio::net::TcpStream) -> Result<Vec<u8>, std::io::Error> {
-    let mut header = [0u8; 15];
-    stream.read_exact(&mut header).await?;
-    let body_len = u16::from_le_bytes([header[7], header[8]]) as usize - 6;
-    let mut body = vec![0u8; body_len];
-    stream.read_exact(&mut body).await?;
-    let mut request = header.to_vec();
-    request.extend_from_slice(&body);
-    Ok(request)
-}
-
-fn build_3e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
-    let mut payload = vec![0u8; 2 + response_data.len()];
-    payload[2..].copy_from_slice(response_data);
-
-    let mut response = vec![0u8; 9 + payload.len()];
-    response[0] = 0xD0;
-    response[1] = 0x00;
-    response[2..7].copy_from_slice(&request[2..7]);
-    response[7..9].copy_from_slice(&(payload.len() as u16).to_le_bytes());
-    response[9..].copy_from_slice(&payload);
     response
 }

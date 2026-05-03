@@ -53,11 +53,18 @@ pub async fn connect_from_env() -> Result<SlmpClient, Box<dyn Error>> {
 
 pub fn print_connection_banner(example: &str) {
     let family = env_string("SLMP_PLC_FAMILY", "iq-r");
+    let profile = SlmpPlcFamily::parse_label(&family).map(SlmpPlcFamily::defaults);
     println!(
-        "{example}: host={} port={} plc_family={} transport={} target={}",
+        "{example}: host={} port={} plc_family={} frame={} compatibility={} transport={} target={}",
         env_string("SLMP_HOST", "127.0.0.1"),
         env_string("SLMP_PORT", "1025"),
         family,
+        profile
+            .map(|profile| format!("{:?}", profile.frame_type))
+            .unwrap_or_else(|| "unknown".to_string()),
+        profile
+            .map(|profile| format!("{:?}", profile.compatibility_mode))
+            .unwrap_or_else(|| "unknown".to_string()),
         env_string("SLMP_TRANSPORT", "tcp"),
         env::var("SLMP_TARGET").unwrap_or_else(|_| "default".to_string())
     );

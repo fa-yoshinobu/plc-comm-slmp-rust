@@ -53,13 +53,23 @@ path = "examples/device_range_catalog.rs"
 required-features = ["cli"]
 
 [[example]]
-name = "connection_profile_probe"
-path = "examples/connection_profile_probe.rs"
+name = "device_matrix_compare"
+path = "examples/device_matrix_compare.rs"
 required-features = ["cli"]
 
 [[example]]
-name = "device_matrix_compare"
-path = "examples/device_matrix_compare.rs"
+name = "device_range_sample_compare"
+path = "examples/device_range_sample_compare.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "route_validation_compare"
+path = "examples/route_validation_compare.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "iql_live_stress"
+path = "examples/iql_live_stress.rs"
 required-features = ["cli"]
 
 [workspace]

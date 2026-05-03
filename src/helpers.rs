@@ -64,6 +64,15 @@ pub async fn read_typed(
     dtype: &str,
 ) -> Result<SlmpValue, SlmpError> {
     let normalized_dtype = dtype.to_uppercase();
+    validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
+    if matches!(device.code, SlmpDeviceCode::LZ) && matches!(normalized_dtype.as_str(), "D" | "L") {
+        let raw = read_random_dword_scalar(client, device).await?;
+        return Ok(if normalized_dtype == "L" {
+            SlmpValue::I32(raw as i32)
+        } else {
+            SlmpValue::U32(raw)
+        });
+    }
     if let Some(spec) = long_timer_read_spec(device.code) {
         validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
         if matches!(spec.base_code, SlmpDeviceCode::LCN)
@@ -114,6 +123,7 @@ pub async fn write_typed(
     if long_timer_read_spec(device.code).is_some() {
         validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
     }
+    validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
     match resolve_write_route(device, dtype) {
         NamedWriteRoute::RandomBits => {
             client
@@ -176,6 +186,10 @@ pub async fn read_dwords_single_request(
     start: SlmpDeviceAddress,
     count: usize,
 ) -> Result<Vec<u32>, SlmpError> {
+    if matches!(start.code, SlmpDeviceCode::LZ) {
+        validate_single_request_count(count, 0xFF)?;
+        return read_random_dwords_chunked(client, start, count, count).await;
+    }
     validate_single_request_count(count, 480)?;
     client.read_dwords_raw(start, count as u16).await
 }
@@ -233,6 +247,13 @@ pub async fn read_dwords_chunked(
     count: usize,
     max_dwords_per_request: usize,
 ) -> Result<Vec<u32>, SlmpError> {
+    if max_dwords_per_request == 0 {
+        return Err(SlmpError::new("max_dwords_per_request must be at least 1."));
+    }
+    if matches!(start.code, SlmpDeviceCode::LZ) {
+        return read_random_dwords_chunked(client, start, count, max_dwords_per_request.min(0xFF))
+            .await;
+    }
     let mut remaining = count;
     let mut offset = 0u32;
     let mut result = Vec::with_capacity(count);
@@ -246,6 +267,30 @@ pub async fn read_dwords_chunked(
                 )
                 .await?,
         );
+        remaining -= next;
+        offset += next as u32;
+    }
+    Ok(result)
+}
+
+async fn read_random_dwords_chunked(
+    client: &SlmpClient,
+    start: SlmpDeviceAddress,
+    count: usize,
+    max_dwords_per_request: usize,
+) -> Result<Vec<u32>, SlmpError> {
+    if max_dwords_per_request == 0 {
+        return Err(SlmpError::new("max_dwords_per_request must be at least 1."));
+    }
+    let mut remaining = count;
+    let mut offset = 0u32;
+    let mut result = Vec::with_capacity(count);
+    while remaining > 0 {
+        let next = remaining.min(max_dwords_per_request);
+        let devices = (0..next)
+            .map(|index| SlmpDeviceAddress::new(start.code, start.number + offset + index as u32))
+            .collect::<Vec<_>>();
+        result.extend(client.read_random(&[], &devices).await?.dword_values);
         remaining -= next;
         offset += next as u32;
     }
@@ -376,6 +421,7 @@ fn compile_read_plan(
         let device = parse_device_for_family_hint(&parts.base, Some(plc_family))?;
         let dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
         validate_long_timer_entry(address, device, &dtype)?;
+        validate_dword_only_entry(address, device, &dtype)?;
 
         if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
@@ -692,6 +738,22 @@ fn validate_long_timer_entry(
     if !dtype.eq_ignore_ascii_case("BIT") {
         return Err(SlmpError::new(format!(
             "Address '{address}' is a long timer state device. Use the plain device form without a dtype override."
+        )));
+    }
+    Ok(())
+}
+
+fn validate_dword_only_entry(
+    address: &str,
+    device: SlmpDeviceAddress,
+    dtype: &str,
+) -> Result<(), SlmpError> {
+    if !matches!(device.code, SlmpDeviceCode::LZ) {
+        return Ok(());
+    }
+    if dtype != "D" && dtype != "L" {
+        return Err(SlmpError::new(format!(
+            "Address '{address}' is a 32-bit device. Use ':D' or ':L'."
         )));
     }
     Ok(())
