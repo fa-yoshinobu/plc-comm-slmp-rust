@@ -23,6 +23,7 @@ use tokio::task;
 use tokio::time::timeout;
 
 const MAX_RUNTIME_RANGE_PROBE_COUNT: u32 = 1_048_576;
+const UDP_RECEIVE_BUFFER_SIZE: usize = 65_535;
 
 #[derive(Clone)]
 pub struct SlmpClient {
@@ -1675,7 +1676,9 @@ impl ClientInner {
                     self.last_response_frame.clear();
                     return Ok(Vec::new());
                 }
-                self.last_response_frame.resize(8192, 0);
+                // UDP datagrams cannot be continued by another recv call.
+                // Keep the buffer large enough for a full datagram to avoid truncating PLC responses.
+                self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
                 let received = timeout(
                     self.options.timeout,
                     socket.recv(&mut self.last_response_frame),

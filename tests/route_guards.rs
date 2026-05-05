@@ -5,7 +5,7 @@ use plc_comm_slmp::{
     read_dwords_single_request, read_named, read_typed, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UdpSocket};
 
 async fn udp_client() -> SlmpClient {
     let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
@@ -151,6 +151,36 @@ async fn close_shuts_down_tcp_stream() {
         .unwrap()
         .unwrap();
     assert_eq!(read_result, 0);
+}
+
+#[tokio::test]
+async fn udp_read_words_accepts_large_datagram_response() {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let mut request = vec![0u8; 1024];
+        let (read, peer) = socket.recv_from(&mut request).await.unwrap();
+        let mut response_data = Vec::new();
+        for value in 0..4100u16 {
+            response_data.extend_from_slice(&value.to_le_bytes());
+        }
+        let response = build_4e_response(&request[..read], &response_data);
+        socket.send_to(&response, peer).await.unwrap();
+    });
+
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    options.transport_mode = SlmpTransportMode::Udp;
+    options.port = port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let values = client
+        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 4100)
+        .await
+        .unwrap();
+
+    assert_eq!(values.len(), 4100);
+    assert_eq!(values[0], 0);
+    assert_eq!(values[4099], 4099);
 }
 
 #[tokio::test]
