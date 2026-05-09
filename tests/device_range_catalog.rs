@@ -156,6 +156,42 @@ async fn read_device_range_catalog_for_family_exposes_iql_family() {
     );
 }
 
+#[tokio::test]
+async fn read_device_range_catalog_for_family_caps_iqr_sd_point_counts() {
+    let mut sd_values = vec![0u16; 50];
+    set_dword(&mut sd_values, 0, 12_289);
+    set_dword(&mut sd_values, 4, 94_674_945);
+    set_dword(&mut sd_values, 20, 5_917_185);
+    set_dword(&mut sd_values, 34, 1_479_297);
+    set_dword(&mut sd_values, 38, 2_784_545);
+
+    let server = MultiResponseServer::start(vec![build_word_payload(&sd_values)])
+        .await
+        .unwrap();
+
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let catalog = client
+        .read_device_range_catalog_for_family(SlmpDeviceRangeFamily::IqR)
+        .await
+        .unwrap();
+
+    assert_eq!(server.request_count().await, 1);
+    assert_eq!(catalog.model, "IQ-R");
+    assert_eq!(catalog.family, SlmpDeviceRangeFamily::IqR);
+    assert_eq!(entry(&catalog, "X").point_count, Some(12_288));
+    assert_eq!(
+        entry(&catalog, "X").address_range.as_deref(),
+        Some("X0000-X2FFF")
+    );
+    assert_eq!(entry(&catalog, "M").point_count, Some(94_674_944));
+    assert_eq!(entry(&catalog, "D").point_count, Some(5_917_184));
+    assert_eq!(entry(&catalog, "LTN").point_count, Some(1_479_296));
+    assert_eq!(entry(&catalog, "LCN").point_count, Some(2_784_544));
+}
+
 fn entry<'a>(
     catalog: &'a plc_comm_slmp::SlmpDeviceRangeCatalog,
     device: &str,
@@ -173,6 +209,11 @@ fn build_word_payload(values: &[u16]) -> Vec<u8> {
         payload.extend_from_slice(&value.to_le_bytes());
     }
     payload
+}
+
+fn set_dword(values: &mut [u16], offset: usize, value: u32) {
+    values[offset] = value as u16;
+    values[offset + 1] = (value >> 16) as u16;
 }
 
 struct MultiResponseServer {

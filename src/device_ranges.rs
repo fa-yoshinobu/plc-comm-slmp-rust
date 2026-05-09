@@ -204,7 +204,9 @@ pub(crate) fn build_catalog(
             .rules
             .get(item)
             .ok_or_else(|| SlmpError::new(format!("Missing range rule for item {item}.")))?;
-        let point_count = evaluate_point_count(spec, registers)?;
+        let raw_point_count = evaluate_point_count(spec, registers)?;
+        let (point_count, family_note) =
+            apply_family_point_count_cap(profile.family, item, raw_point_count);
         let upper_bound = point_count_to_upper_bound(point_count);
         let supported = spec.kind != SlmpRangeValueKind::Unsupported;
         for (device, is_bit_device) in row.devices {
@@ -220,7 +222,7 @@ pub(crate) fn build_catalog(
                 address_range: format_address_range(device, notation, upper_bound),
                 notation,
                 source: spec.source.to_string(),
-                notes: spec.notes.map(str::to_string),
+                notes: merge_notes(spec.notes, family_note),
             });
         }
     }
@@ -305,6 +307,55 @@ fn evaluate_point_count(
             Some(read_dword(registers, spec.register)?.min(spec.clip_value))
         }
     })
+}
+
+fn apply_family_point_count_cap(
+    family: SlmpDeviceRangeFamily,
+    item: &str,
+    point_count: Option<u32>,
+) -> (Option<u32>, Option<&'static str>) {
+    let Some(value) = point_count else {
+        return (None, None);
+    };
+    let Some(cap) = family_point_count_cap(family, item) else {
+        return (Some(value), None);
+    };
+    if value > cap {
+        (
+            Some(cap),
+            Some("iQ-R SD point count is capped to the fixed family maximum."),
+        )
+    } else {
+        (Some(value), None)
+    }
+}
+
+fn family_point_count_cap(family: SlmpDeviceRangeFamily, item: &str) -> Option<u32> {
+    if family != SlmpDeviceRangeFamily::IqR {
+        return None;
+    }
+
+    Some(match item {
+        "X" | "Y" => 12_288,
+        "M" | "B" | "SB" => 94_674_944,
+        "F" | "V" | "L" => 32_768,
+        "T" | "ST" | "C" => 5_259_712,
+        "LT" | "LST" => 1_479_296,
+        "LC" => 2_784_544,
+        "D" | "W" | "SW" => 5_917_184,
+        _ => return None,
+    })
+}
+
+fn merge_notes(primary: Option<&'static str>, extra: Option<&'static str>) -> Option<String> {
+    match (primary, extra) {
+        (Some(left), Some(right)) if !left.is_empty() && !right.is_empty() => {
+            Some(format!("{left} {right}"))
+        }
+        (Some(left), _) if !left.is_empty() => Some(left.to_string()),
+        (_, Some(right)) if !right.is_empty() => Some(right.to_string()),
+        _ => None,
+    }
 }
 
 fn point_count_to_upper_bound(point_count: Option<u32>) -> Option<u32> {
@@ -1001,6 +1052,11 @@ mod tests {
             .unwrap()
     }
 
+    fn insert_dword(snapshot: &mut BTreeMap<u16, u16>, register: u16, value: u32) {
+        snapshot.insert(register, value as u16);
+        snapshot.insert(register + 1, (value >> 16) as u16);
+    }
+
     #[test]
     fn normalize_model_trims_and_upcases() {
         assert_eq!(normalize_model(" R120PCPU\0 "), "R120PCPU");
@@ -1068,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    fn build_catalog_iqr_reads_dword_registers_and_expands_long_families() {
+    fn build_catalog_iqr_reads_dword_registers_and_caps_family_maximums() {
         let type_info = SlmpTypeNameInfo {
             model: "R120PCPU".to_string(),
             model_code: 0x4844,
@@ -1076,25 +1132,45 @@ mod tests {
         };
         let profile = resolve_profile(&type_info).unwrap();
         let mut snapshot = create_snapshot(&profile);
-        snapshot.insert(260, 0x5678);
-        snapshot.insert(261, 0x1234);
-        snapshot.insert(294, 0x4321);
-        snapshot.insert(295, 0x0001);
-        snapshot.insert(306, 0x0001);
-        snapshot.insert(307, 0x0002);
+        insert_dword(&mut snapshot, 260, 12_289);
+        insert_dword(&mut snapshot, 264, 94_674_945);
+        insert_dword(&mut snapshot, 266, 94_674_945);
+        insert_dword(&mut snapshot, 270, 32_769);
+        insert_dword(&mut snapshot, 280, 5_917_185);
+        insert_dword(&mut snapshot, 282, 5_917_185);
+        insert_dword(&mut snapshot, 284, 5_917_185);
+        insert_dword(&mut snapshot, 288, 5_259_713);
+        insert_dword(&mut snapshot, 294, 1_479_297);
+        insert_dword(&mut snapshot, 296, 1_479_297);
+        insert_dword(&mut snapshot, 298, 2_784_545);
+        insert_dword(&mut snapshot, 306, 0x0002_0001);
 
         let catalog = build_catalog(&type_info, &profile, &snapshot).unwrap();
 
-        assert_eq!(entry(&catalog, "X").point_count, Some(0x1234_5678));
-        assert_eq!(entry(&catalog, "X").upper_bound, Some(0x1234_5677));
+        assert_eq!(entry(&catalog, "X").point_count, Some(12_288));
+        assert_eq!(entry(&catalog, "X").upper_bound, Some(12_287));
         assert_eq!(
             entry(&catalog, "X").address_range.as_deref(),
-            Some("X00000000-X12345677")
+            Some("X0000-X2FFF")
         );
-        assert_eq!(entry(&catalog, "LTN").point_count, Some(0x0001_4321));
-        assert_eq!(entry(&catalog, "LTN").upper_bound, Some(0x0001_4320));
-        assert_eq!(entry(&catalog, "LTS").point_count, Some(0x0001_4321));
-        assert_eq!(entry(&catalog, "LTS").upper_bound, Some(0x0001_4320));
+        assert_eq!(entry(&catalog, "M").point_count, Some(94_674_944));
+        assert_eq!(entry(&catalog, "M").upper_bound, Some(94_674_943));
+        assert_eq!(entry(&catalog, "B").point_count, Some(94_674_944));
+        assert_eq!(
+            entry(&catalog, "B").address_range.as_deref(),
+            Some("B0000000-B5A49FFF")
+        );
+        assert_eq!(entry(&catalog, "F").point_count, Some(32_768));
+        assert_eq!(entry(&catalog, "D").point_count, Some(5_917_184));
+        assert_eq!(entry(&catalog, "W").point_count, Some(5_917_184));
+        assert_eq!(
+            entry(&catalog, "SW").address_range.as_deref(),
+            Some("SW000000-SW5A49FF")
+        );
+        assert_eq!(entry(&catalog, "TN").point_count, Some(5_259_712));
+        assert_eq!(entry(&catalog, "LTN").point_count, Some(1_479_296));
+        assert_eq!(entry(&catalog, "LSTN").point_count, Some(1_479_296));
+        assert_eq!(entry(&catalog, "LCN").point_count, Some(2_784_544));
         assert_eq!(entry(&catalog, "R").point_count, Some(32768));
         assert_eq!(entry(&catalog, "R").upper_bound, Some(32767));
         assert_eq!(
