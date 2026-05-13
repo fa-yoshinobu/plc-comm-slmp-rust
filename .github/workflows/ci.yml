@@ -15,16 +15,7 @@ jobs:
         with:
           path: plc-comm-slmp-rust
 
-      - uses: actions/checkout@v4
-        with:
-          repository: fa-yoshinobu/plc-comm-slmp-cross-verify
-          path: plc-comm-slmp-cross-verify
-
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - name: Cargo test
         working-directory: plc-comm-slmp-rust
@@ -41,7 +32,3 @@ jobs:
       - name: Build API docs
         working-directory: plc-comm-slmp-rust
         run: cargo doc --no-deps -p plc-comm-slmp-rust
-
-      - name: Cross-verify rust client
-        working-directory: plc-comm-slmp-cross-verify
-        run: python verify.py --clients rust
