@@ -1,15 +1,10 @@
 [![CI](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml)
+[![docs](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/docs.yml/badge.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/docs.yml)
 [![crates.io](https://img.shields.io/crates/v/plc-comm-slmp-rust.svg)](https://crates.io/crates/plc-comm-slmp-rust)
 [![docs.rs](https://img.shields.io/docsrs/plc-comm-slmp-rust)](https://docs.rs/plc-comm-slmp-rust)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/blob/main/LICENSE)
 
 # SLMP Protocol for Rust
-
-[![docs](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/docs.yml/badge.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/docs.yml)
-
-[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Node-RED](https://img.shields.io/badge/Node--RED-8F0000?logo=nodered&logoColor=white)](https://nodered.org/)
 
 Async Rust implementation of the SLMP library, based on the `plc-comm-slmp-dotnet`
 implementation and aligned with the shared `plc-comm-slmp-cross-verify` harness.
