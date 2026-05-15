@@ -14,9 +14,11 @@ Scope:
   - block specs followed by word payloads, then bit payloads
 - For iQ-R style compatibility, both libraries use subcommand `0x0002`.
 - When the PLC rejects the one-request mixed shape with known rejection end
-  codes (`0xC056`, `0xC05B`, `0xC061`, `0x414A`), both libraries can retry as:
+  codes (`0xC056`, `0xC061`, `0x414A`), both libraries can retry as:
   - word-only `0x1406`
   - bit-only `0x1406`
+- `0xC05B` is preserved as an observed PLC end code, but it is not a mixed
+  retry trigger in the current clients.
 - Non-live tests now verify this retry path and request split shape.
 
 ## Live Observations
@@ -33,4 +35,5 @@ Scope:
 No current evidence points to a Rust/.NET payload assembly mismatch. The
 remaining behavior is treated as PLC command support or request-shape capability
 variation. The implemented fallback is the intended practical behavior for
-mixed word+bit writes on targets that accept split block writes.
+mixed word+bit writes on targets that accept split block writes and return one
+of the current retry-trigger end codes.

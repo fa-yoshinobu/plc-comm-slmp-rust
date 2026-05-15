@@ -496,12 +496,8 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
 }
 
 #[tokio::test]
-async fn mixed_block_write_retries_as_split_requests_after_plc_rejects_one_request_shape() {
-    let server = CapturingResponseServer::start(vec![
-        (0xC05B, Vec::new()),
-        (0x0000, Vec::new()),
-        (0x0000, Vec::new()),
-    ])
+async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
+    let server = CapturingResponseServer::start(vec![(0xC05B, Vec::new())])
     .await
     .unwrap();
     let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
@@ -510,7 +506,7 @@ async fn mixed_block_write_retries_as_split_requests_after_plc_rejects_one_reque
     options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     let client = SlmpClient::connect(options).await.unwrap();
 
-    client
+    let error = client
         .write_block(
             &[SlmpBlockWrite {
                 device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
@@ -526,13 +522,12 @@ async fn mixed_block_write_retries_as_split_requests_after_plc_rejects_one_reque
             }),
         )
         .await
-        .unwrap();
+        .unwrap_err();
+    assert_eq!(error.end_code, Some(0xC05B));
 
     let requests = server.requests().await;
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 1);
     assert_block_write_shape(&requests[0], 1, 1);
-    assert_block_write_shape(&requests[1], 1, 0);
-    assert_block_write_shape(&requests[2], 0, 1);
 }
 
 fn assert_block_write_shape(request: &[u8], word_blocks: u8, bit_blocks: u8) {

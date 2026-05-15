@@ -63,19 +63,16 @@ This file tracks active follow-up items for the SLMP Rust library.
   PLC/system-device behavior for this target, not unresolved Rust library bugs.
   The harness output still records the raw `readback_failed=5` result.
 
-- [x] **QnUDV route and all-device candidate validation**: On 2026-05-03, the
-  live QnUDV at `192.168.250.100` was checked over TCP `1025` and UDP `1027`
-  using `SLMP_PLC_FAMILY=qnudv` (`Frame3E` + `Legacy`). Route validation passed
-  on the supported routes with `passed=9`, `failed=0`, `warned=0`,
-  `skipped=10`. `read_type_name`, `Frame4E`, block routes, random routes, `LZ`,
-  and `RD` are not used for QnUDV validation. The all-device candidate sample
-  intentionally reports NG instead of hiding it: TCP/UDP both returned
-  `passed=249`, `read_failed=0`, `write_failed=0`, `readback_failed=1`,
-  `restore_failed=0`, `skipped=11`, `unsupported=1`. Android Rust bridge and
-  iOS C ABI route validation passed over TCP `1025`; app-side sample validation
-  failed with the same `readback_failed=1`, so the bridge does not hide NG. The
-  readback NG point was `SD1279`. See
-  `docs/QNUDV_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md`.
+- [x] **QnUDV route and all-device candidate validation**: QnUDV has been
+  live-checked with the maintained validation harnesses. The earlier sample
+  validation intentionally reported the expected system-device readback NG
+  instead of hiding it. The current QnUDV record is the 2026-05-15
+  `Q06UDVCPU` run at `192.168.250.100:1025`, which passed cross-stack direct
+  read/write/restore, random read/write, word-only block read/write, bit-block
+  NG behavior, mixed-block NG behavior, and read-only `U0\G10` Extended
+  Specification checks across Python, Node-RED, .NET, Rust, and C++ Minimal.
+  See `docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md` and
+  `../plc-comm-slmp-cross-verify/QNUDV_CROSS_STACK_VALIDATION_2026-05-15.md`.
 
 - [x] **Investigate QnUDV readback NG point**: Human review confirmed that
   `SD1279` is expected PLC/system-device behavior for this target, not an
@@ -108,27 +105,56 @@ This file tracks active follow-up items for the SLMP Rust library.
   `close()` to shut down TCP and dropping the main stress client before reconnect
   probes, TCP wrong-port/reconnect also passed over `192.168.250.100:1025`.
 
-- [ ] **Live-check Q-series runtime ranges**: Confirm QCPU/LCPU/QnU/QnUDV `Z`, `ZR`, and `R` runtime range behavior on real
-  hardware. The expected behavior is:
+- [x] **Live-check Q-series runtime ranges for QCPU/LCPU/QnUDV**: Confirmed
+  QCPU/LCPU/QnUDV `Z`, `ZR`, and `R` runtime range behavior on real hardware.
+  The expected behavior is:
   - QCPU `Z` is selected by probing `Z15` and resolves to 10 or 16 points.
   - LCPU/QnU/QnUDV `Z` is fixed at 20 points.
   - QCPU/LCPU/QnU/QnUDV `ZR` is selected by probing readable addresses and may
     resolve to 0 points.
   - `R` matches the checked `ZR` size and is capped at `R32767`.
+  - `QCPU` was live-checked on 2026-05-15 against a Mitsubishi `Q12HCPU` at
+    `192.168.250.100:1025` over TCP with 3E/legacy access: the catalog command
+    reported `Z0-Z15`, `ZR0-ZR131071`, and `R0-R32767`. The current Q12HCPU
+    record also includes cross-stack direct read/write/restore, random
+    read/write, word-only block read/write, bit-block NG behavior, mixed-block
+    NG behavior, and read-only `U0\G10` Extended Specification checks. See
+    `docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md` and
+    `../plc-comm-slmp-cross-verify/QCPU_CROSS_STACK_VALIDATION_2026-05-15.md`.
   - `LCPU` was live-checked on 2026-05-01: `Z` remains the spec-fixed
     `Z0-Z19` range, `ZR393215` read successfully, and `ZR393216` returned
     `0x4031`. `R` matches that `ZR` size, capped at `R32767`.
-  - `QnUDV` was live-checked on 2026-05-01 against `192.168.250.100:1025`
-    over TCP with 3E/legacy access: `Z0` and `Z19` read successfully, `Z20`
-    returned `0x4031`, `ZR393215` read successfully, `ZR393216` returned
-    `0x4031`, `R32767` read successfully, and `R32768` returned `0x4031`.
+  - `QnUDV` was live-checked on 2026-05-15 against Mitsubishi `Q06UDVCPU` at
+    `192.168.250.100:1025` over TCP with 3E/legacy access: `Z19` read
+    successfully, `Z20` returned `0x4031`, `ZR393215` read successfully,
+    `ZR393216` returned `0x4031`, and `R32767` read successfully with `R32768`
+    blocked by the client guard or returned as out of range.
+
+- [x] **Live-check QnU runtime ranges**: On 2026-05-15, the live Mitsubishi
+  `Q26UDEHCPU` at `192.168.250.100:1025` was checked over TCP with 3E/legacy
+  access. The catalog reported `Z0-Z19`, `ZR0-ZR655359`, and `R0-R32767`.
+  Boundary reads confirmed `Z19` OK / `Z20` -> `0x4031`, `ZR655359` OK /
+  `ZR655360` -> `0x4031`, and `R32767` OK with `R32768` blocked by the client
+  guard or returned as out of range. The same target also passed cross-stack
+  direct read/write/restore, random read/write, word-only block read/write,
+  bit-block NG behavior, mixed-block NG behavior, and read-only `U0\G10`
+  Extended Specification checks across Python, Node-RED, .NET, Rust, and C++
+  Minimal. See
+  `docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md` and
+  `../plc-comm-slmp-cross-verify/QNU_CROSS_STACK_VALIDATION_2026-05-15.md`.
 
 ## 2. Protocol Follow-Up
 
 - [ ] **Extended Specification live coverage expansion**: Run the expanded
   `extended_device_coverage` sweep across the remaining PLC-family and transport
   matrix. Keep OK/NG rows visible in the generated report. QnUDV has no `HG`;
-  `U0\G10` read-only on the current QnUDV target returned `0xC070` with command
-  `0x0401` subcommand `0x0080`. On the current iQ-L target, `U3E0\G...` is the
-  valid Extended Specification live-coverage path; `HG` and `J` paths are not
-  part of that PLC's executable coverage set.
+  QnUDV `U0\G10` read-only was live-checked on 2026-05-15 against `Q06UDVCPU`
+  and returned `[0]` across Python, Node-RED, .NET, Rust, and C++ Minimal. QCPU
+  `U0\G10` read-only was live-checked on
+  2026-05-15 against `Q12HCPU` and returned `[0]` across Python, Node-RED,
+  .NET, Rust, and C++ Minimal. QnU `U0\G10` read-only was live-checked on
+  2026-05-15 against `Q26UDEHCPU` and returned `[0]` across the same five
+  stacks.
+  On the current iQ-L target, `U3E0\G...` is the valid Extended Specification
+  live-coverage path; `HG` and `J` paths are not part of that PLC's executable
+  coverage set.

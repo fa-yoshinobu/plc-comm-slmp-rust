@@ -169,16 +169,28 @@ so these maximum addresses are representable by the protocol format.
 ## Notes
 
 - `QCPU` `D` and `W` exclude the extended area and are clipped to `32768`.
+- `QCPU` `Z` is runtime-probed. A Mitsubishi `Q12HCPU` was live-checked on
+  2026-05-15 and resolved to `Z0-Z15`. The current Q12HCPU record is
+  `docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md`.
 - `QCPU` `ZR` remains supported, but there is no finite upper-bound register, so
-  the catalog reports `supported = true`, `point_count = None`, and `address_range = None`.
+  the base catalog reports `supported = true`, `point_count = None`, and
+  `address_range = None`. Runtime probing on the same `Q12HCPU` target resolved
+  `ZR0-ZR131071`, with `R` capped at `R0-R32767`.
 - `LCPU`, `QnU`, and `QnUDV` share the same range-register layout in this
   implementation.
 - `Z` on `LCPU`, `QnU`, and `QnUDV` is treated as the fixed `Z0-Z19` family
-  limit. `QnUDV` was live-checked on 2026-05-01: `Z19` read successfully and
-  `Z20` returned `0x4031`.
+  limit. `QnU` was live-checked on 2026-05-15 against `Q26UDEHCPU`: `Z19` read
+  successfully and `Z20` returned `0x4031`. The current QnU record is
+  `docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md`. `QnUDV` was live-checked
+  on 2026-05-15 against `Q06UDVCPU`: `Z19` read successfully and `Z20` returned
+  `0x4031`. The current QnUDV record is
+  `docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md`.
 - `ZR` and `R` on `LCPU`, `QnU`, and `QnUDV` are runtime-limited by probing
-  readable `ZR` addresses. `QnUDV` was live-checked on 2026-05-01 with
-  `ZR393215` accepted, `ZR393216` returning `0x4031`, `R32767` accepted, and
-  `R32768` returning `0x4031`.
+  readable `ZR` addresses. `QnU` was live-checked on 2026-05-15 against
+  `Q26UDEHCPU` with `ZR655359` accepted, `ZR655360` returning `0x4031`, and
+  `R32767` accepted with `R32768` blocked by the client guard or returned as out
+  of range. `QnUDV` was live-checked on 2026-05-15 against `Q06UDVCPU` with
+  `ZR393215` accepted, `ZR393216` returning `0x4031`, and `R32767` accepted
+  with `R32768` blocked by the client guard or returned as out of range.
 - `iQ-F` `X` and `Y` are documented in Mitsubishi manuals with octal addressing.
   This crate emits `Octal` and formats ranges such as `X0000-X1777`.

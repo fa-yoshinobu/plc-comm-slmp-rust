@@ -1113,7 +1113,7 @@ impl ClientInner {
                 if options.retry_mixed_on_error
                     && !word_blocks.is_empty()
                     && !bit_blocks.is_empty()
-                    && matches!(error.end_code, Some(0xC056 | 0xC05B | 0xC061 | 0x414A)) =>
+                    && matches!(error.end_code, Some(0xC056 | 0xC061 | 0x414A)) =>
             {
                 self.write_block_once(word_blocks, &[]).await?;
                 self.write_block_once(&[], bit_blocks).await
