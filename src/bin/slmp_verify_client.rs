@@ -264,7 +264,7 @@ async fn run_command(
             })
         }
         "remote-run" => {
-            client.remote_run(false, 2).await?;
+            client.remote_run(false, 0).await?;
             json!({"status":"success"})
         }
         "remote-stop" => {
