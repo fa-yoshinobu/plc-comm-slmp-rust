@@ -168,6 +168,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("extended_device_coverage");
     let options = options_from_env()?;
     let client = SlmpClient::connect(options).await?;
+    let remote_password = std::env::var("SLMP_REMOTE_PASSWORD")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    if let Some(password) = &remote_password {
+        println!("[INFO] remote password unlock");
+        client.remote_password_unlock(password).await?;
+    }
     let write_check = env_bool("SLMP_EXT_WRITE_CHECK");
     let devices = env_csv("SLMP_EXT_DEVICES", r"U3E0\G10");
     let points = env_csv("SLMP_EXT_POINTS", "1")
@@ -310,6 +317,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("[DONE] report={}", report_path.display());
 
     let failures = rows.iter().filter(|row| row.status == "NG").count();
+    if let Some(password) = &remote_password {
+        println!("[INFO] remote password lock");
+        client.remote_password_lock(password).await?;
+    }
     if failures == 0 {
         Ok(())
     } else {

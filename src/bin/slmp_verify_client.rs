@@ -34,6 +34,10 @@ async fn main() {
     let mut bits = String::new();
     let mut word_blocks = String::new();
     let mut bit_blocks = String::new();
+    let mut target_network = None;
+    let mut target_station = None;
+    let mut target_module_io = None;
+    let mut target_multidrop = None;
 
     let mut index = 5usize;
     while index < args.len() {
@@ -87,6 +91,22 @@ async fn main() {
                     }
                 }
             }
+            "--network" => {
+                index += 1;
+                target_network = args.get(index).cloned();
+            }
+            "--station" => {
+                index += 1;
+                target_station = args.get(index).cloned();
+            }
+            "--module-io" => {
+                index += 1;
+                target_module_io = args.get(index).cloned();
+            }
+            "--multidrop" => {
+                index += 1;
+                target_multidrop = args.get(index).cloned();
+            }
             "--word-devs" => {
                 index += 1;
                 word_devs = args.get(index).cloned().unwrap_or_default();
@@ -125,7 +145,34 @@ async fn main() {
     options.frame_type = frame;
     options.compatibility_mode = series;
     options.transport_mode = transport;
-    if let Some(target) = target {
+    let has_network_station_target = target_network.is_some()
+        || target_station.is_some()
+        || target_module_io.is_some()
+        || target_multidrop.is_some();
+    if has_network_station_target {
+        if target.is_some() {
+            println!(
+                "{}",
+                json!({"status": "error", "message": "Use either --target or --network/--station, not both."})
+            );
+            return;
+        }
+        match target_from_network_station(
+            target_network.as_deref(),
+            target_station.as_deref(),
+            target_module_io.as_deref(),
+            target_multidrop.as_deref(),
+        ) {
+            Ok(target) => options.target = target,
+            Err(error) => {
+                println!(
+                    "{}",
+                    json!({"status": "error", "message": error.message}).to_string()
+                );
+                return;
+            }
+        }
+    } else if let Some(target) = target {
         options.target = target;
     }
 
@@ -161,6 +208,26 @@ async fn main() {
 
 fn parse_plc_family(value: &str) -> SlmpPlcFamily {
     SlmpPlcFamily::parse_label(value).unwrap_or(SlmpPlcFamily::IqR)
+}
+
+fn target_from_network_station(
+    network: Option<&str>,
+    station: Option<&str>,
+    module_io: Option<&str>,
+    multidrop: Option<&str>,
+) -> Result<SlmpTargetAddress, plc_comm_slmp::SlmpError> {
+    let network = network.ok_or_else(|| {
+        plc_comm_slmp::SlmpError::new("--network and --station must be specified together.")
+    })?;
+    let station = station.ok_or_else(|| {
+        plc_comm_slmp::SlmpError::new("--network and --station must be specified together.")
+    })?;
+    Ok(SlmpTargetAddress {
+        network: parse_target_auto_number(network)? as u8,
+        station: parse_target_auto_number(station)? as u8,
+        module_io: parse_target_auto_number(module_io.unwrap_or("0x03FF"))? as u16,
+        multidrop: parse_target_auto_number(multidrop.unwrap_or("0x00"))? as u8,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -10,7 +10,9 @@ These examples are intended to be runnable as-is with environment variables.
 | `SLMP_PORT` | `1025` | TCP/UDP port |
 | `SLMP_PLC_FAMILY` | `iq-r` | `iq-f`, `iq-r`, `iq-l`, `mx-f`, `mx-r`, `qcpu`, `lcpu`, `qnu`, or `qnudv` |
 | `SLMP_TRANSPORT` | `tcp` | `tcp` or `udp` |
-| `SLMP_TARGET` | unset | `SELF`, `SELF-CPU1`, `NW1-ST2`, or `NAME,NET,ST,IO,MD` |
+| `SLMP_TARGET` | unset | `SELF`, `SELF-CPU1`, or `NAME,NET,ST,IO,MD` |
+| `SLMP_NETWORK` / `SLMP_STATION` | unset | Other-station target, for example `SLMP_NETWORK=1 SLMP_STATION=2` |
+| `SLMP_MODULE_IO` / `SLMP_MULTIDROP` | `0x03FF` / `0x00` | Optional fields used with `SLMP_NETWORK` / `SLMP_STATION` |
 | `SLMP_TIMEOUT_MS` | `3000` | socket timeout |
 | `SLMP_MONITORING_TIMER` | `16` | SLMP monitoring timer |
 | `SLMP_ENABLE_WRITES` | `0` | set `1` to enable write examples |

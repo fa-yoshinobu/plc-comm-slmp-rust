@@ -257,6 +257,10 @@ SLMP_EXT_WRITE_CHECK=1 \
 cargo run --features cli --example extended_device_coverage
 ```
 
+If the PLC port is protected by a remote password, set
+`SLMP_REMOTE_PASSWORD=<password>`. The example unlocks before the sweep and
+locks the port again before exiting.
+
 ### `device_range_sample_compare`
 
 Real-PLC range sample that reads the live device-range catalog, then tests up to

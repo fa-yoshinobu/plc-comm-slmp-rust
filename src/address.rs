@@ -280,22 +280,6 @@ pub fn parse_named_target(text: &str) -> Result<SlmpNamedTarget, SlmpError> {
             },
         });
     }
-    if let Some(rest) = token.strip_prefix("NW")
-        && let Some((network, station)) = rest.split_once("-ST")
-    {
-        return Ok(SlmpNamedTarget {
-            name: format!("NW{}-ST{}", network, station),
-            target: SlmpTargetAddress {
-                network: network
-                    .parse()
-                    .map_err(|_| SlmpError::new("Invalid network."))?,
-                station: station
-                    .parse()
-                    .map_err(|_| SlmpError::new("Invalid station."))?,
-                ..SlmpTargetAddress::default()
-            },
-        });
-    }
     let parts: Vec<_> = token.split(',').map(str::trim).collect();
     if parts.len() == 5 {
         return Ok(SlmpNamedTarget {
@@ -309,7 +293,7 @@ pub fn parse_named_target(text: &str) -> Result<SlmpNamedTarget, SlmpError> {
         });
     }
     Err(SlmpError::new(
-        "target must be SELF, SELF-CPU1..4, NWx-STy, or NAME,NETWORK,STATION,MODULE_IO,MULTIDROP",
+        "target must be SELF, SELF-CPU1..4, or NAME,NETWORK,STATION,MODULE_IO,MULTIDROP",
     ))
 }
 
