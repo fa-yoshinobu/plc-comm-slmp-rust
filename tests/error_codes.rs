@@ -18,25 +18,35 @@ fn end_code_names_and_messages() {
     assert_eq!(end_code_name(0xC201), "slmp_end_code_c201");
     assert_eq!(
         end_code_message(0xC201, SlmpEndCodeLanguage::English),
-        Some("The remote password status of the port used for communications is in the lock status.")
+        Some(
+            "The remote password status of the port used for communications is in the lock status."
+        )
     );
 
     assert_eq!(end_code_name(0xC810), "slmp_end_code_c810");
     assert_eq!(
         end_code_message_en(0xC810),
-        Some("Remote password authentication has failed when required. Set a correct password and retry.")
+        Some(
+            "Remote password authentication has failed when required. Set a correct password and retry."
+        )
     );
     assert_eq!(
         end_code_message_en(0xC811),
-        Some("Remote password authentication has failed when required. Set a correct password and retry after 1 minute.")
+        Some(
+            "Remote password authentication has failed when required. Set a correct password and retry after 1 minute."
+        )
     );
     assert_eq!(
         end_code_message_en(0xC814),
-        Some("Remote password authentication has failed when required. Set a correct password and retry after 60 minutes.")
+        Some(
+            "Remote password authentication has failed when required. Set a correct password and retry after 60 minutes."
+        )
     );
     assert_eq!(
         end_code_message_ja(0xC810),
-        Some("リモートパスワード認証が必要なアクセス時に，リモートパスワードのパスワード認証に失敗した。正しいパスワードを設定して再度実行してください。")
+        Some(
+            "リモートパスワード認証が必要なアクセス時に，リモートパスワードのパスワード認証に失敗した。正しいパスワードを設定して再度実行してください。"
+        )
     );
 
     assert_eq!(end_code_name(0xCFBF), "slmp_end_code_cfbf");
@@ -45,10 +55,28 @@ fn end_code_names_and_messages() {
         Some("The simple CPU communication cannot be executed.")
     );
 
+    assert_eq!(end_code_name(0xD913), "slmp_end_code_d913");
+    assert_eq!(
+        end_code_message_en(0xD913),
+        Some("An error was detected in the network module.")
+    );
+    assert_eq!(
+        end_code_message_ja(0xD913),
+        Some("ネットワークユニットの異常を検出した。")
+    );
+
     assert_eq!(end_code_name(0xE504), "slmp_end_code_e504");
     assert_eq!(
+        end_code_message_en(0xE504),
+        Some(
+            "Transient transmission (dedicated instruction, engineering tool connection) was executed while the own station did not perform baton pass."
+        )
+    );
+    assert_eq!(
         end_code_message_ja(0xE504),
-        Some("自局がバトンパスを行っていない状態で，トランジェント伝送が実行された。")
+        Some(
+            "自局がバトンパス未実施中に，トランジェント伝送(専用命令，エンジニアリングツール接続)を実行した。"
+        )
     );
 }
 
@@ -67,7 +95,9 @@ fn slmp_error_end_code_helpers() {
     assert_eq!(error.end_code_name(), Some("slmp_end_code_c201"));
     assert_eq!(
         error.end_code_message(),
-        Some("The remote password status of the port used for communications is in the lock status.")
+        Some(
+            "The remote password status of the port used for communications is in the lock status."
+        )
     );
     assert!(error.is_remote_password_error());
 
