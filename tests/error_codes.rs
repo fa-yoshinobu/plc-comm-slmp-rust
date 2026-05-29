@@ -44,6 +44,12 @@ fn end_code_names_and_messages() {
         end_code_message_en(0xCFBF),
         Some("The simple CPU communication cannot be executed.")
     );
+
+    assert_eq!(end_code_name(0xE504), "slmp_end_code_e504");
+    assert_eq!(
+        end_code_message_ja(0xE504),
+        Some("自局がバトンパスを行っていない状態で，トランジェント伝送が実行された。")
+    );
 }
 
 #[test]

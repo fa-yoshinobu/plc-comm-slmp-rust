@@ -289,6 +289,7 @@ pub fn end_code_name(end_code: u16) -> &'static str {
         0xCFBD => "slmp_end_code_cfbd",
         0xCFBE => "slmp_end_code_cfbe",
         0xCFBF => "slmp_end_code_cfbf",
+        0xE504 => "slmp_end_code_e504",
         _ => "unknown_plc_end_code",
     }
 }
@@ -581,6 +582,7 @@ pub fn end_code_message_en(end_code: u16) -> Option<&'static str> {
         0xCFBD => Some("The device specified as the communication destination is out of specification range for the simple CPU communication."),
         0xCFBE => Some("A communication error has occurred with an engineering tool during the simple CPU communication diagnostics."),
         0xCFBF => Some("The simple CPU communication cannot be executed."),
+        0xE504 => Some("Transient transmission was executed while the own station did not perform baton pass."),
         _ => None,
     }
 }
@@ -863,6 +865,7 @@ pub fn end_code_message_ja(end_code: u16) -> Option<&'static str> {
         0xCFBD => Some("シンプルCPU通信で，交信相手側に指定したデバイスが仕様の範囲外である。"),
         0xCFBE => Some("シンプルCPU通信診断実行時にエンジニアリングツールとの交信異常が発生した。"),
         0xCFBF => Some("シンプルCPU通信を実行できない。"),
+        0xE504 => Some("自局がバトンパスを行っていない状態で，トランジェント伝送が実行された。"),
         _ => None,
     }
 }
