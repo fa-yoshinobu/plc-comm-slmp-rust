@@ -395,7 +395,11 @@ impl SlmpClient {
     }
 
     pub async fn remote_stop(&self) -> Result<(), SlmpError> {
-        self.inner.lock().await.remote_stop().await
+        self.inner.lock().await.remote_stop(false).await
+    }
+
+    pub async fn remote_force_stop(&self) -> Result<(), SlmpError> {
+        self.inner.lock().await.remote_stop(true).await
     }
 
     pub async fn remote_pause(&self, force: bool) -> Result<(), SlmpError> {
@@ -1191,8 +1195,9 @@ impl ClientInner {
         Ok(())
     }
 
-    async fn remote_stop(&mut self) -> Result<(), SlmpError> {
-        self.request(SlmpCommand::RemoteStop, 0x0000, &[0x01, 0x00], true)
+    async fn remote_stop(&mut self, force: bool) -> Result<(), SlmpError> {
+        let mode = if force { 0x03 } else { 0x01 };
+        self.request(SlmpCommand::RemoteStop, 0x0000, &[mode, 0x00], true)
             .await?;
         Ok(())
     }
