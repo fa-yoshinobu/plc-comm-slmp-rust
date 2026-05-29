@@ -1,3 +1,4 @@
+use crate::error_codes::{end_code_message_en, end_code_name, is_remote_password_end_code};
 use crate::model::SlmpCommand;
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -31,6 +32,18 @@ impl SlmpError {
             command,
             subcommand,
         }
+    }
+
+    pub fn end_code_name(&self) -> Option<&'static str> {
+        self.end_code.map(end_code_name)
+    }
+
+    pub fn end_code_message(&self) -> Option<&'static str> {
+        self.end_code.and_then(end_code_message_en)
+    }
+
+    pub fn is_remote_password_error(&self) -> bool {
+        self.end_code.is_some_and(is_remote_password_end_code)
     }
 }
 
