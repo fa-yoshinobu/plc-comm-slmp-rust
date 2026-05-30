@@ -122,8 +122,8 @@ pub use device_ranges::{
 };
 pub use error::SlmpError;
 pub use error_codes::{
-    SlmpEndCodeLanguage, end_code_message, end_code_message_en, end_code_message_ja,
-    end_code_name, is_remote_password_end_code,
+    SlmpEndCodeLanguage, end_code_message, end_code_message_en, end_code_message_ja, end_code_name,
+    is_remote_password_end_code,
 };
 pub use helpers::{
     NamedAddress, SlmpValue, parse_scalar_for_named, parse_scalar_for_named_with_family,

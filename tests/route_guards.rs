@@ -498,8 +498,8 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
 #[tokio::test]
 async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC05B, Vec::new())])
-    .await
-    .unwrap();
+        .await
+        .unwrap();
     let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
     options.port = server.port;
     options.frame_type = SlmpFrameType::Frame4E;
