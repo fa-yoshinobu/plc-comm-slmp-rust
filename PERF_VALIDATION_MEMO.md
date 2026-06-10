@@ -59,7 +59,7 @@ Target PLC: iQ-R at `192.168.250.100`
   - TCP/1025 `device_range_sample_compare`: passed with `passed=342`, `bit_blocks_failed=0`.
   - UDP/1027 `device_range_sample_compare`: passed with `passed=342`, `bit_blocks_failed=0`.
 
-## Current Failures / Not Complete
+## Separate Known Issue
 
 - `route_validation_compare` currently fails one case on both TCP/1025 and UDP/1027:
   - `write_block_roundtrip`
@@ -70,7 +70,8 @@ Target PLC: iQ-R at `192.168.250.100`
   - bit-only `block-write`: passed.
   - mixed word+bit `block-write`: failed with `0xC05B`.
 - Existing repo tests/docs already treat `0xC05B` as not retryable for mixed block writes.
-- This failure appears unrelated to the `read_named` plain-bit batching change, but it means the instruction-file Phase 4 gate is not a clean full pass yet.
+- User confirmed this should be handled as a separate known issue, not as a required improvement for this performance task.
+- This failure is unrelated to the `read_named` plain-bit batching change.
 - `cargo clippy --all-targets --features cli -- -D warnings` still fails only on pre-existing `examples/` lints. `examples/` is unchanged because `perf-instructions.md` forbids editing it.
 - iOS app install/launch was not performed in this Windows environment. Rust FFI check passed.
 
@@ -78,6 +79,4 @@ Target PLC: iQ-R at `192.168.250.100`
 
 - Performance objective is verified on real PLC for the main path: 64 plain bit `read_named` collapsed to one wire request.
 - Android bridge build/install was completed and overlay shows low request rate.
-- Do not mark the perf goal complete until the remaining Phase 4 policy question is resolved:
-  - either accept current `0xC05B` mixed block-write behavior as unrelated/known for this PLC,
-  - or change the route validation expectation in a separate task.
+- The current `0xC05B` mixed block-write behavior is recorded as unrelated and not required for this performance improvement.
