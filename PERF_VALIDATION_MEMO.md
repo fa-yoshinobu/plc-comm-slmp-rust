@@ -26,6 +26,7 @@ Target PLC: iQ-R at `192.168.250.100`
 - `cargo fmt --all --check`: passed.
 - `cargo test`: passed.
 - `cargo clippy --lib --bins --tests --features cli -- -D warnings`: passed.
+- `cargo clippy --all-targets --features cli -- -D warnings`: passed after the user allowed minimal `examples/` lint fixes.
 - `cargo build --features cli --bin slmp_verify_client`: passed.
 - Android `cargo test --manifest-path rust-core/Cargo.toml --all-targets`: passed.
 - iOS `cargo check --manifest-path rust/melsec-io-core-ffi/Cargo.toml`: passed.
@@ -72,7 +73,6 @@ Target PLC: iQ-R at `192.168.250.100`
 - Existing repo tests/docs already treat `0xC05B` as not retryable for mixed block writes.
 - User confirmed this should be handled as a separate known issue, not as a required improvement for this performance task.
 - This failure is unrelated to the `read_named` plain-bit batching change.
-- `cargo clippy --all-targets --features cli -- -D warnings` still fails only on pre-existing `examples/` lints. `examples/` is unchanged because `perf-instructions.md` forbids editing it.
 - iOS app install/launch was not performed in this Windows environment. Rust FFI check passed.
 
 ## Completion Status
