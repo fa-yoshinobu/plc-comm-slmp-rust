@@ -249,7 +249,7 @@ pub async fn run_device_range_sample_compare(
                         device_report.bit_blocks_passed += 1;
                         device_report.bit_block_addresses.push(address.clone());
                     }
-                    Err((phase, message)) if phase == "restore" => {
+                    Err(("restore", message)) => {
                         report.summary.restore_failed += 1;
                         report.summary.bit_blocks_failed += 1;
                         device_report.restore_failed += 1;
@@ -309,11 +309,7 @@ fn sample_numbers(upper_bound: u32, count: usize) -> Vec<u32> {
             break;
         }
         let denominator = count.saturating_sub(1) as u64;
-        let candidate = if denominator == 0 {
-            0
-        } else {
-            ((index as u64 * upper) / denominator) as u32
-        };
+        let candidate = (index as u64 * upper).checked_div(denominator).unwrap_or(0) as u32;
         selected.insert(candidate);
     }
 

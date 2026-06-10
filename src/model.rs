@@ -524,25 +524,13 @@ pub struct SlmpLongTimerResult {
     pub raw_words: Vec<u16>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SlmpExtensionSpec {
     pub extension_specification: u16,
     pub extension_specification_modification: u8,
     pub device_modification_index: u8,
     pub device_modification_flags: u8,
     pub direct_memory_specification: u8,
-}
-
-impl Default for SlmpExtensionSpec {
-    fn default() -> Self {
-        Self {
-            extension_specification: 0x0000,
-            extension_specification_modification: 0x00,
-            device_modification_index: 0x00,
-            device_modification_flags: 0x00,
-            direct_memory_specification: 0x00,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

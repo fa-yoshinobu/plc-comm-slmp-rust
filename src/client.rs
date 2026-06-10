@@ -780,12 +780,11 @@ impl ClientInner {
         let extension = Self::resolve_effective_extension(device, extension);
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, false);
-        let sub = if extension.direct_memory_specification == 0xF9 {
-            0x0080
-        } else if matches!(
-            self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+        let sub = if extension.direct_memory_specification == 0xF9
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0080
         } else {
             0x0082
@@ -817,12 +816,11 @@ impl ClientInner {
             extension,
             false,
         );
-        let sub = if extension.direct_memory_specification == 0xF9 {
-            0x0080
-        } else if matches!(
-            self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+        let sub = if extension.direct_memory_specification == 0xF9
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0080
         } else {
             0x0082
@@ -843,12 +841,11 @@ impl ClientInner {
         let extension = Self::resolve_effective_extension(device, extension);
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, true);
-        let sub = if extension.direct_memory_specification == 0xF9 {
-            0x0081
-        } else if matches!(
-            self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+        let sub = if extension.direct_memory_specification == 0xF9
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0081
         } else {
             0x0083
@@ -875,12 +872,11 @@ impl ClientInner {
             extension,
             true,
         );
-        let sub = if extension.direct_memory_specification == 0xF9 {
-            0x0081
-        } else if matches!(
-            self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+        let sub = if extension.direct_memory_specification == 0xF9
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0081
         } else {
             0x0083
