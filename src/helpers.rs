@@ -48,7 +48,14 @@ struct NamedReadEntry {
     device: SlmpDeviceAddress,
     dtype: String,
     bit_index: Option<u8>,
+    bit_word_read: Option<BitWordRead>,
     long_timer_read: Option<LongTimerReadSpec>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BitWordRead {
+    device: SlmpDeviceAddress,
+    bit_index: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -423,26 +430,43 @@ fn compile_read_plan(
         validate_long_timer_entry(address, device, &dtype)?;
         validate_dword_only_entry(address, device, &dtype)?;
 
-        if parts.dtype == "BIT_IN_WORD" {
+        let bit_word_read = if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
             if device.code.is_word_batchable() && seen_word_devices.insert(device) {
                 word_devices.push(device);
             }
+            Some(BitWordRead {
+                device,
+                bit_index: parts.bit_index.unwrap_or(0),
+            })
+        } else if dtype == "BIT" {
+            let bit_word_read = plain_bit_word_read(device);
+            if let Some(read) = bit_word_read
+                && seen_word_devices.insert(read.device)
+            {
+                word_devices.push(read.device);
+            }
+            bit_word_read
         } else if matches!(dtype.as_str(), "U" | "S") && device.code.is_word_batchable() {
             if seen_word_devices.insert(device) {
                 word_devices.push(device);
             }
+            None
         } else if matches!(dtype.as_str(), "D" | "L" | "F") && device.code.is_word_batchable() {
             if seen_dword_devices.insert(device) {
                 dword_devices.push(device);
             }
-        }
+            None
+        } else {
+            None
+        };
 
         entries.push(NamedReadEntry {
             address: address.clone(),
             device,
             dtype,
             bit_index: parts.bit_index,
+            bit_word_read,
             long_timer_read: long_timer_read_spec(device.code),
         });
     }
@@ -483,20 +507,37 @@ async fn read_named_compiled(
                 SlmpValue::Bool(client.read_bits(entry.device, 1).await?[0])
             } else {
                 let key = (spec.base_code, entry.device.number);
-                if !long_timer_cache.contains_key(&key) {
+                if let std::collections::hash_map::Entry::Vacant(vacant) =
+                    long_timer_cache.entry(key)
+                {
                     let timer =
                         read_long_like_point(client, spec.base_code, entry.device.number).await?;
-                    long_timer_cache.insert(key, timer);
+                    vacant.insert(timer);
                 }
                 decode_long_like_value(&entry.dtype, spec, long_timer_cache.get(&key).unwrap())?
             }
         } else if entry.dtype == "BIT_IN_WORD" {
-            let word = if let Some(word) = word_values.get(&entry.device) {
+            let read = entry.bit_word_read.unwrap_or(BitWordRead {
+                device: entry.device,
+                bit_index: entry.bit_index.unwrap_or(0),
+            });
+            let word = if let Some(word) = word_values.get(&read.device) {
                 *word
             } else {
-                client.read_words_raw(entry.device, 1).await?[0]
+                client.read_words_raw(read.device, 1).await?[0]
             };
-            SlmpValue::Bool(((word >> entry.bit_index.unwrap_or(0)) & 1) != 0)
+            SlmpValue::Bool(((word >> read.bit_index) & 1) != 0)
+        } else if entry.dtype == "BIT" {
+            if let Some(read) = entry.bit_word_read {
+                let word = if let Some(word) = word_values.get(&read.device) {
+                    *word
+                } else {
+                    client.read_words_raw(read.device, 1).await?[0]
+                };
+                SlmpValue::Bool(((word >> read.bit_index) & 1) != 0)
+            } else {
+                read_typed(client, entry.device, &entry.dtype).await?
+            }
         } else if entry.dtype == "S" {
             if let Some(value) = word_values.get(&entry.device) {
                 SlmpValue::I16(*value as i16)
@@ -536,6 +577,40 @@ async fn read_named_compiled(
     Ok(result)
 }
 
+fn plain_bit_word_read(device: SlmpDeviceAddress) -> Option<BitWordRead> {
+    if !is_plain_bit_word_batchable(device.code) {
+        return None;
+    }
+    let bit_index = (device.number % 16) as u8;
+    Some(BitWordRead {
+        device: SlmpDeviceAddress::new(device.code, device.number - u32::from(bit_index)),
+        bit_index,
+    })
+}
+
+fn is_plain_bit_word_batchable(code: SlmpDeviceCode) -> bool {
+    matches!(
+        code,
+        SlmpDeviceCode::SM
+            | SlmpDeviceCode::X
+            | SlmpDeviceCode::Y
+            | SlmpDeviceCode::M
+            | SlmpDeviceCode::L
+            | SlmpDeviceCode::F
+            | SlmpDeviceCode::V
+            | SlmpDeviceCode::B
+            | SlmpDeviceCode::TS
+            | SlmpDeviceCode::TC
+            | SlmpDeviceCode::STS
+            | SlmpDeviceCode::STC
+            | SlmpDeviceCode::CS
+            | SlmpDeviceCode::CC
+            | SlmpDeviceCode::SB
+            | SlmpDeviceCode::DX
+            | SlmpDeviceCode::DY
+    )
+}
+
 async fn read_random_maps(
     client: &SlmpClient,
     word_devices: &[SlmpDeviceAddress],
@@ -564,14 +639,14 @@ async fn read_random_maps(
         for (device, value) in word_devices[word_index..word_end]
             .iter()
             .copied()
-            .zip(random.word_values.into_iter())
+            .zip(random.word_values)
         {
             words.insert(device, value);
         }
         for (device, value) in dword_devices[dword_index..dword_end]
             .iter()
             .copied()
-            .zip(random.dword_values.into_iter())
+            .zip(random.dword_values)
         {
             dwords.insert(device, value);
         }

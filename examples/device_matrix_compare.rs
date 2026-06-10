@@ -62,9 +62,9 @@ fn ext_subcommand(
     bit_unit: bool,
     extension: SlmpExtensionSpec,
 ) -> u16 {
-    if extension.direct_memory_specification == 0xF9 {
-        if bit_unit { 0x0081 } else { 0x0080 }
-    } else if matches!(mode, SlmpCompatibilityMode::Legacy) {
+    if extension.direct_memory_specification == 0xF9
+        || matches!(mode, SlmpCompatibilityMode::Legacy)
+    {
         if bit_unit { 0x0081 } else { 0x0080 }
     } else if bit_unit {
         0x0083

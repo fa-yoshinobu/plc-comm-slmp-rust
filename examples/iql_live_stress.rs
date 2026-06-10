@@ -276,7 +276,7 @@ async fn random_word_dword_roundtrip(
     dword_seed: u32,
     label: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let original = client.read_random(&word_devices, &dword_devices).await?;
+    let original = client.read_random(word_devices, dword_devices).await?;
     let word_values = word_pattern(word_devices.len(), word_seed);
     let dword_values = dword_pattern(dword_devices.len(), dword_seed);
     let word_entries = word_devices
@@ -303,7 +303,7 @@ async fn random_word_dword_roundtrip(
         client
             .write_random_words(&word_entries, &dword_entries)
             .await?;
-        let actual = client.read_random(&word_devices, &dword_devices).await?;
+        let actual = client.read_random(word_devices, dword_devices).await?;
         ensure_eq(
             &format!("random {label} word readback"),
             &word_values,
@@ -319,7 +319,7 @@ async fn random_word_dword_roundtrip(
     client
         .write_random_words(&restore_word_entries, &restore_dword_entries)
         .await?;
-    let restored = client.read_random(&word_devices, &dword_devices).await?;
+    let restored = client.read_random(word_devices, dword_devices).await?;
     ensure_eq(
         &format!("random {label} word restore"),
         &original.word_values,

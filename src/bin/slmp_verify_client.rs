@@ -165,10 +165,7 @@ async fn main() {
         ) {
             Ok(target) => options.target = target,
             Err(error) => {
-                println!(
-                    "{}",
-                    json!({"status": "error", "message": error.message}).to_string()
-                );
+                println!("{}", json!({"status": "error", "message": error.message}));
                 return;
             }
         }
@@ -199,10 +196,7 @@ async fn main() {
 
     match result {
         Ok(value) => println!("{}", value),
-        Err(error) => println!(
-            "{}",
-            json!({"status": "error", "message": error.message}).to_string()
-        ),
+        Err(error) => println!("{}", json!({"status": "error", "message": error.message})),
     }
 }
 

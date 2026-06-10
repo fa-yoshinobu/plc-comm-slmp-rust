@@ -119,9 +119,8 @@ fn parse_plc_family(value: &str) -> Result<SlmpPlcFamily, Box<dyn Error>> {
     SlmpPlcFamily::parse_label(value).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!(
             "SLMP_PLC_FAMILY is required. Use iq-f, iq-r, iq-l, mx-f, mx-r, qcpu, lcpu, qnu, or qnudv."
-            ),
+                .to_string(),
         )
         .into()
     })
