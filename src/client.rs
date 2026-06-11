@@ -1,4 +1,5 @@
 use crate::address::device_spec_size;
+use crate::client_rules as rules;
 use crate::device_ranges::{
     SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily,
     build_catalog_for_family as build_device_range_catalog_for_family,
@@ -8,8 +9,8 @@ use crate::device_ranges::{
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
-    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
+    SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpDeviceAddress,
+    SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
     SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
     SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpPlcFamily, SlmpQualifiedDeviceAddress,
     SlmpRandomReadResult, SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
@@ -211,7 +212,7 @@ impl SlmpClient {
     }
 
     pub async fn configured_device_range_family(&self) -> SlmpDeviceRangeFamily {
-        map_plc_family_to_range_family(self.inner.lock().await.options.plc_family)
+        rules::map_plc_family_to_range_family(self.inner.lock().await.options.plc_family)
     }
 
     pub async fn read_words_raw(
@@ -600,20 +601,6 @@ async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream
     TcpStream::from_std(std_stream).map_err(SlmpError::from)
 }
 
-fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {
-    match family {
-        SlmpPlcFamily::IqF => SlmpDeviceRangeFamily::IqF,
-        SlmpPlcFamily::IqR => SlmpDeviceRangeFamily::IqR,
-        SlmpPlcFamily::IqL => SlmpDeviceRangeFamily::IqL,
-        SlmpPlcFamily::MxF => SlmpDeviceRangeFamily::MxF,
-        SlmpPlcFamily::MxR => SlmpDeviceRangeFamily::MxR,
-        SlmpPlcFamily::QCpu => SlmpDeviceRangeFamily::QCpu,
-        SlmpPlcFamily::LCpu => SlmpDeviceRangeFamily::LCpu,
-        SlmpPlcFamily::QnU => SlmpDeviceRangeFamily::QnU,
-        SlmpPlcFamily::QnUDV => SlmpDeviceRangeFamily::QnUDV,
-    }
-}
-
 impl ClientInner {
     async fn read_type_name(&mut self) -> Result<SlmpTypeNameInfo, SlmpError> {
         let payload = self
@@ -645,7 +632,7 @@ impl ClientInner {
             .into_iter()
             .next()
             .ok_or_else(|| SlmpError::new("read_cpu_operation_state expected one word"))?;
-        Ok(decode_cpu_operation_state(status_word))
+        Ok(rules::decode_cpu_operation_state(status_word))
     }
 
     async fn read_words_raw(
@@ -653,7 +640,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u16>, SlmpError> {
-        Self::validate_direct_word_read(device, points)?;
+        rules::validate_direct_word_read(device, points)?;
         let payload = self.build_read_write_payload(device, points, None, false);
         let sub = self.word_subcommand(false);
         let data = self
@@ -673,7 +660,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u16],
     ) -> Result<(), SlmpError> {
-        Self::validate_direct_word_write(device)?;
+        rules::validate_direct_word_write(device)?;
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(values), false);
         let sub = self.word_subcommand(false);
@@ -688,7 +675,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<bool>, SlmpError> {
-        Self::validate_direct_bit_read(device)?;
+        rules::validate_direct_bit_read(device)?;
         let payload = self.build_read_write_payload(device, points, None, true);
         let data = self
             .request(
@@ -698,7 +685,7 @@ impl ClientInner {
                 true,
             )
             .await?;
-        Self::unpack_bit_values(&data, points as usize)
+        rules::unpack_bit_values(&data, points as usize)
     }
 
     async fn write_bits(
@@ -706,7 +693,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[bool],
     ) -> Result<(), SlmpError> {
-        Self::validate_direct_bit_write(device)?;
+        rules::validate_direct_bit_write(device)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(&words), true);
@@ -726,7 +713,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u32>, SlmpError> {
-        Self::validate_direct_dword_read(device)?;
+        rules::validate_direct_dword_read(device)?;
         let words = self.read_words_raw(device, points * 2).await?;
         Ok(words
             .chunks_exact(2)
@@ -739,7 +726,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u32],
     ) -> Result<(), SlmpError> {
-        Self::validate_direct_dword_write(device)?;
+        rules::validate_direct_dword_write(device)?;
         let mut words = Vec::with_capacity(values.len() * 2);
         for value in values {
             words.push((value & 0xFFFF) as u16);
@@ -776,7 +763,7 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
-        Self::validate_direct_word_read(device.device, points)?;
+        rules::validate_direct_word_read(device.device, points)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, false);
@@ -807,7 +794,7 @@ impl ClientInner {
         values: &[u16],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
-        Self::validate_direct_word_write(device.device)?;
+        rules::validate_direct_word_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let payload = self.build_read_write_payload_extended(
             device.device,
@@ -837,7 +824,7 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
-        Self::validate_direct_bit_read(device.device)?;
+        rules::validate_direct_bit_read(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, true);
@@ -853,7 +840,7 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::DeviceRead, sub, &payload, true)
             .await?;
-        Self::unpack_bit_values(&data, points as usize)
+        rules::unpack_bit_values(&data, points as usize)
     }
 
     async fn write_bits_extended(
@@ -862,7 +849,7 @@ impl ClientInner {
         values: &[bool],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
-        Self::validate_direct_bit_write(device.device)?;
+        rules::validate_direct_bit_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension);
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload = self.build_read_write_payload_extended(
@@ -892,7 +879,7 @@ impl ClientInner {
         word_devices: &[SlmpDeviceAddress],
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
-        Self::validate_random_read_devices(word_devices, dword_devices)?;
+        rules::validate_random_read_devices(word_devices, dword_devices)?;
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -952,7 +939,7 @@ impl ClientInner {
         word_entries: &[(SlmpDeviceAddress, u16)],
         dword_entries: &[(SlmpDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
-        Self::validate_random_write_word_devices(word_entries)?;
+        rules::validate_random_write_word_devices(word_entries)?;
         if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -1039,7 +1026,7 @@ impl ClientInner {
         word_blocks: &[SlmpBlockRead],
         bit_blocks: &[SlmpBlockRead],
     ) -> Result<SlmpBlockReadResult, SlmpError> {
-        Self::validate_no_lcs_lcc_block_read(word_blocks, bit_blocks)?;
+        rules::validate_no_lcs_lcc_block_read(word_blocks, bit_blocks)?;
         if word_blocks.len() > 0xFF || bit_blocks.len() > 0xFF {
             return Err(SlmpError::new("block counts must be <= 255"));
         }
@@ -1101,7 +1088,7 @@ impl ClientInner {
         bit_blocks: &[SlmpBlockWrite],
         options: SlmpBlockWriteOptions,
     ) -> Result<(), SlmpError> {
-        Self::validate_no_lcs_lcc_block_write(word_blocks, bit_blocks)?;
+        rules::validate_no_lcs_lcc_block_write(word_blocks, bit_blocks)?;
         if options.split_mixed_blocks && !word_blocks.is_empty() && !bit_blocks.is_empty() {
             self.write_block_once(word_blocks, &[]).await?;
             self.write_block_once(&[], bit_blocks).await?;
@@ -1384,8 +1371,8 @@ impl ClientInner {
         points: &[SlmpLabelArrayReadPoint],
         abbreviation_labels: &[String],
     ) -> Result<Vec<u8>, SlmpError> {
-        Self::validate_non_empty_u16_count(points.len(), "array label points")?;
-        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        rules::validate_non_empty_u16_count(points.len(), "array label points")?;
+        rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
         payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
         payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
@@ -1406,8 +1393,8 @@ impl ClientInner {
         points: &[SlmpLabelArrayWritePoint],
         abbreviation_labels: &[String],
     ) -> Result<Vec<u8>, SlmpError> {
-        Self::validate_non_empty_u16_count(points.len(), "array label points")?;
-        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        rules::validate_non_empty_u16_count(points.len(), "array label points")?;
+        rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
         payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
         payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
@@ -1436,8 +1423,8 @@ impl ClientInner {
         labels: &[String],
         abbreviation_labels: &[String],
     ) -> Result<Vec<u8>, SlmpError> {
-        Self::validate_non_empty_u16_count(labels.len(), "labels")?;
-        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        rules::validate_non_empty_u16_count(labels.len(), "labels")?;
+        rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
         payload.extend_from_slice(&(labels.len() as u16).to_le_bytes());
         payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
@@ -1454,8 +1441,8 @@ impl ClientInner {
         points: &[SlmpLabelRandomWritePoint],
         abbreviation_labels: &[String],
     ) -> Result<Vec<u8>, SlmpError> {
-        Self::validate_non_empty_u16_count(points.len(), "random label points")?;
-        Self::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
+        rules::validate_non_empty_u16_count(points.len(), "random label points")?;
+        rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
         payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
         payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
@@ -1463,7 +1450,7 @@ impl ClientInner {
             Self::append_label_name(&mut payload, label)?;
         }
         for point in points {
-            Self::validate_u16_count(point.data.len(), "write data length")?;
+            rules::validate_u16_count(point.data.len(), "write data length")?;
             Self::append_label_name(&mut payload, &point.label)?;
             payload.extend_from_slice(&(point.data.len() as u16).to_le_bytes());
             payload.extend_from_slice(&point.data);
@@ -1570,7 +1557,7 @@ impl ClientInner {
             return Err(SlmpError::new("label must not be empty"));
         }
         let utf16: Vec<u16> = label.encode_utf16().collect();
-        Self::validate_u16_count(utf16.len(), "label name length")?;
+        rules::validate_u16_count(utf16.len(), "label name length")?;
         payload.extend_from_slice(&(utf16.len() as u16).to_le_bytes());
         for ch in utf16 {
             payload.extend_from_slice(&ch.to_le_bytes());
@@ -1591,20 +1578,6 @@ impl ClientInner {
         }
     }
 
-    fn validate_non_empty_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
-        if count == 0 {
-            return Err(SlmpError::new(format!("{name} must not be empty")));
-        }
-        Self::validate_u16_count(count, name)
-    }
-
-    fn validate_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
-        if count > u16::MAX as usize {
-            return Err(SlmpError::new(format!("{name} must be <= 65535")));
-        }
-        Ok(())
-    }
-
     async fn read_long_timer(
         &mut self,
         head_no: u32,
@@ -1616,7 +1589,7 @@ impl ClientInner {
                 (points * 4) as u16,
             )
             .await?;
-        Ok(Self::parse_long_timer_words(&words, head_no, "LTN"))
+        Ok(rules::parse_long_timer_words(&words, head_no, "LTN"))
     }
 
     async fn read_long_retentive_timer(
@@ -1630,7 +1603,7 @@ impl ClientInner {
                 (points * 4) as u16,
             )
             .await?;
-        Ok(Self::parse_long_timer_words(&words, head_no, "LSTN"))
+        Ok(rules::parse_long_timer_words(&words, head_no, "LSTN"))
     }
 
     async fn request(
@@ -1878,205 +1851,6 @@ impl ClientInner {
         }
     }
 
-    fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-        // Long timer state bits are decoded from the LTN/LSTN 4-word status block.
-        // Do not send direct bit read (0x0401) for these devices.
-        if Self::is_long_timer_state_device(device.code) {
-            return Err(SlmpError::new(
-                "Direct bit read is not supported for long timer state devices. Use read_typed/read_named or a 4-word current-value block read.",
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_direct_bit_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-        // PLCs reject direct bit write (0x1401) for these state bits. The
-        // supported write path is write_typed/write_named, which selects 0x1402.
-        if Self::requires_random_bit_write(device.code) {
-            return Err(SlmpError::new(
-                "Direct bit write is not supported for long-family state devices. Use write_typed/write_named so random bit write (0x1402) is selected.",
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_direct_word_read(device: SlmpDeviceAddress, points: u16) -> Result<(), SlmpError> {
-        match device.code {
-            code if Self::is_random_dword_only_read_device(code) => Err(SlmpError::new(
-                "Direct word read is not supported for LCN/LZ. Use read_typed/read_named for 32-bit access.",
-            )),
-            code if matches!(code, SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN)
-                && (points == 0 || points % 4 != 0) =>
-            {
-                Err(SlmpError::new(
-                    "Long timer and long retentive timer current values must be read as 4-word blocks.",
-                ))
-            }
-            _ => Ok(()),
-        }
-    }
-
-    fn validate_direct_word_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-        if Self::is_long_current_value_device(device.code)
-            || Self::is_dword_only_scalar_device(device.code)
-        {
-            return Err(SlmpError::new(
-                "Direct word write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named with ':D' or ':L' instead.",
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-        if Self::is_long_current_value_device(device.code)
-            || Self::is_dword_only_scalar_device(device.code)
-        {
-            return Err(SlmpError::new(
-                "Direct dword read is not supported for LTN/LSTN/LCN/LZ. Use read_typed/read_named or the supported long-family helper route.",
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_direct_dword_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-        if Self::is_long_current_value_device(device.code)
-            || Self::is_dword_only_scalar_device(device.code)
-        {
-            return Err(SlmpError::new(
-                "Direct dword write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named so random dword write (0x1402) is selected.",
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_random_read_devices(
-        word_devices: &[SlmpDeviceAddress],
-        dword_devices: &[SlmpDeviceAddress],
-    ) -> Result<(), SlmpError> {
-        for device in word_devices.iter().chain(dword_devices.iter()) {
-            // LTS/LTC/LSTS/LSTC can be written by random bit write, but they are
-            // not readable by Read Random (0x0403); use status-block reads.
-            if Self::is_long_timer_state_device(device.code) {
-                return Err(SlmpError::new(
-                    "Read Random (0x0403) does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read.",
-                ));
-            }
-
-            if matches!(device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
-                return Err(SlmpError::new(
-                    "Read Random (0x0403) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
-                ));
-            }
-        }
-        for device in word_devices {
-            if Self::is_long_current_value_device(device.code)
-                || Self::is_dword_only_scalar_device(device.code)
-            {
-                return Err(SlmpError::new(
-                    "Read Random (0x0403) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead.",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_random_write_word_devices(
-        word_entries: &[(SlmpDeviceAddress, u16)],
-    ) -> Result<(), SlmpError> {
-        for (device, _) in word_entries {
-            if Self::is_long_current_value_device(device.code)
-                || Self::is_dword_only_scalar_device(device.code)
-            {
-                return Err(SlmpError::new(
-                    "Write Random (0x1402) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or write_typed/write_named with ':D' or ':L' instead.",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn is_long_timer_state_device(code: SlmpDeviceCode) -> bool {
-        matches!(
-            code,
-            SlmpDeviceCode::LTS | SlmpDeviceCode::LTC | SlmpDeviceCode::LSTS | SlmpDeviceCode::LSTC
-        )
-    }
-
-    fn requires_random_bit_write(code: SlmpDeviceCode) -> bool {
-        Self::is_long_timer_state_device(code)
-            || matches!(code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC)
-    }
-
-    fn is_long_current_value_device(code: SlmpDeviceCode) -> bool {
-        matches!(
-            code,
-            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN | SlmpDeviceCode::LCN
-        )
-    }
-
-    fn is_dword_only_scalar_device(code: SlmpDeviceCode) -> bool {
-        matches!(code, SlmpDeviceCode::LZ)
-    }
-
-    fn is_random_dword_only_read_device(code: SlmpDeviceCode) -> bool {
-        matches!(code, SlmpDeviceCode::LCN | SlmpDeviceCode::LZ)
-    }
-
-    fn validate_no_lcs_lcc_block_read(
-        word_blocks: &[SlmpBlockRead],
-        bit_blocks: &[SlmpBlockRead],
-    ) -> Result<(), SlmpError> {
-        for block in word_blocks {
-            if matches!(
-                block.device.code,
-                SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN
-            ) && block.points % 4 != 0
-            {
-                return Err(SlmpError::new(
-                    "Read Block (0x0406) direct long timer current reads require 4-word blocks.",
-                ));
-            }
-        }
-        for block in word_blocks.iter().chain(bit_blocks.iter()) {
-            if Self::is_random_dword_only_read_device(block.device.code) {
-                return Err(SlmpError::new(
-                    "Read Block (0x0406) does not support LCN/LZ as word or bit blocks. Use read_typed/read_named so random dword read is selected.",
-                ));
-            }
-        }
-        for block in word_blocks.iter().chain(bit_blocks.iter()) {
-            if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
-                return Err(SlmpError::new(
-                    "Read Block (0x0406) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_no_lcs_lcc_block_write(
-        word_blocks: &[SlmpBlockWrite],
-        bit_blocks: &[SlmpBlockWrite],
-    ) -> Result<(), SlmpError> {
-        for block in word_blocks.iter().chain(bit_blocks.iter()) {
-            if Self::is_long_current_value_device(block.device.code)
-                || Self::is_dword_only_scalar_device(block.device.code)
-            {
-                return Err(SlmpError::new(
-                    "Write Block (0x1406) does not support LTN/LSTN/LCN/LZ as word or bit blocks. Use write_typed/write_named with ':D' or ':L' instead.",
-                ));
-            }
-        }
-        for block in word_blocks.iter().chain(bit_blocks.iter()) {
-            if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
-                return Err(SlmpError::new(
-                    "Write Block (0x1406) does not support LCS/LCC. Use write_typed/write_named or other supported write routes.",
-                ));
-            }
-        }
-        Ok(())
-    }
-
     fn encode_device_spec(&self, device: SlmpDeviceAddress, output: &mut [u8]) -> usize {
         match self.options.compatibility_mode {
             SlmpCompatibilityMode::Legacy => {
@@ -2239,45 +2013,6 @@ impl ClientInner {
         payload
     }
 
-    fn unpack_bit_values(data: &[u8], points: usize) -> Result<Vec<bool>, SlmpError> {
-        let need = points.div_ceil(2);
-        if data.len() < need {
-            return Err(SlmpError::new("read_bits payload size mismatch"));
-        }
-        let mut result = Vec::with_capacity(points);
-        for byte in data.iter().take(need) {
-            if result.len() < points {
-                result.push(((byte >> 4) & 0x01) != 0);
-            }
-            if result.len() < points {
-                result.push((byte & 0x01) != 0);
-            }
-        }
-        Ok(result)
-    }
-
-    fn parse_long_timer_words(
-        words: &[u16],
-        head_no: u32,
-        prefix: &str,
-    ) -> Vec<SlmpLongTimerResult> {
-        let mut result = Vec::with_capacity(words.len() / 4);
-        for (index, chunk) in words.chunks_exact(4).enumerate() {
-            let status_word = chunk[2];
-            let current_value = chunk[0] as u32 | ((chunk[1] as u32) << 16);
-            result.push(SlmpLongTimerResult {
-                index: head_no + index as u32,
-                device: format!("{prefix}{}", head_no + index as u32),
-                current_value,
-                contact: (status_word & 0x0002) != 0,
-                coil: (status_word & 0x0001) != 0,
-                status_word,
-                raw_words: chunk.to_vec(),
-            });
-        }
-        result
-    }
-
     fn encode_password(&self, password: &str) -> Result<Vec<u8>, SlmpError> {
         let raw = password.as_bytes();
         match self.options.compatibility_mode {
@@ -2299,21 +2034,6 @@ impl ClientInner {
                 Ok(payload)
             }
         }
-    }
-}
-
-fn decode_cpu_operation_state(status_word: u16) -> SlmpCpuOperationState {
-    let raw_code = (status_word & 0x000F) as u8;
-    let status = match raw_code {
-        0x00 => SlmpCpuOperationStatus::Run,
-        0x02 => SlmpCpuOperationStatus::Stop,
-        0x03 => SlmpCpuOperationStatus::Pause,
-        _ => SlmpCpuOperationStatus::Unknown,
-    };
-    SlmpCpuOperationState {
-        status,
-        raw_status_word: status_word,
-        raw_code,
     }
 }
 

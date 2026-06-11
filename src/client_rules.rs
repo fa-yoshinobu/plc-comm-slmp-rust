@@ -1,0 +1,392 @@
+use crate::device_ranges::SlmpDeviceRangeFamily;
+use crate::error::SlmpError;
+use crate::model::{
+    SlmpBlockRead, SlmpBlockWrite, SlmpCpuOperationState, SlmpCpuOperationStatus,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcFamily,
+};
+
+pub(crate) fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {
+    match family {
+        SlmpPlcFamily::IqF => SlmpDeviceRangeFamily::IqF,
+        SlmpPlcFamily::IqR => SlmpDeviceRangeFamily::IqR,
+        SlmpPlcFamily::IqL => SlmpDeviceRangeFamily::IqL,
+        SlmpPlcFamily::MxF => SlmpDeviceRangeFamily::MxF,
+        SlmpPlcFamily::MxR => SlmpDeviceRangeFamily::MxR,
+        SlmpPlcFamily::QCpu => SlmpDeviceRangeFamily::QCpu,
+        SlmpPlcFamily::LCpu => SlmpDeviceRangeFamily::LCpu,
+        SlmpPlcFamily::QnU => SlmpDeviceRangeFamily::QnU,
+        SlmpPlcFamily::QnUDV => SlmpDeviceRangeFamily::QnUDV,
+    }
+}
+
+pub(crate) fn validate_non_empty_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
+    if count == 0 {
+        return Err(SlmpError::new(format!("{name} must not be empty")));
+    }
+    validate_u16_count(count, name)
+}
+
+pub(crate) fn validate_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
+    if count > u16::MAX as usize {
+        return Err(SlmpError::new(format!("{name} must be <= 65535")));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+    // Long timer state bits are decoded from the LTN/LSTN 4-word status block.
+    // Do not send direct bit read (0x0401) for these devices.
+    if is_long_timer_state_device(device.code) {
+        return Err(SlmpError::new(
+            "Direct bit read is not supported for long timer state devices. Use read_typed/read_named or a 4-word current-value block read.",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_direct_bit_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+    // PLCs reject direct bit write (0x1401) for these state bits. The
+    // supported write path is write_typed/write_named, which selects 0x1402.
+    if requires_random_bit_write(device.code) {
+        return Err(SlmpError::new(
+            "Direct bit write is not supported for long-family state devices. Use write_typed/write_named so random bit write (0x1402) is selected.",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_direct_word_read(
+    device: SlmpDeviceAddress,
+    points: u16,
+) -> Result<(), SlmpError> {
+    match device.code {
+        code if is_random_dword_only_read_device(code) => Err(SlmpError::new(
+            "Direct word read is not supported for LCN/LZ. Use read_typed/read_named for 32-bit access.",
+        )),
+        code if matches!(code, SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN)
+            && (points == 0 || points % 4 != 0) =>
+        {
+            Err(SlmpError::new(
+                "Long timer and long retentive timer current values must be read as 4-word blocks.",
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
+pub(crate) fn validate_direct_word_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+    if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+        return Err(SlmpError::new(
+            "Direct word write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named with ':D' or ':L' instead.",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+    if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+        return Err(SlmpError::new(
+            "Direct dword read is not supported for LTN/LSTN/LCN/LZ. Use read_typed/read_named or the supported long-family helper route.",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_direct_dword_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+    if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+        return Err(SlmpError::new(
+            "Direct dword write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named so random dword write (0x1402) is selected.",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_random_read_devices(
+    word_devices: &[SlmpDeviceAddress],
+    dword_devices: &[SlmpDeviceAddress],
+) -> Result<(), SlmpError> {
+    for device in word_devices.iter().chain(dword_devices.iter()) {
+        // LTS/LTC/LSTS/LSTC can be written by random bit write, but they are
+        // not readable by Read Random (0x0403); use status-block reads.
+        if is_long_timer_state_device(device.code) {
+            return Err(SlmpError::new(
+                "Read Random (0x0403) does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read.",
+            ));
+        }
+
+        if matches!(device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+            return Err(SlmpError::new(
+                "Read Random (0x0403) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
+            ));
+        }
+    }
+    for device in word_devices {
+        if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+            return Err(SlmpError::new(
+                "Read Random (0x0403) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_random_write_word_devices(
+    word_entries: &[(SlmpDeviceAddress, u16)],
+) -> Result<(), SlmpError> {
+    for (device, _) in word_entries {
+        if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+            return Err(SlmpError::new(
+                "Write Random (0x1402) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or write_typed/write_named with ':D' or ':L' instead.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn is_long_timer_state_device(code: SlmpDeviceCode) -> bool {
+    matches!(
+        code,
+        SlmpDeviceCode::LTS | SlmpDeviceCode::LTC | SlmpDeviceCode::LSTS | SlmpDeviceCode::LSTC
+    )
+}
+
+pub(crate) fn requires_random_bit_write(code: SlmpDeviceCode) -> bool {
+    is_long_timer_state_device(code) || matches!(code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC)
+}
+
+pub(crate) fn is_long_current_value_device(code: SlmpDeviceCode) -> bool {
+    matches!(
+        code,
+        SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN | SlmpDeviceCode::LCN
+    )
+}
+
+pub(crate) fn is_dword_only_scalar_device(code: SlmpDeviceCode) -> bool {
+    matches!(code, SlmpDeviceCode::LZ)
+}
+
+pub(crate) fn is_random_dword_only_read_device(code: SlmpDeviceCode) -> bool {
+    matches!(code, SlmpDeviceCode::LCN | SlmpDeviceCode::LZ)
+}
+
+pub(crate) fn validate_no_lcs_lcc_block_read(
+    word_blocks: &[SlmpBlockRead],
+    bit_blocks: &[SlmpBlockRead],
+) -> Result<(), SlmpError> {
+    for block in word_blocks {
+        if matches!(
+            block.device.code,
+            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN
+        ) && block.points % 4 != 0
+        {
+            return Err(SlmpError::new(
+                "Read Block (0x0406) direct long timer current reads require 4-word blocks.",
+            ));
+        }
+    }
+    for block in word_blocks.iter().chain(bit_blocks.iter()) {
+        if is_random_dword_only_read_device(block.device.code) {
+            return Err(SlmpError::new(
+                "Read Block (0x0406) does not support LCN/LZ as word or bit blocks. Use read_typed/read_named so random dword read is selected.",
+            ));
+        }
+    }
+    for block in word_blocks.iter().chain(bit_blocks.iter()) {
+        if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+            return Err(SlmpError::new(
+                "Read Block (0x0406) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_no_lcs_lcc_block_write(
+    word_blocks: &[SlmpBlockWrite],
+    bit_blocks: &[SlmpBlockWrite],
+) -> Result<(), SlmpError> {
+    for block in word_blocks.iter().chain(bit_blocks.iter()) {
+        if is_long_current_value_device(block.device.code)
+            || is_dword_only_scalar_device(block.device.code)
+        {
+            return Err(SlmpError::new(
+                "Write Block (0x1406) does not support LTN/LSTN/LCN/LZ as word or bit blocks. Use write_typed/write_named with ':D' or ':L' instead.",
+            ));
+        }
+    }
+    for block in word_blocks.iter().chain(bit_blocks.iter()) {
+        if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+            return Err(SlmpError::new(
+                "Write Block (0x1406) does not support LCS/LCC. Use write_typed/write_named or other supported write routes.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn unpack_bit_values(data: &[u8], points: usize) -> Result<Vec<bool>, SlmpError> {
+    let need = points.div_ceil(2);
+    if data.len() < need {
+        return Err(SlmpError::new("read_bits payload size mismatch"));
+    }
+    let mut result = Vec::with_capacity(points);
+    for byte in data.iter().take(need) {
+        if result.len() < points {
+            result.push(((byte >> 4) & 0x01) != 0);
+        }
+        if result.len() < points {
+            result.push((byte & 0x01) != 0);
+        }
+    }
+    Ok(result)
+}
+
+pub(crate) fn parse_long_timer_words(
+    words: &[u16],
+    head_no: u32,
+    prefix: &str,
+) -> Vec<SlmpLongTimerResult> {
+    let mut result = Vec::with_capacity(words.len() / 4);
+    for (index, chunk) in words.chunks_exact(4).enumerate() {
+        let status_word = chunk[2];
+        let current_value = chunk[0] as u32 | ((chunk[1] as u32) << 16);
+        result.push(SlmpLongTimerResult {
+            index: head_no + index as u32,
+            device: format!("{prefix}{}", head_no + index as u32),
+            current_value,
+            contact: (status_word & 0x0002) != 0,
+            coil: (status_word & 0x0001) != 0,
+            status_word,
+            raw_words: chunk.to_vec(),
+        });
+    }
+    result
+}
+
+pub(crate) fn decode_cpu_operation_state(status_word: u16) -> SlmpCpuOperationState {
+    let raw_code = (status_word & 0x000F) as u8;
+    let status = match raw_code {
+        0x00 => SlmpCpuOperationStatus::Run,
+        0x02 => SlmpCpuOperationStatus::Stop,
+        0x03 => SlmpCpuOperationStatus::Pause,
+        _ => SlmpCpuOperationStatus::Unknown,
+    };
+    SlmpCpuOperationState {
+        status,
+        raw_status_word: status_word,
+        raw_code,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_plc_family_to_matching_device_range_family() {
+        assert_eq!(
+            map_plc_family_to_range_family(SlmpPlcFamily::IqR),
+            SlmpDeviceRangeFamily::IqR
+        );
+        assert_eq!(
+            map_plc_family_to_range_family(SlmpPlcFamily::IqL),
+            SlmpDeviceRangeFamily::IqL
+        );
+        assert_eq!(
+            map_plc_family_to_range_family(SlmpPlcFamily::MxF),
+            SlmpDeviceRangeFamily::MxF
+        );
+        assert_eq!(
+            map_plc_family_to_range_family(SlmpPlcFamily::QnUDV),
+            SlmpDeviceRangeFamily::QnUDV
+        );
+    }
+
+    #[test]
+    fn validates_u16_sized_counts() {
+        assert!(validate_u16_count(u16::MAX as usize, "labels").is_ok());
+        assert_eq!(
+            validate_u16_count(u16::MAX as usize + 1, "labels")
+                .unwrap_err()
+                .to_string(),
+            "labels must be <= 65535"
+        );
+        assert_eq!(
+            validate_non_empty_u16_count(0, "labels")
+                .unwrap_err()
+                .to_string(),
+            "labels must not be empty"
+        );
+    }
+
+    #[test]
+    fn classifies_long_family_device_rules() {
+        assert!(is_long_timer_state_device(SlmpDeviceCode::LTS));
+        assert!(is_long_timer_state_device(SlmpDeviceCode::LSTC));
+        assert!(!is_long_timer_state_device(SlmpDeviceCode::LCS));
+
+        assert!(requires_random_bit_write(SlmpDeviceCode::LTC));
+        assert!(requires_random_bit_write(SlmpDeviceCode::LCC));
+        assert!(!requires_random_bit_write(SlmpDeviceCode::M));
+
+        assert!(is_long_current_value_device(SlmpDeviceCode::LTN));
+        assert!(is_long_current_value_device(SlmpDeviceCode::LCN));
+        assert!(!is_long_current_value_device(SlmpDeviceCode::LZ));
+
+        assert!(is_dword_only_scalar_device(SlmpDeviceCode::LZ));
+        assert!(is_random_dword_only_read_device(SlmpDeviceCode::LCN));
+        assert!(is_random_dword_only_read_device(SlmpDeviceCode::LZ));
+        assert!(!is_random_dword_only_read_device(SlmpDeviceCode::LTN));
+    }
+
+    #[test]
+    fn unpacks_bit_values_high_nibble_then_low_nibble() {
+        let values = unpack_bit_values(&[0x10, 0x01, 0x11], 5).unwrap();
+        assert_eq!(values, vec![true, false, false, true, true]);
+
+        assert_eq!(
+            unpack_bit_values(&[0x00], 3).unwrap_err().to_string(),
+            "read_bits payload size mismatch"
+        );
+    }
+
+    #[test]
+    fn parses_long_timer_words_as_four_word_blocks() {
+        let values = parse_long_timer_words(
+            &[
+                0x5678, 0x1234, 0x0003, 0xAAAA, 0x0001, 0x0000, 0x0002, 0xBBBB,
+            ],
+            10,
+            "LTN",
+        );
+
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].index, 10);
+        assert_eq!(values[0].device, "LTN10");
+        assert_eq!(values[0].current_value, 0x1234_5678);
+        assert!(values[0].contact);
+        assert!(values[0].coil);
+        assert_eq!(values[0].status_word, 0x0003);
+        assert_eq!(values[0].raw_words, vec![0x5678, 0x1234, 0x0003, 0xAAAA]);
+
+        assert_eq!(values[1].index, 11);
+        assert_eq!(values[1].device, "LTN11");
+        assert_eq!(values[1].current_value, 1);
+        assert!(values[1].contact);
+        assert!(!values[1].coil);
+        assert_eq!(values[1].status_word, 0x0002);
+    }
+
+    #[test]
+    fn decodes_cpu_operation_state_from_low_nibble() {
+        let state = decode_cpu_operation_state(0x00A2);
+        assert_eq!(state.status, SlmpCpuOperationStatus::Stop);
+        assert_eq!(state.raw_status_word, 0x00A2);
+        assert_eq!(state.raw_code, 0x02);
+
+        assert_eq!(
+            decode_cpu_operation_state(0x00F5).status,
+            SlmpCpuOperationStatus::Unknown
+        );
+    }
+}

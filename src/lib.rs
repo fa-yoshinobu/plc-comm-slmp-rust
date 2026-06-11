@@ -98,6 +98,7 @@
 //!
 mod address;
 mod client;
+mod client_rules;
 mod device_range_sample;
 mod device_ranges;
 mod error;

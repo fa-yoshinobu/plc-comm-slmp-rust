@@ -17,6 +17,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Cargo fmt
+        working-directory: plc-comm-slmp-rust
+        run: cargo fmt --all --check
+
+      - name: Cargo clippy
+        working-directory: plc-comm-slmp-rust
+        run: cargo clippy --all-targets --features cli -- -D warnings
+
       - name: Cargo test
         working-directory: plc-comm-slmp-rust
         run: cargo test
