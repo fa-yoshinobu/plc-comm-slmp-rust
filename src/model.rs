@@ -461,7 +461,6 @@ pub struct SlmpBlockWrite {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub struct SlmpBlockWriteOptions {
     pub split_mixed_blocks: bool,
-    pub retry_mixed_on_error: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]

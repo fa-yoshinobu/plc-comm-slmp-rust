@@ -374,7 +374,6 @@ async fn validate_block_write(
                 }],
                 Some(SlmpBlockWriteOptions {
                     split_mixed_blocks: false,
-                    retry_mixed_on_error: true,
                 }),
             )
             .await?;

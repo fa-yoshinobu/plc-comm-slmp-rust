@@ -518,12 +518,53 @@ async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
             }],
             Some(SlmpBlockWriteOptions {
                 split_mixed_blocks: false,
-                retry_mixed_on_error: true,
             }),
         )
         .await
         .unwrap_err();
     assert_eq!(error.end_code, Some(0xC05B));
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_block_write_shape(&requests[0], 1, 1);
+    // Manual-conformant layout: each block's data follows its own spec.
+    assert_eq!(
+        &requests[0][13 + 8..],
+        &[
+            0x64, 0x00, 0x00, 0x00, 0xA8, 0x00, 0x01, 0x00, 0x34, 0x12, // D100 x1 + data
+            0xC8, 0x00, 0x00, 0x00, 0x90, 0x00, 0x01, 0x00, 0x05, 0x00, // M200 x1 + data
+        ]
+    );
+}
+
+#[tokio::test]
+async fn mixed_block_write_does_not_retry_c056_as_split_requests() {
+    let server = CapturingResponseServer::start(vec![(0xC056, Vec::new())])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    options.port = server.port;
+    options.frame_type = SlmpFrameType::Frame4E;
+    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error = client
+        .write_block(
+            &[SlmpBlockWrite {
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                values: vec![0x1234],
+            }],
+            &[SlmpBlockWrite {
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 200),
+                values: vec![0x0005],
+            }],
+            Some(SlmpBlockWriteOptions {
+                split_mixed_blocks: false,
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.end_code, Some(0xC056));
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
