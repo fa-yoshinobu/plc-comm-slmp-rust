@@ -78,7 +78,7 @@ Requires Rust 1.85 or newer.
 
 ```toml
 [dependencies]
-plc-comm-slmp-rust = "0.1.10"
+plc-comm-slmp-rust = "0.1.11"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 

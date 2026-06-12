@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.11] - 2026-06-12
+
+### Changed
+- Refreshed the README package example and included the Rust eyecatch image in the crate package.
+
 ## [0.1.10] - 2026-06-12
 
 ### Added
