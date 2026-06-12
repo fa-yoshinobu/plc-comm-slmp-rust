@@ -6,6 +6,8 @@
 
 # SLMP Protocol for Rust
 
+![SLMP Rust eyecatch](https://raw.githubusercontent.com/fa-yoshinobu/plc-comm-slmp-rust/main/docs/assets/slmp-rust-eyecatch.png)
+
 Async Rust implementation of the SLMP library, based on the `plc-comm-slmp-dotnet`
 implementation and aligned with the shared `plc-comm-slmp-cross-verify` harness.
 
