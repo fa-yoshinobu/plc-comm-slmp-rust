@@ -349,6 +349,15 @@ High-level helpers are intended to cover these forms first.
 - long current-value forms: `LTN10:D`, `LSTN20:D`, `LCN30:D`
 - extended devices: `J1\\SW0`, `U3\\G100`, `U3E0\\HG0`
 
+High-level address syntax is shared across the PLC helper libraries:
+
+- use `:` for data types and special views: `D100:U`, `D100:S`, `D100:D`,
+  `D100:L`, `D100:F`, `D100:STR`
+- use `.` only for bit-in-word access: `D50.0` through `D50.F`
+- `D50.D` is bit `0xD` / bit 13, not a 32-bit data type request
+- low-level SLMP routes still encode word/dword/float access internally; the
+  `:D` / `:F` spelling is the public helper-layer form
+
 `.bit` notation is only valid for word devices. Address bit devices directly.
 
 See also:

@@ -64,14 +64,19 @@ pub fn parse_named_address(address: &str) -> Result<NamedAddressParts, SlmpError
         });
     }
 
-    if let Some((base, bit)) = trimmed.split_once('.')
-        && let Ok(bit_index) = u8::from_str_radix(bit.trim(), 16)
-    {
-        return Ok(NamedAddressParts {
-            base: base.trim().to_string(),
-            dtype: "BIT_IN_WORD".to_string(),
-            bit_index: Some(bit_index),
-        });
+    if let Some((base, bit)) = trimmed.split_once('.') {
+        let bit_text = bit.trim();
+        if bit_text.len() == 1 && bit_text.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            let bit_index = u8::from_str_radix(bit_text, 16).unwrap();
+            return Ok(NamedAddressParts {
+                base: base.trim().to_string(),
+                dtype: "BIT_IN_WORD".to_string(),
+                bit_index: Some(bit_index),
+            });
+        }
+        return Err(SlmpError::new(
+            "Invalid bit-in-word index. Use one hex digit 0-F or ':' for data type.",
+        ));
     }
 
     Ok(NamedAddressParts {
@@ -315,6 +320,7 @@ pub fn device_spec_size(mode: SlmpCompatibilityMode) -> usize {
 mod tests {
     use super::{
         SlmpAddress, parse_device, parse_device_for_family_hint, parse_device_for_plc_family,
+        parse_named_address,
     };
     use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcFamily};
 
@@ -386,5 +392,14 @@ mod tests {
             "unexpected error: {}",
             error.message
         );
+    }
+
+    #[test]
+    fn named_address_dot_suffix_is_one_hex_bit() {
+        let parsed = parse_named_address("D100.D").unwrap();
+        assert_eq!(parsed.dtype, "BIT_IN_WORD");
+        assert_eq!(parsed.bit_index, Some(13));
+
+        assert!(parse_named_address("D100.10").is_err());
     }
 }

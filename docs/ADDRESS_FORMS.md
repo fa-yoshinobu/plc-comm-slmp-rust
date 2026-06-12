@@ -26,7 +26,7 @@ families.
 ## Typed Suffixes
 
 Use `:suffix` when the same word address should be interpreted as a specific
-scalar type.
+scalar type. The colon form is the public helper-layer syntax for data types.
 
 | Form | Meaning |
 | --- | --- |
@@ -43,12 +43,14 @@ Rules:
 
 ## Bit-In-Word Form
 
-Use `.bit` only on word devices.
+Use `.bit` only on word devices. Dot notation is reserved for bit-in-word
+access, not data types.
 
 | Form | Meaning |
 | --- | --- |
 | `D50.3` | bit 3 of `D50` |
 | `W10.A` | bit `0xA` of `W10` |
+| `D50.D` | bit `0xD` / bit 13 of `D50`, not a 32-bit data type |
 
 Invalid examples:
 
