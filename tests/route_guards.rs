@@ -1,5 +1,5 @@
 use plc_comm_slmp::{
-    SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpCompatibilityMode,
+    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpCompatibilityMode,
     SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType,
     SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue,
     parse_qualified_device, read_dwords_chunked, read_dwords_single_request, read_named,
@@ -155,14 +155,32 @@ async fn close_shuts_down_tcp_stream() {
 }
 
 #[tokio::test]
-async fn udp_read_words_accepts_large_datagram_response() {
+async fn self_test_loopback_rejects_manual_invalid_payloads_before_transport() {
+    let client = udp_client().await;
+
+    let err = client.self_test_loopback(b"HELLO").await.unwrap_err();
+    assert!(err.to_string().contains("ASCII 0-9/A-F"));
+
+    let err = client.self_test_loopback(&[0x00, 0xFF]).await.unwrap_err();
+    assert!(err.to_string().contains("ASCII 0-9/A-F"));
+
+    let err = client.self_test_loopback(b"").await.unwrap_err();
+    assert!(err.to_string().contains("1..960"));
+
+    let too_long = vec![b'A'; 961];
+    let err = client.self_test_loopback(&too_long).await.unwrap_err();
+    assert!(err.to_string().contains("1..960"));
+}
+
+#[tokio::test]
+async fn udp_read_words_accepts_manual_limit_datagram_response() {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let port = socket.local_addr().unwrap().port();
     tokio::spawn(async move {
         let mut request = vec![0u8; 1024];
         let (read, peer) = socket.recv_from(&mut request).await.unwrap();
         let mut response_data = Vec::new();
-        for value in 0..4100u16 {
+        for value in 0..960u16 {
             response_data.extend_from_slice(&value.to_le_bytes());
         }
         let response = build_4e_response(&request[..read], &response_data);
@@ -175,13 +193,13 @@ async fn udp_read_words_accepts_large_datagram_response() {
     let client = SlmpClient::connect(options).await.unwrap();
 
     let values = client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 4100)
+        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 960)
         .await
         .unwrap();
 
-    assert_eq!(values.len(), 4100);
+    assert_eq!(values.len(), 960);
     assert_eq!(values[0], 0);
-    assert_eq!(values[4099], 4099);
+    assert_eq!(values[959], 959);
 }
 
 #[tokio::test]
@@ -283,10 +301,10 @@ async fn dword_helpers_use_random_dword_route_for_lz() {
 async fn dword_helpers_apply_lz_random_read_limits() {
     let client = udp_client().await;
     let err =
-        read_dwords_single_request(&client, SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0), 256)
+        read_dwords_single_request(&client, SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0), 97)
             .await
             .unwrap_err();
-    assert!(err.to_string().contains("1-255"));
+    assert!(err.to_string().contains("1-96"));
 
     let err = read_dwords_chunked(&client, SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 1, 0)
         .await
@@ -520,6 +538,143 @@ async fn random_word_routes_reject_long_current_and_lz_devices() {
     assert!(
         err.to_string()
             .contains("does not support LTN/LSTN/LCN/LZ as word entries")
+    );
+}
+
+#[tokio::test]
+async fn manual_point_limits_reject_overruns_before_transport() {
+    let client = udp_client().await;
+
+    assert!(
+        client
+            .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 961)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..960")
+    );
+    assert!(
+        client
+            .write_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), &vec![0; 961])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..960")
+    );
+    assert!(
+        client
+            .read_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 0), 7169)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..7168")
+    );
+    assert!(
+        client
+            .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 0), &vec![false; 7169])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..7168")
+    );
+
+    let random_words: Vec<_> = (0..81)
+        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000 + i), 0))
+        .collect();
+    assert!(
+        client
+            .write_random_words(&random_words, &[])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("word/dword access points out of range")
+    );
+
+    let random_dwords: Vec<_> = (0..69)
+        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000 + (i * 2)), 0))
+        .collect();
+    assert!(
+        client
+            .write_random_words(&[], &random_dwords)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("word/dword access points out of range")
+    );
+
+    let random_bits: Vec<_> = (0..95)
+        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::M, 4000 + i), false))
+        .collect();
+    assert!(
+        client
+            .write_random_bits(&random_bits)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..94")
+    );
+
+    assert!(
+        client
+            .read_block(
+                &[SlmpBlockRead {
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 0),
+                    points: 961,
+                }],
+                &[],
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("total device points")
+    );
+    assert!(
+        client
+            .write_block(
+                &[SlmpBlockWrite {
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000),
+                    values: vec![0; 952],
+                }],
+                &[],
+                None,
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("total device points")
+    );
+
+    assert!(
+        client
+            .memory_read_words(0, 481)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..480")
+    );
+    assert!(
+        client
+            .memory_write_words(0, &vec![0; 481])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..480")
+    );
+    assert!(
+        client
+            .extend_unit_read_words(0, 961, 0x03E0)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..960")
+    );
+    assert!(
+        client
+            .extend_unit_write_words(0, 0x03E0, &vec![0; 961])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..960")
     );
 }
 

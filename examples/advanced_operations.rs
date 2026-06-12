@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     println!("extended read        -> {:?}", ext_values);
 
-    let loopback = client.self_test_loopback(b"rust-slmp").await?;
+    let loopback = client.self_test_loopback(b"ABCDEF").await?;
     println!(
         "self-test loopback   -> {:?}",
         String::from_utf8_lossy(&loopback)

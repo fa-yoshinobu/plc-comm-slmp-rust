@@ -640,6 +640,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u16>, SlmpError> {
+        rules::validate_direct_access_points(points as usize, false, "read_words")?;
         rules::validate_direct_word_read(device, points)?;
         let payload = self.build_read_write_payload(device, points, None, false);
         let sub = self.word_subcommand(false);
@@ -660,6 +661,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u16],
     ) -> Result<(), SlmpError> {
+        rules::validate_direct_access_points(values.len(), false, "write_words")?;
         rules::validate_direct_word_write(device)?;
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(values), false);
@@ -675,6 +677,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<bool>, SlmpError> {
+        rules::validate_direct_access_points(points as usize, true, "read_bits")?;
         rules::validate_direct_bit_read(device)?;
         let payload = self.build_read_write_payload(device, points, None, true);
         let data = self
@@ -693,6 +696,7 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[bool],
     ) -> Result<(), SlmpError> {
+        rules::validate_direct_access_points(values.len(), true, "write_bits")?;
         rules::validate_direct_bit_write(device)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload =
@@ -714,7 +718,9 @@ impl ClientInner {
         points: u16,
     ) -> Result<Vec<u32>, SlmpError> {
         rules::validate_direct_dword_read(device)?;
-        let words = self.read_words_raw(device, points * 2).await?;
+        let word_points = (points as usize) * 2;
+        rules::validate_direct_access_points(word_points, false, "read_dwords")?;
+        let words = self.read_words_raw(device, word_points as u16).await?;
         Ok(words
             .chunks_exact(2)
             .map(|chunk| chunk[0] as u32 | ((chunk[1] as u32) << 16))
@@ -727,6 +733,7 @@ impl ClientInner {
         values: &[u32],
     ) -> Result<(), SlmpError> {
         rules::validate_direct_dword_write(device)?;
+        rules::validate_direct_access_points(values.len() * 2, false, "write_dwords")?;
         let mut words = Vec::with_capacity(values.len() * 2);
         for value in values {
             words.push((value & 0xFFFF) as u16);
@@ -763,6 +770,7 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
+        rules::validate_direct_access_points(points as usize, false, "read_words_ext")?;
         rules::validate_direct_word_read(device.device, points)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         let payload =
@@ -794,6 +802,7 @@ impl ClientInner {
         values: &[u16],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
+        rules::validate_direct_access_points(values.len(), false, "write_words_ext")?;
         rules::validate_direct_word_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         let payload = self.build_read_write_payload_extended(
@@ -824,6 +833,7 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
+        rules::validate_direct_access_points(points as usize, true, "read_bits_ext")?;
         rules::validate_direct_bit_read(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         let payload =
@@ -849,6 +859,7 @@ impl ClientInner {
         values: &[bool],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
+        rules::validate_direct_access_points(values.len(), true, "write_bits_ext")?;
         rules::validate_direct_bit_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
@@ -883,6 +894,12 @@ impl ClientInner {
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
+        rules::validate_random_read_like_counts(
+            word_devices.len(),
+            dword_devices.len(),
+            self.options.compatibility_mode,
+            "read_random",
+        )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
         payload.resize(
@@ -943,6 +960,12 @@ impl ClientInner {
         if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
+        rules::validate_random_write_word_counts(
+            word_entries.len(),
+            dword_entries.len(),
+            self.options.compatibility_mode,
+            "write_random_words",
+        )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let size =
             2 + (word_entries.len() * (spec_size + 2)) + (dword_entries.len() * (spec_size + 4));
@@ -981,6 +1004,11 @@ impl ClientInner {
         if bit_entries.len() > 0xFF {
             return Err(SlmpError::new("random bit count must be <= 255"));
         }
+        rules::validate_random_bit_write_count(
+            bit_entries.len(),
+            self.options.compatibility_mode,
+            "write_random_bits",
+        )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let bit_value_size = if matches!(
             self.options.compatibility_mode,
@@ -1030,6 +1058,11 @@ impl ClientInner {
         if word_blocks.len() > 0xFF || bit_blocks.len() > 0xFF {
             return Err(SlmpError::new("block counts must be <= 255"));
         }
+        rules::validate_block_read_limits(
+            word_blocks,
+            bit_blocks,
+            self.options.compatibility_mode,
+        )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let total_word_points: usize = word_blocks.iter().map(|block| block.points as usize).sum();
         let total_bit_points: usize = bit_blocks.iter().map(|block| block.points as usize).sum();
@@ -1105,6 +1138,11 @@ impl ClientInner {
         if word_blocks.len() > 0xFF || bit_blocks.len() > 0xFF {
             return Err(SlmpError::new("block counts must be <= 255"));
         }
+        rules::validate_block_write_limits(
+            word_blocks,
+            bit_blocks,
+            self.options.compatibility_mode,
+        )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let total_word_points: usize = word_blocks.iter().map(|block| block.values.len()).sum();
         let total_bit_points: usize = bit_blocks.iter().map(|block| block.values.len()).sum();
@@ -1157,8 +1195,8 @@ impl ClientInner {
     }
 
     async fn remote_stop(&mut self, force: bool) -> Result<(), SlmpError> {
-        let mode = if force { 0x03 } else { 0x01 };
-        self.request(SlmpCommand::RemoteStop, 0x0000, &[mode, 0x00], true)
+        let _ = force;
+        self.request(SlmpCommand::RemoteStop, 0x0000, &[0x01, 0x00], true)
             .await?;
         Ok(())
     }
@@ -1177,7 +1215,7 @@ impl ClientInner {
     }
 
     async fn remote_reset(&mut self, expect_response: bool) -> Result<(), SlmpError> {
-        self.request(SlmpCommand::RemoteReset, 0x0000, &[], expect_response)
+        self.request(SlmpCommand::RemoteReset, 0x0000, &[0x01, 0x00], expect_response)
             .await?;
         Ok(())
     }
@@ -1197,8 +1235,16 @@ impl ClientInner {
     }
 
     async fn self_test_loopback(&mut self, data: &[u8]) -> Result<Vec<u8>, SlmpError> {
-        if data.len() > u16::MAX as usize {
-            return Err(SlmpError::new("loopback payload must be <= 65535 bytes"));
+        if data.is_empty() || data.len() > 960 {
+            return Err(SlmpError::new("loopback payload size out of range (1..960 bytes)"));
+        }
+        if data
+            .iter()
+            .any(|value| !matches!(*value, b'0'..=b'9' | b'A'..=b'F'))
+        {
+            return Err(SlmpError::new(
+                "loopback payload must contain only ASCII 0-9/A-F bytes",
+            ));
         }
         let mut payload = Vec::with_capacity(2 + data.len());
         payload.extend_from_slice(&(data.len() as u16).to_le_bytes());
@@ -1221,6 +1267,7 @@ impl ClientInner {
         head_address: u32,
         word_length: u16,
     ) -> Result<Vec<u16>, SlmpError> {
+        rules::validate_memory_word_length(word_length as usize, "memory_read")?;
         let mut payload = Vec::with_capacity(6);
         payload.extend_from_slice(&head_address.to_le_bytes());
         payload.extend_from_slice(&word_length.to_le_bytes());
@@ -1241,6 +1288,7 @@ impl ClientInner {
         head_address: u32,
         values: &[u16],
     ) -> Result<(), SlmpError> {
+        rules::validate_memory_word_length(values.len(), "memory_write")?;
         let mut payload = Vec::with_capacity(6 + (values.len() * 2));
         payload.extend_from_slice(&head_address.to_le_bytes());
         payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
@@ -1258,12 +1306,18 @@ impl ClientInner {
         byte_length: u16,
         module_no: u16,
     ) -> Result<Vec<u8>, SlmpError> {
+        rules::validate_extend_unit_byte_length(byte_length as usize, "extend_unit_read")?;
         let mut payload = Vec::with_capacity(8);
         payload.extend_from_slice(&head_address.to_le_bytes());
         payload.extend_from_slice(&byte_length.to_le_bytes());
         payload.extend_from_slice(&module_no.to_le_bytes());
-        self.request(SlmpCommand::ExtendUnitRead, 0x0000, &payload, true)
-            .await
+        let data = self
+            .request(SlmpCommand::ExtendUnitRead, 0x0000, &payload, true)
+            .await?;
+        if data.len() != byte_length as usize {
+            return Err(SlmpError::new("extend_unit_read response size mismatch"));
+        }
+        Ok(data)
     }
 
     async fn extend_unit_read_words(
@@ -1272,6 +1326,7 @@ impl ClientInner {
         word_length: u16,
         module_no: u16,
     ) -> Result<Vec<u16>, SlmpError> {
+        rules::validate_extend_unit_word_length(word_length as usize, "extend_unit_read_words")?;
         let data = self
             .extend_unit_read_bytes(head_address, word_length * 2, module_no)
             .await?;
@@ -1287,6 +1342,7 @@ impl ClientInner {
         module_no: u16,
         values: &[u16],
     ) -> Result<(), SlmpError> {
+        rules::validate_extend_unit_word_length(values.len(), "extend_unit_write_words")?;
         let mut payload = Vec::with_capacity(8 + values.len() * 2);
         payload.extend_from_slice(&head_address.to_le_bytes());
         payload.extend_from_slice(&((values.len() * 2) as u16).to_le_bytes());
@@ -1669,6 +1725,12 @@ impl ClientInner {
         }
         let word_count = payload[0] as usize;
         let dword_count = payload[1] as usize;
+        rules::validate_random_read_like_counts(
+            word_count,
+            dword_count,
+            mode,
+            "register_monitor_devices",
+        )?;
         let spec_size = device_spec_size(mode);
         let expected = 2 + (word_count + dword_count) * spec_size;
         if payload.len() != expected {

@@ -7,6 +7,8 @@ use futures_core::stream::Stream;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 
+const RANDOM_READ_BATCH_LIMIT: usize = 96;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(untagged)]
 pub enum SlmpValue {
@@ -194,7 +196,7 @@ pub async fn read_dwords_single_request(
     count: usize,
 ) -> Result<Vec<u32>, SlmpError> {
     if matches!(start.code, SlmpDeviceCode::LZ) {
-        validate_single_request_count(count, 0xFF)?;
+        validate_single_request_count(count, RANDOM_READ_BATCH_LIMIT)?;
         return read_random_dwords_chunked(client, start, count, count).await;
     }
     validate_single_request_count(count, 480)?;
@@ -258,8 +260,13 @@ pub async fn read_dwords_chunked(
         return Err(SlmpError::new("max_dwords_per_request must be at least 1."));
     }
     if matches!(start.code, SlmpDeviceCode::LZ) {
-        return read_random_dwords_chunked(client, start, count, max_dwords_per_request.min(0xFF))
-            .await;
+        return read_random_dwords_chunked(
+            client,
+            start,
+            count,
+            max_dwords_per_request.min(RANDOM_READ_BATCH_LIMIT),
+        )
+        .await;
     }
     let mut remaining = count;
     let mut offset = 0u32;
@@ -628,8 +635,17 @@ async fn read_random_maps(
     let mut dword_index = 0usize;
 
     while word_index < word_devices.len() || dword_index < dword_devices.len() {
-        let word_end = (word_index + 0xFF).min(word_devices.len());
-        let dword_end = (dword_index + 0xFF).min(dword_devices.len());
+        let word_take = word_devices
+            .len()
+            .saturating_sub(word_index)
+            .min(RANDOM_READ_BATCH_LIMIT);
+        let dword_limit = RANDOM_READ_BATCH_LIMIT.saturating_sub(word_take);
+        let dword_take = dword_devices
+            .len()
+            .saturating_sub(dword_index)
+            .min(dword_limit);
+        let word_end = word_index + word_take;
+        let dword_end = dword_index + dword_take;
         let random = client
             .read_random(
                 &word_devices[word_index..word_end],

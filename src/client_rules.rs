@@ -1,9 +1,14 @@
 use crate::device_ranges::SlmpDeviceRangeFamily;
 use crate::error::SlmpError;
 use crate::model::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpCpuOperationState, SlmpCpuOperationStatus,
+    SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState, SlmpCpuOperationStatus,
     SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcFamily,
 };
+
+const DIRECT_WORD_POINT_LIMIT: usize = 960;
+const DIRECT_BIT_POINT_LIMIT: usize = 7168;
+const MEMORY_WORD_LIMIT: usize = 480;
+const EXTEND_UNIT_BYTE_LIMIT: usize = 1920;
 
 pub(crate) fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {
     match family {
@@ -31,6 +36,200 @@ pub(crate) fn validate_u16_count(count: usize, name: &str) -> Result<(), SlmpErr
         return Err(SlmpError::new(format!("{name} must be <= 65535")));
     }
     Ok(())
+}
+
+pub(crate) fn validate_direct_access_points(
+    points: usize,
+    bit_unit: bool,
+    name: &str,
+) -> Result<(), SlmpError> {
+    let limit = if bit_unit {
+        DIRECT_BIT_POINT_LIMIT
+    } else {
+        DIRECT_WORD_POINT_LIMIT
+    };
+    let unit = if bit_unit { "bit" } else { "word" };
+    if points < 1 || points > limit {
+        return Err(SlmpError::new(format!(
+            "{name} {unit} access points out of range (1..{limit}): {points}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_random_read_like_counts(
+    word_points: usize,
+    dword_points: usize,
+    compatibility_mode: SlmpCompatibilityMode,
+    name: &str,
+) -> Result<(), SlmpError> {
+    let total = word_points + dword_points;
+    let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+        192
+    } else {
+        96
+    };
+    if total < 1 || total > limit {
+        return Err(SlmpError::new(format!(
+            "{name} total access points out of range (1..{limit}): word={word_points}, dword={dword_points}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_random_write_word_counts(
+    word_points: usize,
+    dword_points: usize,
+    compatibility_mode: SlmpCompatibilityMode,
+    name: &str,
+) -> Result<(), SlmpError> {
+    if word_points + dword_points < 1 {
+        return Err(SlmpError::new(format!(
+            "{name} word/dword access points out of range: word={word_points}, dword={dword_points}"
+        )));
+    }
+    let weighted = (word_points * 12) + (dword_points * 14);
+    let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+        1920
+    } else {
+        960
+    };
+    if weighted > limit {
+        return Err(SlmpError::new(format!(
+            "{name} word/dword access points out of range: word={word_points}, dword={dword_points}, weighted={weighted}, limit={limit}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_random_bit_write_count(
+    points: usize,
+    compatibility_mode: SlmpCompatibilityMode,
+    name: &str,
+) -> Result<(), SlmpError> {
+    let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+        188
+    } else {
+        94
+    };
+    if points < 1 || points > limit {
+        return Err(SlmpError::new(format!(
+            "{name} bit access points out of range (1..{limit}): {points}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_block_read_limits(
+    word_blocks: &[SlmpBlockRead],
+    bit_blocks: &[SlmpBlockRead],
+    compatibility_mode: SlmpCompatibilityMode,
+) -> Result<(), SlmpError> {
+    let total_blocks = word_blocks.len() + bit_blocks.len();
+    validate_block_count(total_blocks, compatibility_mode, "read_block")?;
+    let total_points: usize = word_blocks
+        .iter()
+        .map(|block| validate_block_points(block.points as usize, "read_block word"))
+        .sum::<Result<usize, SlmpError>>()?
+        + bit_blocks
+            .iter()
+            .map(|block| validate_block_points(block.points as usize, "read_block bit"))
+            .sum::<Result<usize, SlmpError>>()?;
+    if total_points > DIRECT_WORD_POINT_LIMIT {
+        return Err(SlmpError::new(format!(
+            "read_block total device points out of range (<=960): total_points={total_points}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_block_write_limits(
+    word_blocks: &[SlmpBlockWrite],
+    bit_blocks: &[SlmpBlockWrite],
+    compatibility_mode: SlmpCompatibilityMode,
+) -> Result<(), SlmpError> {
+    let total_blocks = word_blocks.len() + bit_blocks.len();
+    validate_block_count(total_blocks, compatibility_mode, "write_block")?;
+    let total_points: usize = word_blocks
+        .iter()
+        .map(|block| validate_block_points(block.values.len(), "write_block word"))
+        .sum::<Result<usize, SlmpError>>()?
+        + bit_blocks
+            .iter()
+            .map(|block| validate_block_points(block.values.len(), "write_block bit"))
+            .sum::<Result<usize, SlmpError>>()?;
+    let per_block_overhead = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+        4
+    } else {
+        9
+    };
+    let weighted = total_points + (total_blocks * per_block_overhead);
+    if weighted > DIRECT_WORD_POINT_LIMIT {
+        return Err(SlmpError::new(format!(
+            "write_block total device points out of range (<=960): weighted={weighted}, total_points={total_points}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_memory_word_length(word_length: usize, name: &str) -> Result<(), SlmpError> {
+    if word_length < 1 || word_length > MEMORY_WORD_LIMIT {
+        return Err(SlmpError::new(format!(
+            "{name} word length out of range (1..480): {word_length}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_extend_unit_byte_length(
+    byte_length: usize,
+    name: &str,
+) -> Result<(), SlmpError> {
+    if byte_length < 2 || byte_length > EXTEND_UNIT_BYTE_LIMIT {
+        return Err(SlmpError::new(format!(
+            "{name} byte length out of range (2..1920): {byte_length}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_extend_unit_word_length(
+    word_length: usize,
+    name: &str,
+) -> Result<(), SlmpError> {
+    if word_length < 1 || word_length > DIRECT_WORD_POINT_LIMIT {
+        return Err(SlmpError::new(format!(
+            "{name} word length out of range (1..960): {word_length}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_block_count(
+    total_blocks: usize,
+    compatibility_mode: SlmpCompatibilityMode,
+    name: &str,
+) -> Result<(), SlmpError> {
+    let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+        120
+    } else {
+        60
+    };
+    if total_blocks < 1 || total_blocks > limit {
+        return Err(SlmpError::new(format!(
+            "{name} total block count out of range (1..{limit}): {total_blocks}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_block_points(points: usize, name: &str) -> Result<usize, SlmpError> {
+    if points < 1 || points > u16::MAX as usize {
+        return Err(SlmpError::new(format!(
+            "{name} block points out of range (1..65535): {points}"
+        )));
+    }
+    Ok(points)
 }
 
 pub(crate) fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {

@@ -5,7 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 #[tokio::test]
-async fn forced_cpu_operations_use_force_without_latch_clear() {
+async fn forced_cpu_operations_keep_remote_stop_on_manual_fixed_mode() {
     let server = MultiShotServer::start(3).await.unwrap();
     let client = connect(server.port).await;
 
@@ -20,10 +20,24 @@ async fn forced_cpu_operations_use_force_without_latch_clear() {
     assert_eq!(&requests[0][19..], &[0x03, 0x00, 0x00, 0x00]);
 
     assert_eq!(&requests[1][15..17], &[0x02, 0x10]);
-    assert_eq!(&requests[1][19..], &[0x03, 0x00]);
+    assert_eq!(&requests[1][19..], &[0x01, 0x00]);
 
     assert_eq!(&requests[2][15..17], &[0x03, 0x10]);
     assert_eq!(&requests[2][19..], &[0x03, 0x00]);
+}
+
+#[tokio::test]
+async fn remote_reset_sends_fixed_reset_data() {
+    let server = MultiShotServer::start(1).await.unwrap();
+    let client = connect(server.port).await;
+
+    client.remote_reset(true).await.unwrap();
+
+    let requests = server.take_requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(&requests[0][15..17], &[0x06, 0x10]);
+    assert_eq!(&requests[0][17..19], &[0x00, 0x00]);
+    assert_eq!(&requests[0][19..], &[0x01, 0x00]);
 }
 
 async fn connect(port: u16) -> SlmpClient {
