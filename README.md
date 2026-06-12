@@ -76,7 +76,7 @@ Requires Rust 1.85 or newer.
 
 ```toml
 [dependencies]
-plc-comm-slmp-rust = "0.1.9"
+plc-comm-slmp-rust = "0.1.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -345,7 +345,7 @@ High-level helpers are intended to cover these forms first.
 - typed suffixes: `D100:S`, `D200:D`, `D300:L`, `D400:F`
 - bit-in-word form: `D50.3`
 - long current-value forms: `LTN10:D`, `LSTN20:D`, `LCN30:D`
-- extended devices: `J1\\SW0`, `U3\\G100`, `U1\\HG0`
+- extended devices: `J1\\SW0`, `U3\\G100`, `U3E0\\HG0`
 
 `.bit` notation is only valid for word devices. Address bit devices directly.
 
@@ -363,7 +363,9 @@ See also:
   mixed dtypes and bit-in-word decoding.
 - Use `poll_named` for a lightweight periodic stream.
 - Use `read_random` and `read_block` when you want to keep request counts low.
-- Use the extended-device methods for `J...` and `U...` paths.
+- Use the extended-device methods for `J...` and `U...` paths. `G` requires a
+  `U...` qualified module path, and `HG` is valid only for `U3E0\\HG` through
+  `U3E3\\HG`; direct/unitless `G` or `HG` names are rejected before transport.
 - `read_named` and `write_named` currently target plain device addresses, not
   `J...` or `U...` qualified addresses.
 

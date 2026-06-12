@@ -1,8 +1,9 @@
 use plc_comm_slmp::{
     SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpCompatibilityMode,
     SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType,
-    SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue, read_dwords_chunked,
-    read_dwords_single_request, read_named, read_typed, write_typed,
+    SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue,
+    parse_qualified_device, read_dwords_chunked, read_dwords_single_request, read_named,
+    read_typed, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
@@ -428,6 +429,62 @@ async fn direct_extended_word_write_rejects_long_current_and_lz_devices() {
     assert!(
         err.to_string()
             .contains("Direct word write is not supported")
+    );
+}
+
+#[test]
+fn parse_qualified_device_rejects_hg_outside_iqr_cpu_range() {
+    let g = parse_qualified_device(r"U1\G0").unwrap();
+    assert_eq!(g.extension_specification, Some(0x0001));
+    assert_eq!(g.direct_memory_specification, Some(0xF8));
+
+    let hg = parse_qualified_device(r"U3E0\HG0").unwrap();
+    assert_eq!(hg.extension_specification, Some(0x03E0));
+    assert_eq!(hg.direct_memory_specification, Some(0xFA));
+
+    let err = parse_qualified_device(r"U1\HG0").unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG")
+    );
+}
+
+#[tokio::test]
+async fn extended_g_hg_reject_unqualified_device_addresses() {
+    let client = udp_client().await;
+
+    let err = client
+        .read_words_extended(
+            SlmpQualifiedDeviceAddress {
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::G, 0),
+                extension_specification: None,
+                direct_memory_specification: None,
+            },
+            1,
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("G Extended Device access requires U-qualified")
+    );
+
+    let err = client
+        .read_words_extended(
+            SlmpQualifiedDeviceAddress {
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::HG, 0),
+                extension_specification: None,
+                direct_memory_specification: None,
+            },
+            1,
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("HG Extended Device access requires U-qualified")
     );
 }
 

@@ -97,7 +97,8 @@ Extended addresses are supported for both `J` and `U` forms.
 | `J1\\W10` | network direct memory |
 | `J1\\X10` | network direct bit device |
 | `U3\\G100` | extension unit direct memory |
-| `U1\\HG0` | extension unit high-speed direct memory |
+| `U3E0\\HG0` | iQ-R multi-CPU high-speed CPU-buffer memory |
 
 Use [`parse_qualified_device`](../src/address.rs) or the raw client extended
-read/write APIs for these forms.
+read/write APIs for these forms. `HG` is valid only for `U3E0\\HG` through
+`U3E3\\HG`; lower-unit forms such as `U1\\HG` are rejected before transport.

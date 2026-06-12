@@ -764,7 +764,7 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
         rules::validate_direct_word_read(device.device, points)?;
-        let extension = Self::resolve_effective_extension(device, extension);
+        let extension = Self::resolve_effective_extension(device, extension)?;
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, false);
         let sub = if extension.direct_memory_specification == 0xF9
@@ -795,7 +795,7 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
         rules::validate_direct_word_write(device.device)?;
-        let extension = Self::resolve_effective_extension(device, extension);
+        let extension = Self::resolve_effective_extension(device, extension)?;
         let payload = self.build_read_write_payload_extended(
             device.device,
             values.len() as u16,
@@ -825,7 +825,7 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
         rules::validate_direct_bit_read(device.device)?;
-        let extension = Self::resolve_effective_extension(device, extension);
+        let extension = Self::resolve_effective_extension(device, extension)?;
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, true);
         let sub = if extension.direct_memory_specification == 0xF9
@@ -850,7 +850,7 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
         rules::validate_direct_bit_write(device.device)?;
-        let extension = Self::resolve_effective_extension(device, extension);
+        let extension = Self::resolve_effective_extension(device, extension)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload = self.build_read_write_payload_extended(
             device.device,
@@ -1897,7 +1897,7 @@ impl ClientInner {
     fn resolve_effective_extension(
         device: SlmpQualifiedDeviceAddress,
         extension: SlmpExtensionSpec,
-    ) -> SlmpExtensionSpec {
+    ) -> Result<SlmpExtensionSpec, SlmpError> {
         let mut result = extension;
         if let Some(extension_specification) = device.extension_specification {
             result.extension_specification = extension_specification;
@@ -1905,7 +1905,45 @@ impl ClientInner {
         if let Some(direct_memory_specification) = device.direct_memory_specification {
             result.direct_memory_specification = direct_memory_specification;
         }
-        result
+        match device.device.code {
+            SlmpDeviceCode::G => {
+                if device.extension_specification.is_none() {
+                    return Err(SlmpError::new(
+                        "G Extended Device access requires U-qualified module access such as U1\\G0.",
+                    ));
+                }
+                if result.direct_memory_specification == 0 {
+                    result.direct_memory_specification = 0xF8;
+                } else if result.direct_memory_specification != 0xF8 {
+                    return Err(SlmpError::new(format!(
+                        "G Extended Device access requires direct_memory_specification=0xF8; got 0x{:02X}.",
+                        result.direct_memory_specification
+                    )));
+                }
+            }
+            SlmpDeviceCode::HG => {
+                let Some(extension_specification) = device.extension_specification else {
+                    return Err(SlmpError::new(
+                        "HG Extended Device access requires U-qualified CPU-buffer access U3E0\\HG through U3E3\\HG.",
+                    ));
+                };
+                if !matches!(extension_specification, 0x03E0..=0x03E3) {
+                    return Err(SlmpError::new(
+                        "HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG.",
+                    ));
+                }
+                if result.direct_memory_specification == 0 {
+                    result.direct_memory_specification = 0xFA;
+                } else if result.direct_memory_specification != 0xFA {
+                    return Err(SlmpError::new(format!(
+                        "HG Extended Device access requires direct_memory_specification=0xFA; got 0x{:02X}.",
+                        result.direct_memory_specification
+                    )));
+                }
+            }
+            _ => {}
+        }
+        Ok(result)
     }
 
     fn build_read_write_payload_extended(

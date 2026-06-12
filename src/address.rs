@@ -228,7 +228,14 @@ pub fn parse_qualified_device(text: &str) -> Result<SlmpQualifiedDeviceAddress, 
         let device = parse_device(device_text)?;
         let direct_memory_specification = match device.code {
             SlmpDeviceCode::G => Some(0xF8),
-            SlmpDeviceCode::HG => Some(0xFA),
+            SlmpDeviceCode::HG => {
+                if !matches!(extension_specification, 0x03E0..=0x03E3) {
+                    return Err(SlmpError::new(
+                        "HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG.",
+                    ));
+                }
+                Some(0xFA)
+            }
             _ => None,
         };
         return Ok(SlmpQualifiedDeviceAddress {

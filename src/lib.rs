@@ -73,7 +73,7 @@
 //! - Typed suffixes: `D200:F`, `D300:D`, `D400:L`
 //! - Bit-in-word form: `D50.3`
 //! - Long current values: `LTN10:D`, `LSTN20:D`, `LCN30:D`
-//! - Extended devices: `J1\\W10`, `U3\\G100`, `U1\\HG0`
+//! - Extended devices: `J1\\W10`, `U3\\G100`, `U3E0\\HG0`
 //!
 //! `.bit` notation is only valid for word devices. Long timer state reads
 //! (`LTS`, `LTC`, `LSTS`, `LSTC`) are decoded through the corresponding
