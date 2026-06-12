@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [0.1.11] - 2026-06-12
 
 ### Changed
+- Aligned Remote STOP with the manual fixed request data `01 00`; `remote_force_stop()` remains a compatibility helper but sends the same payload as `remote_stop()`.
+- Aligned Self Test loopback input validation with the manual: 1..960 bytes, ASCII `0`-`9`/`A`-`F` only.
 - Refreshed the README package example and included the Rust eyecatch image in the crate package.
 
 ## [0.1.10] - 2026-06-12

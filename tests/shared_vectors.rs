@@ -188,6 +188,10 @@ async fn dispatch_case(client: &SlmpClient, case: &Value) -> Result<(), plc_comm
                 .remote_password_unlock(args["password"].as_str().unwrap())
                 .await?;
         }
+        "remote_reset" => {
+            let expect_response = case["args"]["expect_response"].as_bool().unwrap_or(true);
+            client.remote_reset(expect_response).await?;
+        }
         other => panic!("unsupported operation {other}"),
     }
     Ok(())

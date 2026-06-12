@@ -159,12 +159,14 @@ async fn read_named_batches_each_supported_plain_bit_device_code() {
 }
 
 #[tokio::test]
-async fn read_named_chunks_more_than_255_batched_bit_words() {
-    let first_chunk = vec![0x0001; 0xFF];
-    let second_chunk = vec![0x0001; 1];
+async fn read_named_chunks_more_than_96_batched_bit_words() {
+    let first_chunk = vec![0x0001; 96];
+    let second_chunk = vec![0x0001; 96];
+    let third_chunk = vec![0x0001; 64];
     let server = CapturingServer::start(vec![
         word_payload(&first_chunk),
         word_payload(&second_chunk),
+        word_payload(&third_chunk),
     ])
     .await
     .unwrap();
@@ -180,9 +182,10 @@ async fn read_named_chunks_more_than_255_batched_bit_words() {
     );
 
     let requests = server.requests().await;
-    assert_eq!(requests.len(), 2);
-    assert_random_counts(&requests[0], 0xFF, 0);
-    assert_random_counts(&requests[1], 1, 0);
+    assert_eq!(requests.len(), 3);
+    assert_random_counts(&requests[0], 96, 0);
+    assert_random_counts(&requests[1], 96, 0);
+    assert_random_counts(&requests[2], 64, 0);
 }
 
 #[tokio::test]
