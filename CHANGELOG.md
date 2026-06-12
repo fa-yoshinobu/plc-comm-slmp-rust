@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Added SLMP end-code name/message helpers for the full communication error-code table, and exposed them from `SlmpError`.
 
+### Changed
+- Removed `retry_mixed_on_error` from `SlmpBlockWriteOptions`; mixed block-write failures now return the PLC end code unchanged, and only explicit `split_mixed_blocks` sends separate block writes.
+
 ## [0.1.9] - 2026-05-02
 
 ### Changed

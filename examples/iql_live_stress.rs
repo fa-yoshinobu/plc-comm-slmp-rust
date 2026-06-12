@@ -358,7 +358,6 @@ async fn block_roundtrip(client: &SlmpClient) -> Result<(), Box<dyn Error>> {
                 }],
                 Some(SlmpBlockWriteOptions {
                     split_mixed_blocks: false,
-                    retry_mixed_on_error: true,
                 }),
             )
             .await?;
@@ -379,7 +378,6 @@ async fn block_roundtrip(client: &SlmpClient) -> Result<(), Box<dyn Error>> {
             }],
             Some(SlmpBlockWriteOptions {
                 split_mixed_blocks: false,
-                retry_mixed_on_error: true,
             }),
         )
         .await?;

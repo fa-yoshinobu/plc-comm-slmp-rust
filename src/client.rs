@@ -1094,19 +1094,7 @@ impl ClientInner {
             self.write_block_once(&[], bit_blocks).await?;
             return Ok(());
         }
-        match self.write_block_once(word_blocks, bit_blocks).await {
-            Ok(_) => Ok(()),
-            Err(error)
-                if options.retry_mixed_on_error
-                    && !word_blocks.is_empty()
-                    && !bit_blocks.is_empty()
-                    && matches!(error.end_code, Some(0xC056 | 0xC061 | 0x414A)) =>
-            {
-                self.write_block_once(word_blocks, &[]).await?;
-                self.write_block_once(&[], bit_blocks).await
-            }
-            Err(error) => Err(error),
-        }
+        self.write_block_once(word_blocks, bit_blocks).await
     }
 
     async fn write_block_once(
@@ -1127,26 +1115,16 @@ impl ClientInner {
         ];
         payload[0] = word_blocks.len() as u8;
         payload[1] = bit_blocks.len() as u8;
+        // Each block's write data follows that block's own spec (SLMP
+        // reference manual Write Block request format); data must not be
+        // batched after the block specs, or multi-block/mixed requests
+        // misparse on the PLC.
         let mut offset = 2;
-        for block in word_blocks {
+        for block in word_blocks.iter().chain(bit_blocks.iter()) {
             offset += self.encode_device_spec(block.device, &mut payload[offset..]);
             let count = block.values.len() as u16;
             payload[offset..offset + 2].copy_from_slice(&count.to_le_bytes());
             offset += 2;
-        }
-        for block in bit_blocks {
-            offset += self.encode_device_spec(block.device, &mut payload[offset..]);
-            let count = block.values.len() as u16;
-            payload[offset..offset + 2].copy_from_slice(&count.to_le_bytes());
-            offset += 2;
-        }
-        for block in word_blocks {
-            for value in &block.values {
-                payload[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-                offset += 2;
-            }
-        }
-        for block in bit_blocks {
             for value in &block.values {
                 payload[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
                 offset += 2;
