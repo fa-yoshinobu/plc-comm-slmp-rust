@@ -1,3 +1,5 @@
+//! High-level named read/write and polling example.
+
 mod common;
 
 use common::{connect_from_env, env_bool, env_csv, env_string, print_connection_banner};
@@ -18,6 +20,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("named_helpers");
     let client = connect_from_env().await?;
 
+    // Named reads let you collect mixed word, float, bit-in-word, and long-family values.
     let addresses = env_csv("SLMP_NAMED_ADDRESSES", "D100,D200:F,D50.3,LTN10:D,LTS10");
     let snapshot = read_named(&client, &addresses).await?;
     print_snapshot("named snapshot", &snapshot);
@@ -38,6 +41,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("set SLMP_ENABLE_WRITES=1 to run the write_named part of this example");
     }
 
+    // Polling reuses the compiled address plan after the first tick.
     let interval_ms: u64 = env_string("SLMP_POLL_INTERVAL_MS", "1000").parse()?;
     let mut stream = Box::pin(poll_named(
         &client,
