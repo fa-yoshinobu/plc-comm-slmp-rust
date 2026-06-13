@@ -4,7 +4,7 @@ use common::{env_csv, options_from_env, print_connection_banner};
 use plc_comm_slmp::{
     NamedAddress, SlmpClient, SlmpCommand, SlmpCompatibilityMode, SlmpDeviceAddress,
     SlmpDeviceCode, SlmpExtensionSpec, SlmpQualifiedDeviceAddress, SlmpValue, encode_device_spec,
-    parse_device_for_plc_family, parse_qualified_device, read_named, read_typed, write_named,
+    parse_device_for_plc_profile, parse_qualified_device, read_named, read_typed, write_named,
     write_typed,
 };
 use std::error::Error;
@@ -35,16 +35,16 @@ fn make_error(message: impl Into<String>) -> Box<dyn Error> {
 
 fn is_skippable_unsupported_device(error: &(dyn Error + 'static)) -> bool {
     let message = error.to_string();
-    message.contains("not supported for plc_family") || message.contains("UnsupportedDevice")
+    message.contains("not supported for plc_profile") || message.contains("UnsupportedDevice")
 }
 
 async fn parse_device_for_client(
     client: &SlmpClient,
     address: &str,
 ) -> Result<SlmpDeviceAddress, Box<dyn Error>> {
-    Ok(parse_device_for_plc_family(
+    Ok(parse_device_for_plc_profile(
         address,
-        client.plc_family().await,
+        client.plc_profile().await,
     )?)
 }
 

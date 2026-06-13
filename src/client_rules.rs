@@ -1,8 +1,8 @@
 use crate::device_ranges::SlmpDeviceRangeFamily;
 use crate::error::SlmpError;
 use crate::model::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState, SlmpCpuOperationStatus,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcFamily,
+    SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState,
+    SlmpCpuOperationStatus, SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile,
 };
 
 const DIRECT_WORD_POINT_LIMIT: usize = 960;
@@ -10,17 +10,17 @@ const DIRECT_BIT_POINT_LIMIT: usize = 7168;
 const MEMORY_WORD_LIMIT: usize = 480;
 const EXTEND_UNIT_BYTE_LIMIT: usize = 1920;
 
-pub(crate) fn map_plc_family_to_range_family(family: SlmpPlcFamily) -> SlmpDeviceRangeFamily {
+pub(crate) fn map_plc_profile_to_range_family(family: SlmpPlcProfile) -> SlmpDeviceRangeFamily {
     match family {
-        SlmpPlcFamily::IqF => SlmpDeviceRangeFamily::IqF,
-        SlmpPlcFamily::IqR => SlmpDeviceRangeFamily::IqR,
-        SlmpPlcFamily::IqL => SlmpDeviceRangeFamily::IqL,
-        SlmpPlcFamily::MxF => SlmpDeviceRangeFamily::MxF,
-        SlmpPlcFamily::MxR => SlmpDeviceRangeFamily::MxR,
-        SlmpPlcFamily::QCpu => SlmpDeviceRangeFamily::QCpu,
-        SlmpPlcFamily::LCpu => SlmpDeviceRangeFamily::LCpu,
-        SlmpPlcFamily::QnU => SlmpDeviceRangeFamily::QnU,
-        SlmpPlcFamily::QnUDV => SlmpDeviceRangeFamily::QnUDV,
+        SlmpPlcProfile::IqF => SlmpDeviceRangeFamily::IqF,
+        SlmpPlcProfile::IqR => SlmpDeviceRangeFamily::IqR,
+        SlmpPlcProfile::IqL => SlmpDeviceRangeFamily::IqL,
+        SlmpPlcProfile::MxF => SlmpDeviceRangeFamily::MxF,
+        SlmpPlcProfile::MxR => SlmpDeviceRangeFamily::MxR,
+        SlmpPlcProfile::QCpu => SlmpDeviceRangeFamily::QCpu,
+        SlmpPlcProfile::LCpu => SlmpDeviceRangeFamily::LCpu,
+        SlmpPlcProfile::QnU => SlmpDeviceRangeFamily::QnU,
+        SlmpPlcProfile::QnUDV => SlmpDeviceRangeFamily::QnUDV,
     }
 }
 
@@ -482,21 +482,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_plc_family_to_matching_device_range_family() {
+    fn maps_plc_profile_to_matching_device_range_family() {
         assert_eq!(
-            map_plc_family_to_range_family(SlmpPlcFamily::IqR),
+            map_plc_profile_to_range_family(SlmpPlcProfile::IqR),
             SlmpDeviceRangeFamily::IqR
         );
         assert_eq!(
-            map_plc_family_to_range_family(SlmpPlcFamily::IqL),
+            map_plc_profile_to_range_family(SlmpPlcProfile::IqL),
             SlmpDeviceRangeFamily::IqL
         );
         assert_eq!(
-            map_plc_family_to_range_family(SlmpPlcFamily::MxF),
+            map_plc_profile_to_range_family(SlmpPlcProfile::MxF),
             SlmpDeviceRangeFamily::MxF
         );
         assert_eq!(
-            map_plc_family_to_range_family(SlmpPlcFamily::QnUDV),
+            map_plc_profile_to_range_family(SlmpPlcProfile::QnUDV),
             SlmpDeviceRangeFamily::QnUDV
         );
     }

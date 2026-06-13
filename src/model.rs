@@ -20,7 +20,7 @@ pub enum SlmpCompatibilityMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum SlmpPlcFamily {
+pub enum SlmpPlcProfile {
     IqF,
     IqR,
     IqL,
@@ -33,57 +33,53 @@ pub enum SlmpPlcFamily {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SlmpPlcFamilyDefaults {
+pub struct SlmpPlcProfileDefaults {
     pub frame_type: SlmpFrameType,
     pub compatibility_mode: SlmpCompatibilityMode,
 }
 
-impl SlmpPlcFamily {
+impl SlmpPlcProfile {
     pub fn canonical_name(self) -> &'static str {
         match self {
-            Self::IqF => "iq-f",
-            Self::IqR => "iq-r",
-            Self::IqL => "iq-l",
-            Self::MxF => "mx-f",
-            Self::MxR => "mx-r",
-            Self::QCpu => "qcpu",
-            Self::LCpu => "lcpu",
-            Self::QnU => "qnu",
-            Self::QnUDV => "qnudv",
+            Self::IqF => "melsec:iq-f",
+            Self::IqR => "melsec:iq-r",
+            Self::IqL => "melsec:iq-l",
+            Self::MxF => "melsec:mx-f",
+            Self::MxR => "melsec:mx-r",
+            Self::QCpu => "melsec:qcpu",
+            Self::LCpu => "melsec:lcpu",
+            Self::QnU => "melsec:qnu",
+            Self::QnUDV => "melsec:qnudv",
         }
     }
 
     pub fn parse_label(value: &str) -> Option<Self> {
-        match value
-            .trim()
-            .to_ascii_lowercase()
-            .replace(['-', '_'], "")
-            .as_str()
-        {
-            "iqf" => Some(Self::IqF),
-            "iqr" => Some(Self::IqR),
-            "iql" => Some(Self::IqL),
-            "mxf" => Some(Self::MxF),
-            "mxr" => Some(Self::MxR),
-            "qcpu" => Some(Self::QCpu),
-            "lcpu" => Some(Self::LCpu),
-            "qnu" => Some(Self::QnU),
-            "qnudv" => Some(Self::QnUDV),
+        let normalized = value.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "melsec:iq-f" => Some(Self::IqF),
+            "melsec:iq-r" => Some(Self::IqR),
+            "melsec:iq-l" => Some(Self::IqL),
+            "melsec:mx-f" => Some(Self::MxF),
+            "melsec:mx-r" => Some(Self::MxR),
+            "melsec:qcpu" => Some(Self::QCpu),
+            "melsec:lcpu" => Some(Self::LCpu),
+            "melsec:qnu" => Some(Self::QnU),
+            "melsec:qnudv" => Some(Self::QnUDV),
             _ => None,
         }
     }
 
-    pub fn defaults(self) -> SlmpPlcFamilyDefaults {
+    pub fn defaults(self) -> SlmpPlcProfileDefaults {
         match self {
-            Self::IqF => SlmpPlcFamilyDefaults {
+            Self::IqF => SlmpPlcProfileDefaults {
                 frame_type: SlmpFrameType::Frame3E,
                 compatibility_mode: SlmpCompatibilityMode::Legacy,
             },
-            Self::IqR | Self::IqL | Self::MxF | Self::MxR => SlmpPlcFamilyDefaults {
+            Self::IqR | Self::IqL | Self::MxF | Self::MxR => SlmpPlcProfileDefaults {
                 frame_type: SlmpFrameType::Frame4E,
                 compatibility_mode: SlmpCompatibilityMode::Iqr,
             },
-            Self::QCpu | Self::LCpu | Self::QnU | Self::QnUDV => SlmpPlcFamilyDefaults {
+            Self::QCpu | Self::LCpu | Self::QnU | Self::QnUDV => SlmpPlcProfileDefaults {
                 frame_type: SlmpFrameType::Frame3E,
                 compatibility_mode: SlmpCompatibilityMode::Legacy,
             },
@@ -92,7 +88,7 @@ impl SlmpPlcFamily {
 
     pub fn address_family(self) -> Self {
         match self {
-            // iQ-L keeps its own PLC family and device-range family. We only
+            // iQ-L keeps its own PLC profile and device-range family. We only
             // reuse iQ-R-style address parsing rules here where the notation
             // grammar matches.
             Self::IqL => Self::IqR,
@@ -102,6 +98,10 @@ impl SlmpPlcFamily {
 
     pub fn uses_iqf_xy_octal(self) -> bool {
         matches!(self.address_family(), Self::IqF)
+    }
+
+    pub fn uses_iqr_protocol(self) -> bool {
+        matches!(self, Self::IqR | Self::IqL | Self::MxF | Self::MxR)
     }
 }
 
@@ -550,22 +550,24 @@ pub struct SlmpConnectionOptions {
     pub host: String,
     pub port: u16,
     pub timeout: Duration,
-    pub plc_family: SlmpPlcFamily,
-    pub frame_type: SlmpFrameType,
-    pub compatibility_mode: SlmpCompatibilityMode,
+    pub tcp_keepalive: Option<Duration>,
+    pub(crate) plc_profile: SlmpPlcProfile,
+    pub(crate) frame_type: SlmpFrameType,
+    pub(crate) compatibility_mode: SlmpCompatibilityMode,
     pub target: SlmpTargetAddress,
     pub transport_mode: SlmpTransportMode,
     pub monitoring_timer: u16,
 }
 
 impl SlmpConnectionOptions {
-    pub fn new(host: impl Into<String>, family: SlmpPlcFamily) -> Self {
-        let defaults = family.defaults();
+    pub fn new(host: impl Into<String>, plc_profile: SlmpPlcProfile) -> Self {
+        let defaults = plc_profile.defaults();
         Self {
             host: host.into(),
             port: 1025,
             timeout: Duration::from_secs(3),
-            plc_family: family,
+            tcp_keepalive: Some(Duration::from_secs(30)),
+            plc_profile,
             frame_type: defaults.frame_type,
             compatibility_mode: defaults.compatibility_mode,
             target: SlmpTargetAddress::default(),
@@ -574,10 +576,44 @@ impl SlmpConnectionOptions {
         }
     }
 
-    pub fn set_plc_family(&mut self, family: SlmpPlcFamily) {
-        let defaults = family.defaults();
-        self.plc_family = family;
+    pub fn plc_profile(&self) -> SlmpPlcProfile {
+        self.plc_profile
+    }
+
+    pub fn frame_type(&self) -> SlmpFrameType {
+        self.frame_type
+    }
+
+    pub fn compatibility_mode(&self) -> SlmpCompatibilityMode {
+        self.compatibility_mode
+    }
+
+    pub fn set_plc_profile(&mut self, plc_profile: SlmpPlcProfile) {
+        let defaults = plc_profile.defaults();
+        self.plc_profile = plc_profile;
         self.frame_type = defaults.frame_type;
         self.compatibility_mode = defaults.compatibility_mode;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SlmpPlcProfile;
+
+    #[test]
+    fn plc_profile_parse_label_accepts_only_canonical_profile_text() {
+        assert_eq!(
+            SlmpPlcProfile::parse_label("melsec:iq-r"),
+            Some(SlmpPlcProfile::IqR)
+        );
+        assert_eq!(
+            SlmpPlcProfile::parse_label("MELSEC:IQ-F"),
+            Some(SlmpPlcProfile::IqF)
+        );
+
+        assert_eq!(SlmpPlcProfile::parse_label("iq-r"), None);
+        assert_eq!(SlmpPlcProfile::parse_label("iqr"), None);
+        assert_eq!(SlmpPlcProfile::parse_label("q"), None);
+        assert_eq!(SlmpPlcProfile::parse_label("qnudvcpu"), None);
     }
 }

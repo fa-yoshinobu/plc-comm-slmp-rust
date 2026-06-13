@@ -304,7 +304,7 @@ async fn parse_for_client(
     client: &SlmpClient,
     address: &str,
 ) -> Result<SlmpDeviceAddress, SlmpError> {
-    SlmpAddress::parse_for_plc_family(address, client.plc_family().await)
+    SlmpAddress::parse_for_plc_profile(address, client.plc_profile().await)
 }
 
 async fn validate_block_read(

@@ -1,10 +1,10 @@
 use futures_util::StreamExt;
 use plc_comm_slmp::{
-    NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCompatibilityMode,
-    SlmpConnectionOptions, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
-    SlmpLabelArrayWritePoint, SlmpLabelRandomWritePoint, SlmpPlcFamily, SlmpTargetAddress,
-    SlmpTransportMode, parse_qualified_device, parse_scalar_for_named_with_family,
-    parse_target_auto_number, poll_named, read_named, write_named,
+    NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpConnectionOptions,
+    SlmpExtensionSpec, SlmpLabelArrayReadPoint, SlmpLabelArrayWritePoint,
+    SlmpLabelRandomWritePoint, SlmpPlcProfile, SlmpTargetAddress, SlmpTransportMode,
+    parse_qualified_device, parse_scalar_for_named_with_family, parse_target_auto_number,
+    poll_named, read_named, write_named,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -21,9 +21,7 @@ async fn main() {
     let command = args[3].as_str();
     let address = args.get(4).cloned().unwrap_or_default();
     let mut extras = Vec::new();
-    let mut family = SlmpPlcFamily::IqR;
-    let mut frame = SlmpFrameType::Frame3E;
-    let mut series = SlmpCompatibilityMode::Legacy;
+    let mut plc_profile = SlmpPlcProfile::IqR;
     let mut transport = SlmpTransportMode::Tcp;
     let mut target = None;
     let mut mode = "word".to_string();
@@ -42,25 +40,10 @@ async fn main() {
     let mut index = 5usize;
     while index < args.len() {
         match args[index].as_str() {
-            "--family" => {
+            "--plc-profile" => {
                 index += 1;
-                family = parse_plc_family(args.get(index).map(String::as_str).unwrap_or("iq-r"));
-            }
-            "--frame" => {
-                index += 1;
-                frame = if args.get(index).map(String::as_str) == Some("4e") {
-                    SlmpFrameType::Frame4E
-                } else {
-                    SlmpFrameType::Frame3E
-                };
-            }
-            "--series" => {
-                index += 1;
-                series = if args.get(index).map(String::as_str) == Some("iqr") {
-                    SlmpCompatibilityMode::Iqr
-                } else {
-                    SlmpCompatibilityMode::Legacy
-                };
+                plc_profile =
+                    parse_plc_profile(args.get(index).map(String::as_str).unwrap_or("melsec:iq-r"));
             }
             "--transport" => {
                 index += 1;
@@ -140,10 +123,8 @@ async fn main() {
         index += 1;
     }
 
-    let mut options = SlmpConnectionOptions::new(host, family);
+    let mut options = SlmpConnectionOptions::new(host, plc_profile);
     options.port = port;
-    options.frame_type = frame;
-    options.compatibility_mode = series;
     options.transport_mode = transport;
     let has_network_station_target = target_network.is_some()
         || target_station.is_some()
@@ -200,8 +181,8 @@ async fn main() {
     }
 }
 
-fn parse_plc_family(value: &str) -> SlmpPlcFamily {
-    SlmpPlcFamily::parse_label(value).unwrap_or(SlmpPlcFamily::IqR)
+fn parse_plc_profile(value: &str) -> SlmpPlcProfile {
+    SlmpPlcProfile::parse_label(value).unwrap_or(SlmpPlcProfile::IqR)
 }
 
 fn target_from_network_station(
@@ -306,7 +287,7 @@ async fn run_command(
             })
         }
         "write-named" => {
-            let updates = parse_named_updates(address, client.plc_family().await)?;
+            let updates = parse_named_updates(address, client.plc_profile().await)?;
             write_named(client, &updates).await?;
             json!({"status":"success"})
         }
@@ -594,7 +575,7 @@ fn parse_named_addresses(text: &str) -> Vec<String> {
 
 fn parse_named_updates(
     text: &str,
-    plc_family: SlmpPlcFamily,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<NamedAddress, plc_comm_slmp::SlmpError> {
     let mut updates = BTreeMap::new();
     for item in parse_named_addresses(text) {
@@ -603,7 +584,7 @@ fn parse_named_updates(
             .ok_or_else(|| plc_comm_slmp::SlmpError::new("Invalid named update."))?;
         updates.insert(
             key.trim().to_string(),
-            parse_scalar_for_named_with_family(key.trim(), value.trim(), Some(plc_family))?,
+            parse_scalar_for_named_with_family(key.trim(), value.trim(), Some(plc_profile))?,
         );
     }
     Ok(updates)

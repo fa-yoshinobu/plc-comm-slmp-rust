@@ -1,16 +1,14 @@
-use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType, SlmpPlcFamily,
-};
+use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 #[tokio::test]
-async fn forced_cpu_operations_keep_remote_stop_on_manual_fixed_mode() {
+async fn cpu_operations_keep_remote_stop_on_manual_fixed_mode() {
     let server = MultiShotServer::start(3).await.unwrap();
     let client = connect(server.port).await;
 
     client.remote_run(true, 0).await.unwrap();
-    client.remote_force_stop().await.unwrap();
+    client.remote_stop().await.unwrap();
     client.remote_pause(true).await.unwrap();
 
     let requests = server.take_requests().await;
@@ -41,10 +39,8 @@ async fn remote_reset_sends_fixed_reset_data() {
 }
 
 async fn connect(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     SlmpClient::connect(options).await.unwrap()
 }
 

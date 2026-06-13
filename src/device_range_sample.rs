@@ -156,7 +156,7 @@ pub async fn run_device_range_sample_compare(
 ) -> Result<SlmpDeviceRangeSampleReport, SlmpError> {
     let options = options.normalized();
     let only = options.only.iter().cloned().collect::<BTreeSet<_>>();
-    let plc_family = client.plc_family().await;
+    let plc_profile = client.plc_profile().await;
     let catalog = client.read_device_range_catalog().await?;
     let range_family = catalog.family;
     let mut report = SlmpDeviceRangeSampleReport {
@@ -202,7 +202,7 @@ pub async fn run_device_range_sample_compare(
         device_report.value_kind = Some(kind);
         for number in sample_numbers(upper_bound, options.sample_points) {
             let device = SlmpDeviceAddress::new(code, number);
-            let address = SlmpAddress::format_for_plc_family(device, plc_family);
+            let address = SlmpAddress::format_for_plc_profile(device, plc_profile);
             device_report.sample_addresses.push(address.clone());
 
             match exercise_point(client, device, &address, kind).await {

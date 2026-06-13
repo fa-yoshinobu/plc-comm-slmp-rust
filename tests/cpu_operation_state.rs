@@ -1,7 +1,4 @@
-use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationStatus,
-    SlmpFrameType, SlmpPlcFamily,
-};
+use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpCpuOperationStatus, SlmpPlcProfile};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -9,10 +6,8 @@ use tokio::net::TcpListener;
 async fn read_cpu_operation_state_masks_upper_bits_of_sd203() {
     let server = SingleWordServer::start(0x00A2).await.unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = server.port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let state = client.read_cpu_operation_state().await.unwrap();
@@ -27,10 +22,8 @@ async fn read_cpu_operation_state_masks_upper_bits_of_sd203() {
 async fn read_cpu_operation_state_returns_unknown_for_unhandled_code() {
     let server = SingleWordServer::start(0x00F5).await.unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = server.port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let state = client.read_cpu_operation_state().await.unwrap();

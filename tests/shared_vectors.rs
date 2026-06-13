@@ -1,6 +1,6 @@
 use plc_comm_slmp::{
     SlmpAddress, SlmpBlockRead, SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions,
-    SlmpDeviceAddress, SlmpFrameType, SlmpPlcFamily, encode_device_spec, normalize_named_address,
+    SlmpDeviceAddress, SlmpPlcProfile, encode_device_spec, normalize_named_address,
     parse_named_address,
 };
 use serde_json::Value;
@@ -87,10 +87,8 @@ async fn frame_golden_vectors_match_shared_json() {
         let response_data = hex_decode(case["response_data_hex"].as_str().unwrap());
         let server = SingleShotServer::start(response_data).await.unwrap();
 
-        let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+        let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
         options.port = server.port;
-        options.frame_type = SlmpFrameType::Frame4E;
-        options.compatibility_mode = SlmpCompatibilityMode::Iqr;
         let client = SlmpClient::connect(options).await.unwrap();
 
         dispatch_case(&client, case).await.unwrap();

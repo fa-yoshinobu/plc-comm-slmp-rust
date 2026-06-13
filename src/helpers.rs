@@ -1,7 +1,7 @@
 use crate::address::{parse_device_for_family_hint, parse_named_address};
 use crate::client::SlmpClient;
 use crate::error::SlmpError;
-use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcFamily};
+use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile};
 use async_stream::try_stream;
 use futures_core::stream::Stream;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -361,15 +361,15 @@ pub async fn read_named(
     client: &SlmpClient,
     addresses: &[String],
 ) -> Result<NamedAddress, SlmpError> {
-    let plan = compile_read_plan(addresses, client.plc_family().await)?;
+    let plan = compile_read_plan(addresses, client.plc_profile().await)?;
     read_named_compiled(client, &plan).await
 }
 
 pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<(), SlmpError> {
-    let plc_family = client.plc_family().await;
+    let plc_profile = client.plc_profile().await;
     for (address, value) in updates {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, Some(plc_family))?;
+        let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
         let resolved_dtype =
             resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
         validate_long_timer_entry(address, device, &resolved_dtype)?;
@@ -395,7 +395,7 @@ pub fn poll_named<'a>(
     interval: Duration,
 ) -> impl Stream<Item = Result<NamedAddress, SlmpError>> + 'a {
     try_stream! {
-        let plan = compile_read_plan(addresses, client.plc_family().await)?;
+        let plan = compile_read_plan(addresses, client.plc_profile().await)?;
         loop {
             yield read_named_compiled(client, &plan).await?;
             tokio::time::sleep(interval).await;
@@ -423,7 +423,7 @@ fn validate_single_request_values(count: usize, max: usize) -> Result<(), SlmpEr
 
 fn compile_read_plan(
     addresses: &[String],
-    plc_family: SlmpPlcFamily,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<NamedReadPlan, SlmpError> {
     let mut entries = Vec::with_capacity(addresses.len());
     let mut word_devices = Vec::with_capacity(addresses.len());
@@ -432,7 +432,7 @@ fn compile_read_plan(
     let mut seen_dword_devices = HashSet::with_capacity(addresses.len());
     for address in addresses {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, Some(plc_family))?;
+        let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
         let dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
         validate_long_timer_entry(address, device, &dtype)?;
         validate_dword_only_entry(address, device, &dtype)?;
@@ -921,10 +921,10 @@ pub fn parse_scalar_for_named(address: &str, value: &str) -> Result<SlmpValue, S
 pub fn parse_scalar_for_named_with_family(
     address: &str,
     value: &str,
-    plc_family: Option<SlmpPlcFamily>,
+    plc_profile: Option<SlmpPlcProfile>,
 ) -> Result<SlmpValue, SlmpError> {
     let parts = parse_named_address(address)?;
-    let device = parse_device_for_family_hint(&parts.base, plc_family)?;
+    let device = parse_device_for_family_hint(&parts.base, plc_profile)?;
     if parts.bit_index.is_some() || device.code.is_bit_device() {
         return Ok(SlmpValue::Bool(matches!(
             value,

@@ -1,6 +1,6 @@
 use plc_comm_slmp::{
-    SlmpClient, SlmpCommand, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress,
-    SlmpDeviceCode, SlmpFrameType, SlmpPlcFamily, SlmpValue, read_named,
+    SlmpClient, SlmpCommand, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
+    SlmpPlcProfile, SlmpValue, read_named,
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ async fn read_named_batches_plain_bits_that_share_one_word() {
     let server = CapturingServer::start(vec![word_payload(&[0b1000_0000_0111_0000])])
         .await
         .unwrap();
-    let client = connect_client(server.port, SlmpPlcFamily::IqR).await;
+    let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
     let addresses = strings(&["M100", "M101", "M102", "M111"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
@@ -37,7 +37,7 @@ async fn read_named_preserves_plain_bit_values_for_representative_word_patterns(
         let server = CapturingServer::start(vec![word_payload(&[pattern])])
             .await
             .unwrap();
-        let client = connect_client(server.port, SlmpPlcFamily::IqR).await;
+        let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
         let addresses = strings(&["M100", "M101", "M102", "M103", "M110", "M111"]);
 
         let values = read_named(&client, &addresses).await.unwrap();
@@ -65,7 +65,7 @@ async fn read_named_batches_plain_bits_across_words_and_iqf_octal_xy_boundaries(
     let server = CapturingServer::start(vec![word_payload(&[0x8000, 0x0001])])
         .await
         .unwrap();
-    let client = connect_client(server.port, SlmpPlcFamily::IqF).await;
+    let client = connect_client(server.port, SlmpPlcProfile::IqF).await;
     let addresses = strings(&["X17", "X20"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
@@ -90,7 +90,7 @@ async fn read_named_batches_mixed_plain_bit_device_kinds() {
     let server = CapturingServer::start(vec![word_payload(&[0x0010, 0x8000, 0x0004])])
         .await
         .unwrap();
-    let client = connect_client(server.port, SlmpPlcFamily::IqR).await;
+    let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
     let addresses = strings(&["M100", "B1F", "SB2"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
@@ -143,7 +143,7 @@ async fn read_named_batches_each_supported_plain_bit_device_code() {
     let server = CapturingServer::start(vec![word_payload(&words)])
         .await
         .unwrap();
-    let client = connect_client(server.port, SlmpPlcFamily::IqR).await;
+    let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
 
     let values = read_named(&client, &addresses).await.unwrap();
 
@@ -170,7 +170,7 @@ async fn read_named_chunks_more_than_96_batched_bit_words() {
     ])
     .await
     .unwrap();
-    let client = connect_client(server.port, SlmpPlcFamily::IqR).await;
+    let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
     let addresses: Vec<String> = (0..0x100).map(|index| format!("M{}", index * 16)).collect();
 
     let values = read_named(&client, &addresses).await.unwrap();
@@ -191,7 +191,7 @@ async fn read_named_chunks_more_than_96_batched_bit_words() {
 #[tokio::test]
 async fn read_named_keeps_long_counter_state_bits_on_direct_bit_fallback() {
     let server = CapturingServer::start(vec![vec![0x10]]).await.unwrap();
-    let client = connect_client(server.port, SlmpPlcFamily::IqR).await;
+    let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
     let addresses = strings(&["LCS30"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
@@ -215,7 +215,7 @@ async fn read_named_mixes_plain_bits_bit_in_word_words_and_dwords_in_one_random_
     )])
     .await
     .unwrap();
-    let client = connect_client(server.port, SlmpPlcFamily::IqR).await;
+    let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
     let addresses = strings(&["M100", "M101", "D50.3", "D51", "D52:F"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
@@ -254,20 +254,12 @@ impl CapturingServer {
             if let Ok((mut stream, _)) = listener.accept().await {
                 let mut pending = VecDeque::from(response_payloads);
                 while let Some(payload) = pending.pop_front() {
-                    let mut header = [0u8; 13];
-                    if stream.read_exact(&mut header).await.is_err() {
+                    let Some(request) = read_request(&mut stream).await else {
                         return;
-                    }
-                    let body_len = u16::from_le_bytes([header[11], header[12]]) as usize;
-                    let mut body = vec![0u8; body_len];
-                    if stream.read_exact(&mut body).await.is_err() {
-                        return;
-                    }
-                    let mut request = header.to_vec();
-                    request.extend_from_slice(&body);
+                    };
                     request_sink.lock().await.push(request.clone());
 
-                    let response = build_4e_response(&request, &payload);
+                    let response = build_response(&request, &payload);
                     if stream.write_all(&response).await.is_err() {
                         return;
                     }
@@ -282,11 +274,28 @@ impl CapturingServer {
     }
 }
 
-async fn connect_client(port: u16, plc_family: SlmpPlcFamily) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", plc_family);
+async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
+    let mut prefix = [0u8; 2];
+    stream.read_exact(&mut prefix).await.ok()?;
+
+    let (header_size, length_index) = match prefix {
+        [0x54, 0x00] => (13usize, 11usize),
+        [0x50, 0x00] => (9usize, 7usize),
+        _ => return None,
+    };
+
+    let mut request = vec![0u8; header_size];
+    request[0..2].copy_from_slice(&prefix);
+    stream.read_exact(&mut request[2..header_size]).await.ok()?;
+    let body_len = u16::from_le_bytes([request[length_index], request[length_index + 1]]) as usize;
+    request.resize(header_size + body_len, 0);
+    stream.read_exact(&mut request[header_size..]).await.ok()?;
+    Some(request)
+}
+
+async fn connect_client(port: u16, plc_profile: SlmpPlcProfile) -> SlmpClient {
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", plc_profile);
     options.port = port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     SlmpClient::connect(options).await.unwrap()
 }
 
@@ -309,9 +318,19 @@ fn random_payload(word_values: &[u16], dword_values: &[u32]) -> Vec<u8> {
     payload
 }
 
-fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
+fn build_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
     let mut payload = vec![0u8; 2 + response_data.len()];
     payload[2..].copy_from_slice(response_data);
+
+    if request.starts_with(&[0x50, 0x00]) {
+        let mut response = vec![0u8; 9 + payload.len()];
+        response[0] = 0xD0;
+        response[1] = 0x00;
+        response[2..7].copy_from_slice(&request[2..7]);
+        response[7..9].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+        response[9..].copy_from_slice(&payload);
+        return response;
+    }
 
     let mut response = vec![0u8; 13 + payload.len()];
     response[0] = 0xD4;
@@ -324,13 +343,30 @@ fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
     response
 }
 
+fn header_size(request: &[u8]) -> usize {
+    if request.starts_with(&[0x50, 0x00]) {
+        9
+    } else {
+        13
+    }
+}
+
+fn is_iqr_request(request: &[u8]) -> bool {
+    request.starts_with(&[0x54, 0x00])
+}
+
 fn assert_random_counts(request: &[u8], word_count: u8, dword_count: u8) {
-    let body = &request[13..];
+    let body = &request[header_size(request)..];
     assert_eq!(
         u16::from_le_bytes([body[2], body[3]]),
         SlmpCommand::DeviceReadRandom.as_u16()
     );
-    assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0002);
+    let expected_subcommand = if is_iqr_request(request) {
+        0x0002
+    } else {
+        0x0000
+    };
+    assert_eq!(u16::from_le_bytes([body[4], body[5]]), expected_subcommand);
     assert_eq!(body[6], word_count);
     assert_eq!(body[7], dword_count);
 }
@@ -341,22 +377,35 @@ fn assert_random_shape(
     dword_devices: &[SlmpDeviceAddress],
 ) {
     assert_random_counts(request, word_devices.len() as u8, dword_devices.len() as u8);
-    let mut offset = 21;
+    let spec_size = if is_iqr_request(request) { 6 } else { 4 };
+    let mut offset = header_size(request) + 8;
     for device in word_devices.iter().chain(dword_devices.iter()) {
-        assert_eq!(decode_iqr_device(&request[offset..offset + 6]), *device);
-        offset += 6;
+        let actual = if is_iqr_request(request) {
+            decode_iqr_device(&request[offset..offset + spec_size])
+        } else {
+            decode_legacy_device(&request[offset..offset + spec_size])
+        };
+        assert_eq!(actual, *device);
+        offset += spec_size;
     }
 }
 
 fn assert_direct_bit_read(request: &[u8], device: SlmpDeviceAddress, points: u16) {
-    let body = &request[13..];
+    let body = &request[header_size(request)..];
     assert_eq!(
         u16::from_le_bytes([body[2], body[3]]),
         SlmpCommand::DeviceRead.as_u16()
     );
     assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0003);
-    assert_eq!(decode_iqr_device(&request[19..25]), device);
-    assert_eq!(u16::from_le_bytes([request[25], request[26]]), points);
+    let device_offset = header_size(request) + 6;
+    assert_eq!(
+        decode_iqr_device(&request[device_offset..device_offset + 6]),
+        device
+    );
+    assert_eq!(
+        u16::from_le_bytes([request[device_offset + 6], request[device_offset + 7]]),
+        points
+    );
 }
 
 fn decode_iqr_device(bytes: &[u8]) -> SlmpDeviceAddress {
@@ -383,6 +432,33 @@ fn decode_iqr_device(bytes: &[u8]) -> SlmpDeviceAddress {
         value if value == SlmpDeviceCode::D.as_u16() => SlmpDeviceCode::D,
         value if value == SlmpDeviceCode::LCS.as_u16() => SlmpDeviceCode::LCS,
         other => panic!("unexpected device code 0x{other:04X}"),
+    };
+    SlmpDeviceAddress::new(code, number)
+}
+
+fn decode_legacy_device(bytes: &[u8]) -> SlmpDeviceAddress {
+    let number = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]);
+    let code = match u16::from(bytes[3]) {
+        value if value == SlmpDeviceCode::M.as_u8() as u16 => SlmpDeviceCode::M,
+        value if value == SlmpDeviceCode::SM.as_u8() as u16 => SlmpDeviceCode::SM,
+        value if value == SlmpDeviceCode::X.as_u8() as u16 => SlmpDeviceCode::X,
+        value if value == SlmpDeviceCode::Y.as_u8() as u16 => SlmpDeviceCode::Y,
+        value if value == SlmpDeviceCode::L.as_u8() as u16 => SlmpDeviceCode::L,
+        value if value == SlmpDeviceCode::F.as_u8() as u16 => SlmpDeviceCode::F,
+        value if value == SlmpDeviceCode::V.as_u8() as u16 => SlmpDeviceCode::V,
+        value if value == SlmpDeviceCode::B.as_u8() as u16 => SlmpDeviceCode::B,
+        value if value == SlmpDeviceCode::TS.as_u8() as u16 => SlmpDeviceCode::TS,
+        value if value == SlmpDeviceCode::TC.as_u8() as u16 => SlmpDeviceCode::TC,
+        value if value == SlmpDeviceCode::STS.as_u8() as u16 => SlmpDeviceCode::STS,
+        value if value == SlmpDeviceCode::STC.as_u8() as u16 => SlmpDeviceCode::STC,
+        value if value == SlmpDeviceCode::CS.as_u8() as u16 => SlmpDeviceCode::CS,
+        value if value == SlmpDeviceCode::CC.as_u8() as u16 => SlmpDeviceCode::CC,
+        value if value == SlmpDeviceCode::SB.as_u8() as u16 => SlmpDeviceCode::SB,
+        value if value == SlmpDeviceCode::DX.as_u8() as u16 => SlmpDeviceCode::DX,
+        value if value == SlmpDeviceCode::DY.as_u8() as u16 => SlmpDeviceCode::DY,
+        value if value == SlmpDeviceCode::D.as_u8() as u16 => SlmpDeviceCode::D,
+        value if value == SlmpDeviceCode::LCS.as_u8() as u16 => SlmpDeviceCode::LCS,
+        other => panic!("unexpected legacy device code 0x{other:02X}"),
     };
     SlmpDeviceAddress::new(code, number)
 }

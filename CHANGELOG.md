@@ -5,8 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [0.1.11] - 2026-06-12
 
 ### Changed
-- Aligned Remote STOP with the manual fixed request data `01 00`; `remote_force_stop()` remains a compatibility helper but sends the same payload as `remote_stop()`.
+- Removed the non-manual `remote_force_stop()` high-level helper; Remote STOP now exposes only the manual fixed request data `01 00`.
+- Restricted `SlmpPlcProfile::parse_label()` to canonical `melsec:...` profile names; short aliases such as `iq-r`, `iqr`, `q`, and `qnudvcpu` are now rejected.
 - Aligned Self Test loopback input validation with the manual: 1..960 bytes, ASCII `0`-`9`/`A`-`F` only.
+- Enabled TCP_NODELAY for TCP transport to avoid delayed-ACK latency spikes.
+- Enabled TCP keepalive for TCP transport by default (`SlmpConnectionOptions::tcp_keepalive`, default 30 seconds) so mobile clients fail faster after silent Wi-Fi reconnects or background disconnects.
+- Added manual point-limit preflight checks for continuous, random, block, memory, and helper-layer requests so oversized requests fail before transport.
 - Refreshed the README package example and included the Rust eyecatch image in the crate package.
 
 ## [0.1.10] - 2026-06-12

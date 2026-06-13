@@ -1,6 +1,6 @@
 use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpFrameType,
-    SlmpLabelArrayWritePoint, SlmpLabelRandomWritePoint, SlmpPlcFamily,
+    SlmpClient, SlmpConnectionOptions, SlmpLabelArrayWritePoint, SlmpLabelRandomWritePoint,
+    SlmpPlcProfile,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -69,10 +69,8 @@ async fn label_writes_build_expected_payloads() {
 }
 
 async fn connect(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     SlmpClient::connect(options).await.unwrap()
 }
 
