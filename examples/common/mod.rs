@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use plc_comm_slmp::{
-    SlmpClient, SlmpConnectionOptions, SlmpPlcFamily, SlmpTargetAddress, SlmpTransportMode,
+    SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpTargetAddress, SlmpTransportMode,
     parse_named_target, parse_target_auto_number,
 };
 use std::env;
@@ -29,7 +29,7 @@ pub fn env_csv(key: &str, default: &str) -> Vec<String> {
 
 pub fn options_from_env() -> Result<SlmpConnectionOptions, Box<dyn Error>> {
     let host = env_string("SLMP_HOST", "127.0.0.1");
-    let family = parse_plc_family(&env_string("SLMP_PLC_FAMILY", "iq-r"))?;
+    let family = parse_plc_profile(&env_string("SLMP_plc_profile", "melsec:iq-r"))?;
     let mut options = SlmpConnectionOptions::new(host, family);
     options.port = env_string("SLMP_PORT", "1025").parse()?;
     options.transport_mode = match env_string("SLMP_TRANSPORT", "tcp")
@@ -78,10 +78,10 @@ pub async fn connect_from_env() -> Result<SlmpClient, Box<dyn Error>> {
 }
 
 pub fn print_connection_banner(example: &str) {
-    let family = env_string("SLMP_PLC_FAMILY", "iq-r");
-    let profile = SlmpPlcFamily::parse_label(&family).map(SlmpPlcFamily::defaults);
+    let family = env_string("SLMP_plc_profile", "melsec:iq-r");
+    let profile = SlmpPlcProfile::parse_label(&family).map(SlmpPlcProfile::defaults);
     println!(
-        "{example}: host={} port={} plc_family={} frame={} compatibility={} transport={} target={}",
+        "{example}: host={} port={} plc_profile={} frame={} compatibility={} transport={} target={}",
         env_string("SLMP_HOST", "127.0.0.1"),
         env_string("SLMP_PORT", "1025"),
         family,
@@ -115,11 +115,11 @@ fn format_env_target() -> String {
     }
 }
 
-fn parse_plc_family(value: &str) -> Result<SlmpPlcFamily, Box<dyn Error>> {
-    SlmpPlcFamily::parse_label(value).ok_or_else(|| {
+fn parse_plc_profile(value: &str) -> Result<SlmpPlcProfile, Box<dyn Error>> {
+    SlmpPlcProfile::parse_label(value).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "SLMP_PLC_FAMILY is required. Use iq-f, iq-r, iq-l, mx-f, mx-r, qcpu, lcpu, qnu, or qnudv."
+            "SLMP_plc_profile is required. Use melsec:iq-f, melsec:iq-r, melsec:iq-l, melsec:mx-f, melsec:mx-r, melsec:qcpu, melsec:lcpu, melsec:qnu, or melsec:qnudv."
                 .to_string(),
         )
         .into()

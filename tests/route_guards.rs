@@ -1,15 +1,14 @@
 use plc_comm_slmp::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpCompatibilityMode,
-    SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType,
-    SlmpPlcFamily, SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue,
-    parse_qualified_device, read_dwords_chunked, read_dwords_single_request, read_named,
-    read_typed, write_typed,
+    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpConnectionOptions,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpPlcProfile,
+    SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue, parse_qualified_device,
+    read_dwords_chunked, read_dwords_single_request, read_named, read_typed, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
 
 async fn udp_client() -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = 9;
     SlmpClient::connect(options).await.unwrap()
@@ -141,7 +140,7 @@ async fn close_shuts_down_tcp_stream() {
         let _ = sender.send(read_result);
     });
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqL);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL);
     options.port = port;
     let client = SlmpClient::connect(options).await.unwrap();
     client.close().await.unwrap();
@@ -187,7 +186,7 @@ async fn udp_read_words_accepts_manual_limit_datagram_response() {
         socket.send_to(&response, peer).await.unwrap();
     });
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = port;
     let client = SlmpClient::connect(options).await.unwrap();
@@ -286,7 +285,7 @@ async fn dword_helpers_use_random_dword_route_for_lz() {
     let server = MultiResponseServer::start(vec![build_dword_payload(&[0x1234_5678, 0x9ABC_DEF0])])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqL);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL);
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -571,7 +570,10 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     );
     assert!(
         client
-            .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 0), &vec![false; 7169])
+            .write_bits(
+                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0),
+                &vec![false; 7169]
+            )
             .await
             .unwrap_err()
             .to_string()
@@ -712,10 +714,8 @@ async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC05B, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = server.port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let error = client
@@ -754,10 +754,8 @@ async fn mixed_block_write_does_not_retry_c056_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC056, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = server.port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let error = client

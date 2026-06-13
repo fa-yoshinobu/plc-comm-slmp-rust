@@ -34,22 +34,26 @@ verification clients.
 - remote operations and self-test
 - high-level typed helpers
 - high-level named read/write and polling helpers
-- live device-range catalog via user-selected PLC family plus family `SD` registers
+- live device-range catalog via user-selected PLC profile plus family `SD` registers
 - `slmp_verify_client` wrapper for `plc-comm-slmp-cross-verify`
 - minimal `napi-rs` Node binding scaffold in `crates/slmp-node`
 
-## PLC Family Defaults
+## PLC profile Defaults
 
-`SlmpConnectionOptions::new(host, family)` applies the default SLMP frame and
-compatibility profile for the selected PLC family. PLC IO Checker iOS and
+`SlmpConnectionOptions::new(host, plc_profile)` applies the default SLMP frame and
+compatibility profile for the selected PLC profile. PLC IO Checker iOS and
 Android store the selected model label only and rely on this mapping instead of
 persisting frame or compatibility settings.
 
-| PLC family | Default frame | Default compatibility |
+| PLC profile | Default frame | Default compatibility |
 | --- | --- | --- |
 | `iQ-R`, `iQ-L`, `MX-R`, `MX-F` | `Frame4E` | `Iqr` |
 | `iQ-F` | `Frame3E` | `Legacy` |
 | `QCPU`, `LCPU`, `QnU`, `QnUDV` | `Frame3E` | `Legacy` |
+
+TCP transport enables `TCP_NODELAY` and a 30-second TCP keepalive by default.
+Set `options.tcp_keepalive = None` to disable keepalive for environments where
+the operating system or application owns idle connection probing.
 
 `RD` is a real MELSEC device on the live iQ-L target that was checked, but it is
 profile-sensitive: legacy word subcommand `0x0000` returned `0xC05B`, while Iqr
@@ -59,7 +63,7 @@ word subcommand `0x0002` read `RD0` and `RD524287` successfully and rejected
 on iQ-L class PLCs.
 
 For `iQ-F` and legacy PLC families, do not select `Frame4E`; use the selected
-PLC family defaults instead of probing alternate profiles.
+PLC profile defaults instead of probing alternate profiles.
 
 ## Installation
 
@@ -88,12 +92,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 ```rust
 use plc_comm_slmp::{
-    SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
+    SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -107,13 +111,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use plc_comm_slmp::{
-    read_named, write_named, NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
+    read_named, write_named, NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
     SlmpValue,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqF);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF);
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -165,7 +169,7 @@ Low-level word read plus optional write/read-back.
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-r \
+SLMP_plc_profile=melsec:iq-r \
 cargo run --features cli --example raw_read_write
 ```
 
@@ -185,7 +189,7 @@ tick.
 
 ```bash
 SLMP_HOST=192.168.250.100 \
-SLMP_PLC_FAMILY=iq-f \
+SLMP_plc_profile=melsec:iq-f \
 SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
 cargo run --features cli --example named_helpers
 ```
@@ -197,7 +201,7 @@ device read, and self-test loopback.
 
 ```bash
 SLMP_HOST=192.168.250.100 \
-SLMP_PLC_FAMILY=iq-r \
+SLMP_plc_profile=melsec:iq-r \
 SLMP_RANDOM_WORDS='D100,R10' \
 SLMP_RANDOM_DWORDS='D200,LTN10' \
 SLMP_EXT_DEVICE='J1\W10' \
@@ -206,13 +210,13 @@ cargo run --features cli --example advanced_operations
 
 ### `device_range_catalog`
 
-Reads the family-specific `SD` window for a user-selected PLC family and prints
+Reads the family-specific `SD` window for a user-selected PLC profile and prints
 `points` plus formatted address ranges such as `X0000-X2FFF`.
 
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-f \
+SLMP_plc_profile=melsec:iq-f \
 cargo run --features cli --example device_range_catalog
 ```
 
@@ -229,7 +233,7 @@ paths and checks that read-back stays aligned.
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-r \
+SLMP_plc_profile=melsec:iq-r \
 cargo run --features cli --example device_matrix_compare
 ```
 
@@ -252,7 +256,7 @@ Markdown report with OK/NG kept visible.
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-r \
+SLMP_plc_profile=melsec:iq-r \
 SLMP_EXT_DEVICES='U3E0\G10' \
 SLMP_EXT_POINTS='1,2' \
 SLMP_EXT_WRITE_CHECK=1 \
@@ -274,7 +278,7 @@ restored. Normal bit devices also compare contiguous `read_bits` results with
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-l \
+SLMP_plc_profile=melsec:iq-l \
 cargo run --features cli --example device_range_sample_compare
 ```
 
@@ -294,7 +298,7 @@ helper APIs keep resolving to the intended SLMP commands.
 ```bash
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-l \
+SLMP_plc_profile=melsec:iq-l \
 cargo run --features cli --example route_validation_compare
 ```
 
@@ -303,7 +307,7 @@ Use `SLMP_PORT=1027 SLMP_TRANSPORT=udp` for the iQ-L UDP path.
 The shared environment variables for these examples are documented in
 [`docs/RECIPES.md`](docs/RECIPES.md).
 
-For live PLC-dependent device limits resolved from a user-selected PLC family
+For live PLC-dependent device limits resolved from a user-selected PLC profile
 plus family `SD` registers, see [`docs/DEVICE_RANGES.md`](docs/DEVICE_RANGES.md).
 
 ## Public API Surface

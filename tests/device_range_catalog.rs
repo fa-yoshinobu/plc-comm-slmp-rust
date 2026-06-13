@@ -1,7 +1,4 @@
-use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpFrameType,
-    SlmpPlcFamily,
-};
+use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpPlcProfile};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -15,10 +12,8 @@ async fn read_device_range_catalog_uses_configured_family_sd_window() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::QCpu);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpu);
     options.port = server.port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let catalog = client.read_device_range_catalog().await.unwrap();
@@ -59,10 +54,8 @@ async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_windo
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqF);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
     options.port = server.port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let catalog = client
@@ -115,7 +108,7 @@ async fn read_device_range_catalog_for_family_exposes_iql_family() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqL);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL);
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -169,7 +162,7 @@ async fn read_device_range_catalog_for_family_caps_iqr_sd_point_counts() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -231,21 +224,12 @@ impl MultiResponseServer {
             if let Ok((mut stream, _)) = listener.accept().await {
                 let mut pending = std::collections::VecDeque::from(response_payloads);
                 while let Some(payload) = pending.pop_front() {
-                    let mut header = [0u8; 13];
-                    if stream.read_exact(&mut header).await.is_err() {
+                    let Some(request) = read_request(&mut stream).await else {
                         return;
-                    }
-                    let body_len = u16::from_le_bytes([header[11], header[12]]) as usize;
-                    let mut body = vec![0u8; body_len];
-                    if stream.read_exact(&mut body).await.is_err() {
-                        return;
-                    }
-
-                    let mut request = header.to_vec();
-                    request.extend_from_slice(&body);
+                    };
                     request_sink.lock().await.push(request.clone());
 
-                    let response = build_4e_response(&request, &payload);
+                    let response = build_response(&request, &payload);
                     if stream.write_all(&response).await.is_err() {
                         return;
                     }
@@ -260,9 +244,38 @@ impl MultiResponseServer {
     }
 }
 
-fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
+async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
+    let mut prefix = [0u8; 2];
+    stream.read_exact(&mut prefix).await.ok()?;
+
+    let (header_size, length_index) = match prefix {
+        [0x54, 0x00] => (13usize, 11usize),
+        [0x50, 0x00] => (9usize, 7usize),
+        _ => return None,
+    };
+
+    let mut request = vec![0u8; header_size];
+    request[0..2].copy_from_slice(&prefix);
+    stream.read_exact(&mut request[2..header_size]).await.ok()?;
+    let body_len = u16::from_le_bytes([request[length_index], request[length_index + 1]]) as usize;
+    request.resize(header_size + body_len, 0);
+    stream.read_exact(&mut request[header_size..]).await.ok()?;
+    Some(request)
+}
+
+fn build_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
     let mut payload = vec![0u8; 2 + response_data.len()];
     payload[2..].copy_from_slice(response_data);
+
+    if request.starts_with(&[0x50, 0x00]) {
+        let mut response = vec![0u8; 9 + payload.len()];
+        response[0] = 0xD0;
+        response[1] = 0x00;
+        response[2..7].copy_from_slice(&request[2..7]);
+        response[7..9].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+        response[9..].copy_from_slice(&payload);
+        return response;
+    }
 
     let mut response = vec![0u8; 13 + payload.len()];
     response[0] = 0xD4;

@@ -12,9 +12,10 @@ use crate::model::{
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpDeviceAddress,
     SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
     SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
-    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpPlcFamily, SlmpQualifiedDeviceAddress,
+    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpPlcProfile, SlmpQualifiedDeviceAddress,
     SlmpRandomReadResult, SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
+use socket2::{SockRef, TcpKeepalive};
 use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -94,8 +95,8 @@ impl SlmpClient {
         self.inner.lock().await.traffic_stats
     }
 
-    pub async fn plc_family(&self) -> SlmpPlcFamily {
-        self.inner.lock().await.options.plc_family
+    pub async fn plc_profile(&self) -> SlmpPlcProfile {
+        self.inner.lock().await.options.plc_profile
     }
 
     pub async fn read_type_name(&self) -> Result<SlmpTypeNameInfo, SlmpError> {
@@ -212,7 +213,7 @@ impl SlmpClient {
     }
 
     pub async fn configured_device_range_family(&self) -> SlmpDeviceRangeFamily {
-        rules::map_plc_family_to_range_family(self.inner.lock().await.options.plc_family)
+        rules::map_plc_profile_to_range_family(self.inner.lock().await.options.plc_profile)
     }
 
     pub async fn read_words_raw(
@@ -396,11 +397,7 @@ impl SlmpClient {
     }
 
     pub async fn remote_stop(&self) -> Result<(), SlmpError> {
-        self.inner.lock().await.remote_stop(false).await
-    }
-
-    pub async fn remote_force_stop(&self) -> Result<(), SlmpError> {
-        self.inner.lock().await.remote_stop(true).await
+        self.inner.lock().await.remote_stop().await
     }
 
     pub async fn remote_pause(&self, force: bool) -> Result<(), SlmpError> {
@@ -572,6 +569,7 @@ async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream
     let host = options.host.clone();
     let port = options.port;
     let timeout_duration = options.timeout;
+    let tcp_keepalive = options.tcp_keepalive;
     let std_stream = task::spawn_blocking(move || {
         let addrs: Vec<_> = (host.as_str(), port).to_socket_addrs()?.collect();
         if addrs.is_empty() {
@@ -584,6 +582,10 @@ async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream
         for addr in addrs {
             match StdTcpStream::connect_timeout(&addr, timeout_duration) {
                 Ok(stream) => {
+                    stream.set_nodelay(true)?;
+                    if let Some(keepalive_idle) = tcp_keepalive {
+                        configure_tcp_keepalive(&stream, keepalive_idle)?;
+                    }
                     stream.set_nonblocking(true)?;
                     return Ok(stream);
                 }
@@ -599,6 +601,22 @@ async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream
     .map_err(|error| SlmpError::new(format!("tcp connect task failed: {error}")))??;
 
     TcpStream::from_std(std_stream).map_err(SlmpError::from)
+}
+
+fn configure_tcp_keepalive(
+    stream: &StdTcpStream,
+    idle: std::time::Duration,
+) -> Result<(), SlmpError> {
+    if idle.is_zero() {
+        return Err(SlmpError::new(
+            "tcp_keepalive must be greater than zero when enabled",
+        ));
+    }
+
+    let socket = SockRef::from(stream);
+    socket.set_keepalive(true)?;
+    socket.set_tcp_keepalive(&TcpKeepalive::new().with_time(idle))?;
+    Ok(())
 }
 
 impl ClientInner {
@@ -1194,8 +1212,7 @@ impl ClientInner {
         Ok(())
     }
 
-    async fn remote_stop(&mut self, force: bool) -> Result<(), SlmpError> {
-        let _ = force;
+    async fn remote_stop(&mut self) -> Result<(), SlmpError> {
         self.request(SlmpCommand::RemoteStop, 0x0000, &[0x01, 0x00], true)
             .await?;
         Ok(())
@@ -1215,8 +1232,13 @@ impl ClientInner {
     }
 
     async fn remote_reset(&mut self, expect_response: bool) -> Result<(), SlmpError> {
-        self.request(SlmpCommand::RemoteReset, 0x0000, &[0x01, 0x00], expect_response)
-            .await?;
+        self.request(
+            SlmpCommand::RemoteReset,
+            0x0000,
+            &[0x01, 0x00],
+            expect_response,
+        )
+        .await?;
         Ok(())
     }
 
@@ -1236,7 +1258,9 @@ impl ClientInner {
 
     async fn self_test_loopback(&mut self, data: &[u8]) -> Result<Vec<u8>, SlmpError> {
         if data.is_empty() || data.len() > 960 {
-            return Err(SlmpError::new("loopback payload size out of range (1..960 bytes)"));
+            return Err(SlmpError::new(
+                "loopback payload size out of range (1..960 bytes)",
+            ));
         }
         if data
             .iter()
@@ -2093,25 +2117,18 @@ impl ClientInner {
 
     fn encode_password(&self, password: &str) -> Result<Vec<u8>, SlmpError> {
         let raw = password.as_bytes();
-        match self.options.compatibility_mode {
-            SlmpCompatibilityMode::Iqr => {
-                if raw.len() < 6 || raw.len() > 32 {
-                    return Err(SlmpError::new("iQ-R password length must be 6..32"));
-                }
-                let mut payload = Vec::with_capacity(2 + raw.len());
-                payload.extend_from_slice(&(raw.len() as u16).to_le_bytes());
-                payload.extend_from_slice(raw);
-                Ok(payload)
+        if self.options.plc_profile.uses_iqr_protocol() {
+            if raw.len() < 6 || raw.len() > 32 {
+                return Err(SlmpError::new("iQ-R password length must be 6..32"));
             }
-            SlmpCompatibilityMode::Legacy => {
-                if raw.len() < 6 || raw.len() > 8 {
-                    return Err(SlmpError::new("Q/L password length must be 6..8"));
-                }
-                let mut payload = vec![0u8; 8];
-                payload[..raw.len()].copy_from_slice(raw);
-                Ok(payload)
-            }
+        } else if raw.len() != 4 {
+            return Err(SlmpError::new("Q/L password length must be exactly 4"));
         }
+
+        let mut payload = Vec::with_capacity(2 + raw.len());
+        payload.extend_from_slice(&(raw.len() as u16).to_le_bytes());
+        payload.extend_from_slice(raw);
+        Ok(payload)
     }
 }
 

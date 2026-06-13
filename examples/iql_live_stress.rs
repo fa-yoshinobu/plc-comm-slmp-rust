@@ -3,7 +3,7 @@ mod common;
 use common::{env_csv, env_string};
 use plc_comm_slmp::{
     SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpConnectionOptions,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcFamily, SlmpTransportMode, SlmpValue,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile, SlmpTransportMode, SlmpValue,
     read_dwords_chunked, read_dwords_single_request, read_typed, read_words_chunked,
     read_words_single_request, write_dwords_chunked, write_dwords_single_request, write_typed,
     write_words_chunked, write_words_single_request,
@@ -670,7 +670,7 @@ fn options(
     transport_mode: SlmpTransportMode,
     timeout_ms: u64,
 ) -> SlmpConnectionOptions {
-    let mut options = SlmpConnectionOptions::new(host, SlmpPlcFamily::IqL);
+    let mut options = SlmpConnectionOptions::new(host, SlmpPlcProfile::IqL);
     options.port = port;
     options.transport_mode = transport_mode;
     options.timeout = Duration::from_millis(timeout_ms);

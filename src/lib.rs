@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! use plc_comm_slmp::{
-//!     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
+//!     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
 //! };
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +22,7 @@
 //!     .enable_all()
 //!     .build()?;
 //! runtime.block_on(async {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqR);
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
 //!     options.port = 1025;
 //!
 //!     let client = SlmpClient::connect(options).await?;
@@ -37,7 +37,7 @@
 //!
 //! ```no_run
 //! use plc_comm_slmp::{
-//!     NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcFamily, SlmpValue, read_named,
+//!     NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpValue, read_named,
 //!     write_named,
 //! };
 //!
@@ -46,7 +46,7 @@
 //!     .enable_all()
 //!     .build()?;
 //! runtime.block_on(async {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqF);
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF);
 //!     options.port = 1025;
 //!     let client = SlmpClient::connect(options).await?;
 //!
@@ -108,7 +108,7 @@ mod model;
 mod route_validation;
 
 pub use address::{
-    SlmpAddress, normalize_named_address, parse_device_for_plc_family, parse_named_address,
+    SlmpAddress, normalize_named_address, parse_device_for_plc_profile, parse_named_address,
     parse_named_target, parse_qualified_device, parse_target_auto_number,
 };
 pub use client::{SlmpClient, encode_device_spec};
@@ -138,7 +138,7 @@ pub use model::{
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
     SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
     SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
-    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpNamedTarget, SlmpPlcFamily,
+    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpNamedTarget, SlmpPlcProfile,
     SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
     SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };

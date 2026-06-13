@@ -292,8 +292,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ));
     report.push_str(&format!("- Port: {}\n", env_string("SLMP_PORT", "1025")));
     report.push_str(&format!(
-        "- PLC family: {}\n",
-        env_string("SLMP_PLC_FAMILY", "iq-r")
+        "- PLC profile: {}\n",
+        env_string("SLMP_plc_profile", "melsec:iq-r")
     ));
     report.push_str(&format!(
         "- Transport: {}\n",

@@ -1,6 +1,5 @@
 use plc_comm_slmp::{
-    SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpFrameType, SlmpPlcFamily,
+    SlmpClient, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile,
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -112,10 +111,8 @@ impl ResponseServer {
 }
 
 async fn connect_client(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcFamily::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.port = port;
-    options.frame_type = SlmpFrameType::Frame4E;
-    options.compatibility_mode = SlmpCompatibilityMode::Iqr;
     SlmpClient::connect(options).await.unwrap()
 }
 
