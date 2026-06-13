@@ -21,7 +21,7 @@ async fn main() {
     let command = args[3].as_str();
     let address = args.get(4).cloned().unwrap_or_default();
     let mut extras = Vec::new();
-    let mut plc_profile = SlmpPlcProfile::IqR;
+    let mut plc_profile = None;
     let mut transport = SlmpTransportMode::Tcp;
     let mut target = None;
     let mut mode = "word".to_string();
@@ -42,8 +42,13 @@ async fn main() {
         match args[index].as_str() {
             "--plc-profile" => {
                 index += 1;
-                plc_profile =
-                    parse_plc_profile(args.get(index).map(String::as_str).unwrap_or("melsec:iq-r"));
+                match parse_plc_profile(args.get(index).map(String::as_str)) {
+                    Ok(profile) => plc_profile = Some(profile),
+                    Err(message) => {
+                        println!("{}", json!({"status": "error", "message": message}));
+                        return;
+                    }
+                }
             }
             "--transport" => {
                 index += 1;
@@ -123,6 +128,14 @@ async fn main() {
         index += 1;
     }
 
+    let Some(plc_profile) = plc_profile else {
+        println!(
+            "{}",
+            json!({"status": "error", "message": "PLC profile is required. Pass --plc-profile with a canonical value such as melsec:iq-r."})
+        );
+        return;
+    };
+
     let mut options = SlmpConnectionOptions::new(host, plc_profile);
     options.port = port;
     options.transport_mode = transport;
@@ -181,8 +194,12 @@ async fn main() {
     }
 }
 
-fn parse_plc_profile(value: &str) -> SlmpPlcProfile {
-    SlmpPlcProfile::parse_label(value).unwrap_or(SlmpPlcProfile::IqR)
+fn parse_plc_profile(value: Option<&str>) -> Result<SlmpPlcProfile, String> {
+    let value =
+        value.ok_or_else(|| "--plc-profile requires a canonical PLC profile.".to_string())?;
+    SlmpPlcProfile::parse_label(value).ok_or_else(|| {
+        format!("Unsupported PLC profile '{value}'. Use a canonical value such as melsec:iq-r.")
+    })
 }
 
 fn target_from_network_station(

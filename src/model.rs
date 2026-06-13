@@ -54,8 +54,8 @@ impl SlmpPlcProfile {
     }
 
     pub fn parse_label(value: &str) -> Option<Self> {
-        let normalized = value.trim().to_ascii_lowercase();
-        match normalized.as_str() {
+        let normalized = value.trim();
+        match normalized {
             "melsec:iq-f" => Some(Self::IqF),
             "melsec:iq-r" => Some(Self::IqR),
             "melsec:iq-l" => Some(Self::IqL),
@@ -606,11 +606,7 @@ mod tests {
             SlmpPlcProfile::parse_label("melsec:iq-r"),
             Some(SlmpPlcProfile::IqR)
         );
-        assert_eq!(
-            SlmpPlcProfile::parse_label("MELSEC:IQ-F"),
-            Some(SlmpPlcProfile::IqF)
-        );
-
+        assert_eq!(SlmpPlcProfile::parse_label("MELSEC:IQ-F"), None);
         assert_eq!(SlmpPlcProfile::parse_label("iq-r"), None);
         assert_eq!(SlmpPlcProfile::parse_label("iqr"), None);
         assert_eq!(SlmpPlcProfile::parse_label("q"), None);
