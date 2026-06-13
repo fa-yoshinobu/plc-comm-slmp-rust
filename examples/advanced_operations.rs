@@ -1,3 +1,5 @@
+//! Read-heavy tour of type-name, random, block, extended, and self-test operations.
+
 mod common;
 
 use common::{connect_from_env, env_csv, env_string, print_connection_banner};
@@ -27,18 +29,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("advanced_operations");
     let client = connect_from_env().await?;
 
+    // Type-name support is useful when the selected PLC route returns model text.
     let type_name = client.read_type_name().await?;
     println!(
         "type name -> model={} code=0x{:04X} has_model_code={}",
         type_name.model, type_name.model_code, type_name.has_model_code
     );
 
+    // Random reads group unrelated word and dword devices into one request.
     let word_devices = parse_word_devices("SLMP_RANDOM_WORDS", "D100,R10")?;
     let dword_devices = parse_word_devices("SLMP_RANDOM_DWORDS", "D200,LTN10")?;
     let random = client.read_random(&word_devices, &dword_devices).await?;
     println!("random word values   -> {:?}", random.word_values);
     println!("random dword values  -> {:?}", random.dword_values);
 
+    // Block reads return word values and packed bit-block words.
     let word_block = SlmpBlockRead {
         device: SlmpAddress::parse(&env_string("SLMP_BLOCK_WORD_DEVICE", "D100"))?,
         points: env_string("SLMP_BLOCK_WORD_POINTS", "4").parse()?,
@@ -51,6 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("block word values    -> {:?}", block.word_values);
     println!("block packed bits    -> {:?}", block.bit_values);
 
+    // Extended-device reads use a qualified address plus an extension spec.
     let qualified = parse_qualified_device(&env_string("SLMP_EXT_DEVICE", "J1\\W10"))?;
     let extension = build_extension_spec(&qualified);
     let ext_values = client

@@ -18,6 +18,22 @@ pub fn env_bool(key: &str) -> bool {
     )
 }
 
+pub fn env_profile_label() -> String {
+    env::var("SLMP_PLC_PROFILE")
+        .or_else(|_| env::var("SLMP_plc_profile"))
+        .or_else(|_| env::var("SLMP_PLC_FAMILY"))
+        .unwrap_or_else(|_| "melsec:iq-r".to_string())
+}
+
+pub fn env_transport_label() -> String {
+    env_string("SLMP_TRANSPORT", "tcp")
+}
+
+pub fn env_port_label() -> String {
+    let transport = env_transport_label();
+    env_string("SLMP_PORT", default_port_for_transport(&transport))
+}
+
 pub fn env_csv(key: &str, default: &str) -> Vec<String> {
     env_string(key, default)
         .split(',')
@@ -28,14 +44,12 @@ pub fn env_csv(key: &str, default: &str) -> Vec<String> {
 }
 
 pub fn options_from_env() -> Result<SlmpConnectionOptions, Box<dyn Error>> {
-    let host = env_string("SLMP_HOST", "127.0.0.1");
-    let family = parse_plc_profile(&env_string("SLMP_plc_profile", "melsec:iq-r"))?;
-    let mut options = SlmpConnectionOptions::new(host, family);
-    options.port = env_string("SLMP_PORT", "1025").parse()?;
-    options.transport_mode = match env_string("SLMP_TRANSPORT", "tcp")
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    let host = env_string("SLMP_HOST", "192.168.250.100");
+    let plc_profile = parse_plc_profile(&env_profile_label())?;
+    let mut options = SlmpConnectionOptions::new(host, plc_profile);
+    let transport = env_transport_label();
+    options.port = env_port_label().parse()?;
+    options.transport_mode = match transport.to_ascii_lowercase().as_str() {
         "udp" => SlmpTransportMode::Udp,
         _ => SlmpTransportMode::Tcp,
     };
@@ -78,20 +92,20 @@ pub async fn connect_from_env() -> Result<SlmpClient, Box<dyn Error>> {
 }
 
 pub fn print_connection_banner(example: &str) {
-    let family = env_string("SLMP_plc_profile", "melsec:iq-r");
-    let profile = SlmpPlcProfile::parse_label(&family).map(SlmpPlcProfile::defaults);
+    let plc_profile = env_profile_label();
+    let profile = SlmpPlcProfile::parse_label(&plc_profile).map(SlmpPlcProfile::defaults);
     println!(
         "{example}: host={} port={} plc_profile={} frame={} compatibility={} transport={} target={}",
-        env_string("SLMP_HOST", "127.0.0.1"),
-        env_string("SLMP_PORT", "1025"),
-        family,
+        env_string("SLMP_HOST", "192.168.250.100"),
+        env_port_label(),
+        plc_profile,
         profile
             .map(|profile| format!("{:?}", profile.frame_type))
             .unwrap_or_else(|| "unknown".to_string()),
         profile
             .map(|profile| format!("{:?}", profile.compatibility_mode))
             .unwrap_or_else(|| "unknown".to_string()),
-        env_string("SLMP_TRANSPORT", "tcp"),
+        env_transport_label(),
         format_env_target()
     );
 }
@@ -119,9 +133,17 @@ fn parse_plc_profile(value: &str) -> Result<SlmpPlcProfile, Box<dyn Error>> {
     SlmpPlcProfile::parse_label(value).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "SLMP_plc_profile is required. Use melsec:iq-f, melsec:iq-r, melsec:iq-l, melsec:mx-f, melsec:mx-r, melsec:qcpu, melsec:lcpu, melsec:qnu, or melsec:qnudv."
+            "SLMP_PLC_PROFILE is required. Use melsec:iq-f, melsec:iq-r, melsec:iq-l, melsec:mx-f, melsec:mx-r, melsec:qcpu, melsec:lcpu, melsec:qnu, or melsec:qnudv."
                 .to_string(),
         )
         .into()
     })
+}
+
+fn default_port_for_transport(transport: &str) -> &'static str {
+    if transport.eq_ignore_ascii_case("udp") {
+        "1035"
+    } else {
+        "1025"
+    }
 }

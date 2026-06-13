@@ -1,3 +1,5 @@
+//! Minimal raw word read example with an optional write/read-back section.
+
 mod common;
 
 use common::{connect_from_env, env_bool, env_csv, env_string, print_connection_banner};
@@ -16,6 +18,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("raw_read_write");
     let client = connect_from_env().await?;
 
+    // Start with a plain data-register read before trying any writes.
     let read_address = env_string("SLMP_READ_ADDRESS", "D100");
     let read_count: u16 = env_string("SLMP_READ_COUNT", "2").parse()?;
     let words = client
@@ -28,6 +31,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    // Writes are opt-in so the example is read-only by default.
     let write_address = env_string("SLMP_WRITE_ADDRESS", "D600");
     let write_values = parse_u16_csv("SLMP_WRITE_VALUES", "111,222")?;
     client

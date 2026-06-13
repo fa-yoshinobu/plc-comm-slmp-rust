@@ -33,6 +33,10 @@ path = "src/bin/slmp_verify_client.rs"
 required-features = ["cli"]
 
 [[example]]
+name = "01_minimal"
+path = "examples/01_minimal.rs"
+
+[[example]]
 name = "raw_read_write"
 path = "examples/raw_read_write.rs"
 required-features = ["cli"]

@@ -20,7 +20,7 @@ fn make_error(message: impl Into<String>) -> Box<dyn Error> {
 async fn main() -> Result<(), Box<dyn Error>> {
     let host = env_string("SLMP_HOST", "192.168.250.100");
     let tcp_port = env_string("SLMP_TCP_PORT", &env_string("SLMP_PORT", "1025")).parse::<u16>()?;
-    let udp_port = env_string("SLMP_UDP_PORT", "1027").parse::<u16>()?;
+    let udp_port = env_string("SLMP_UDP_PORT", "1035").parse::<u16>()?;
     let transports = env_csv("SLMP_STRESS_TRANSPORTS", "tcp,udp");
     let mut failures = Vec::new();
 

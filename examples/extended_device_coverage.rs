@@ -1,6 +1,9 @@
 mod common;
 
-use common::{env_bool, env_csv, env_string, options_from_env, print_connection_banner};
+use common::{
+    env_bool, env_csv, env_port_label, env_profile_label, env_string, options_from_env,
+    print_connection_banner,
+};
 use plc_comm_slmp::{
     SlmpClient, SlmpDeviceCode, SlmpExtensionSpec, SlmpQualifiedDeviceAddress,
     parse_qualified_device,
@@ -288,13 +291,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     report.push_str("# Extended Device Coverage Latest\n\n");
     report.push_str(&format!(
         "- Host: {}\n",
-        env_string("SLMP_HOST", "127.0.0.1")
+        env_string("SLMP_HOST", "192.168.250.100")
     ));
-    report.push_str(&format!("- Port: {}\n", env_string("SLMP_PORT", "1025")));
-    report.push_str(&format!(
-        "- PLC profile: {}\n",
-        env_string("SLMP_plc_profile", "melsec:iq-r")
-    ));
+    report.push_str(&format!("- Port: {}\n", env_port_label()));
+    report.push_str(&format!("- PLC profile: {}\n", env_profile_label()));
     report.push_str(&format!(
         "- Transport: {}\n",
         env_string("SLMP_TRANSPORT", "tcp")

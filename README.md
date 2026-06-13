@@ -6,93 +6,52 @@
 
 # SLMP Protocol for Rust
 
-![SLMP Rust eyecatch](https://raw.githubusercontent.com/fa-yoshinobu/plc-comm-slmp-rust/main/docs/assets/slmp-rust-eyecatch.png)
+Async Rust library for Mitsubishi SLMP (Seamless Message Protocol) Binary 3E/4E PLC communication.
 
-Async Rust implementation of the SLMP library, based on the `plc-comm-slmp-dotnet`
-implementation and aligned with the shared `plc-comm-slmp-cross-verify` harness.
+## Supported PLC profiles
 
-The crate focuses on Binary 3E / 4E SLMP over TCP and UDP and keeps the same
-operation meaning as the existing Python, .NET, C++, Node-RED, and Rust
-verification clients.
+`SlmpConnectionOptions::new(host, plc_profile)` derives the frame and compatibility mode from the selected `SlmpPlcProfile`.
 
-## What This Repo Contains
+| `SlmpPlcProfile` variant | Hardware | Frame | Notes |
+| --- | --- | --- | --- |
+| `SlmpPlcProfile::IqF` | MELSEC iQ-F | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`; `X` and `Y` string addresses use iQ-F octal notation. |
+| `SlmpPlcProfile::IqR` | MELSEC iQ-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
+| `SlmpPlcProfile::IqL` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`; address parsing follows iQ-R rules. |
+| `SlmpPlcProfile::MxF` | MELSEC MX-F | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
+| `SlmpPlcProfile::MxR` | MELSEC MX-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
+| `SlmpPlcProfile::QCpu` | MELSEC QCPU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
+| `SlmpPlcProfile::LCpu` | MELSEC LCPU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
+| `SlmpPlcProfile::QnU` | MELSEC QnU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
+| `SlmpPlcProfile::QnUDV` | MELSEC QnUDV | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
 
-- async Rust library crate: `src/`
-- `cross-verify` wrapper binary: `src/bin/slmp_verify_client.rs`
-- runnable examples: [`examples/`](examples)
-- address and usage guides: [`docs/`](docs)
-- minimal `napi-rs` workspace member for future Node packaging: `crates/slmp-node`
+## Supported device types
 
-## Current Scope
+This is a quick map of common families. See [supported registers](docs/SUPPORTED_REGISTERS.md) for the full helper-layer reference.
 
-- raw device access: word, bit, dword, float32
-- random read/write
-- block read/write
-- extended-device read/write
-- memory read/write
-- extend-unit read/write
-- remote operations and self-test
-- high-level typed helpers
-- high-level named read/write and polling helpers
-- live device-range catalog via user-selected PLC profile plus family `SD` registers
-- `slmp_verify_client` wrapper for `plc-comm-slmp-cross-verify`
-- minimal `napi-rs` Node binding scaffold in `crates/slmp-node`
-
-## PLC profile Defaults
-
-`SlmpConnectionOptions::new(host, plc_profile)` applies the default SLMP frame and
-compatibility profile for the selected PLC profile. PLC IO Checker iOS and
-Android store the selected model label only and rely on this mapping instead of
-persisting frame or compatibility settings.
-
-| PLC profile | Default frame | Default compatibility |
+| Family | Examples | Default value |
 | --- | --- | --- |
-| `iQ-R`, `iQ-L`, `MX-R`, `MX-F` | `Frame4E` | `Iqr` |
-| `iQ-F` | `Frame3E` | `Legacy` |
-| `QCPU`, `LCPU`, `QnU`, `QnUDV` | `Frame3E` | `Legacy` |
-
-TCP transport enables `TCP_NODELAY` and a 30-second TCP keepalive by default.
-Set `options.tcp_keepalive = None` to disable keepalive for environments where
-the operating system or application owns idle connection probing.
-
-`RD` is a real MELSEC device on the live iQ-L target that was checked, but it is
-profile-sensitive: legacy word subcommand `0x0000` returned `0xC05B`, while Iqr
-word subcommand `0x0002` read `RD0` and `RD524287` successfully and rejected
-`RD524288` with range error `0x4031`. Use the `iQ-L` family defaults or set
-`compatibility_mode = SlmpCompatibilityMode::Iqr` explicitly when probing `RD`
-on iQ-L class PLCs.
-
-For `iQ-F` and legacy PLC families, do not select `Frame4E`; use the selected
-PLC profile defaults instead of probing alternate profiles.
+| Internal and latch relays | `M100`, `L100`, `F100`, `V100` | `SlmpValue::Bool` |
+| Physical I/O | `X10`, `Y10`, `DX10`, `DY10` | `SlmpValue::Bool` |
+| Link relays | `B10`, `SB10` | `SlmpValue::Bool` |
+| Data registers | `D100`, `R50`, `ZR0`, `RD0` | `SlmpValue::U16` |
+| Link word registers | `W10`, `SW10` | `SlmpValue::U16` |
+| Timers | `TS10`, `TC10`, `TN10`, `STS10`, `STC10`, `STN10` | bits or words by device code |
+| Counters | `CS10`, `CC10`, `CN10` | bits or words by device code |
+| Long families | `LTN10:D`, `LSTN10:D`, `LCN10:D`, `LZ0:D` | `SlmpValue::U32` |
 
 ## Installation
-
-Install from crates.io:
 
 ```bash
 cargo add plc-comm-slmp-rust
 ```
 
-The public package name is `plc-comm-slmp-rust`, and the library import path is
-`plc_comm_slmp`.
+The package name is `plc-comm-slmp-rust`; the Rust import path is `plc_comm_slmp`.
 
-Requires Rust 1.85 or newer.
-
-`Cargo.toml`:
-
-```toml
-[dependencies]
-plc-comm-slmp-rust = "0.1.11"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-```
-
-## Quick Start
-
-### Raw Client Usage
+## Quick example
 
 ```rust
 use plc_comm_slmp::{
-    SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
+    read_typed, SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
 };
 
 #[tokio::main]
@@ -101,384 +60,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
-    let values = client.read_words_raw(SlmpAddress::parse("D100")?, 2).await?;
-    println!("{values:?}");
-    Ok(())
-}
-```
-
-### Recommended High-Level Usage
-
-```rust
-use plc_comm_slmp::{
-    read_named, write_named, NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
-    SlmpValue,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-
-    let snapshot = read_named(
-        &client,
-        &["D100".into(), "D200:F".into(), "D50.3".into()],
-    )
-    .await?;
-
-    println!("{:?}", snapshot["D100"]);
-    println!("{:?}", snapshot["D200:F"]);
-    println!("{:?}", snapshot["D50.3"]);
-
-    let mut updates = NamedAddress::new();
-    updates.insert("D300".into(), SlmpValue::U16(42));
-    updates.insert("D400:F".into(), SlmpValue::F32(3.14));
-    write_named(&client, &updates).await?;
+    let value = read_typed(&client, SlmpAddress::parse("D100")?, "U").await?;
+    println!("{:?}", value);
+    client.close().await?;
 
     Ok(())
 }
 ```
 
-### Typed Access
-
-```rust
-use plc_comm_slmp::{read_typed, write_typed, SlmpAddress, SlmpValue};
-
-# async fn demo(client: &plc_comm_slmp::SlmpClient) -> Result<(), plc_comm_slmp::SlmpError> {
-let temperature = read_typed(client, SlmpAddress::parse("D200")?, "F").await?;
-let position = read_typed(client, SlmpAddress::parse("D300")?, "L").await?;
-
-write_typed(client, SlmpAddress::parse("D100")?, "U", &SlmpValue::U16(42)).await?;
-write_typed(client, SlmpAddress::parse("D200")?, "F", &SlmpValue::F32(3.14)).await?;
-write_typed(client, SlmpAddress::parse("D300")?, "L", &SlmpValue::I32(-100)).await?;
-# Ok(())
-# }
-```
-
-## Runnable Examples
-
-The repository includes examples that compile as part of the crate and can be
-run directly against a PLC or mock server.
-
-### `raw_read_write`
-
-Low-level word read plus optional write/read-back.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_PORT=1025 \
-SLMP_plc_profile=melsec:iq-r \
-cargo run --features cli --example raw_read_write
-```
-
-Enable writes explicitly:
-
-```bash
-SLMP_ENABLE_WRITES=1 \
-SLMP_WRITE_ADDRESS=D600 \
-SLMP_WRITE_VALUES=111,222 \
-cargo run --features cli --example raw_read_write
-```
-
-### `named_helpers`
-
-Named snapshot, typed decoding, optional `write_named`, and one `poll_named`
-tick.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_plc_profile=melsec:iq-f \
-SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
-cargo run --features cli --example named_helpers
-```
-
-### `advanced_operations`
-
-Safe read-heavy sample that covers type-name, random read, block read, extended
-device read, and self-test loopback.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_plc_profile=melsec:iq-r \
-SLMP_RANDOM_WORDS='D100,R10' \
-SLMP_RANDOM_DWORDS='D200,LTN10' \
-SLMP_EXT_DEVICE='J1\W10' \
-cargo run --features cli --example advanced_operations
-```
-
-### `device_range_catalog`
-
-Reads the family-specific `SD` window for a user-selected PLC profile and prints
-`points` plus formatted address ranges such as `X0000-X2FFF`.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_PORT=1025 \
-SLMP_plc_profile=melsec:iq-f \
-cargo run --features cli --example device_range_catalog
-```
-
-### `device_matrix_compare`
-
-Real-PLC regression sample that writes the same address through multiple command
-paths and checks that read-back stays aligned.
-
-- bit devices: `write_bits`, `write_random_bits`, `write_typed`, `write_named`, raw `request`
-- word devices: `write_words`, `write_random_words`, `write_typed`, `write_named`, raw `request`
-- 32-bit devices: `write_dwords`, `write_random_words`, `write_typed`, `write_named`, raw `request`
-- `J1\\...` devices: extended helper APIs plus raw `request`
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_PORT=1025 \
-SLMP_plc_profile=melsec:iq-r \
-cargo run --features cli --example device_matrix_compare
-```
-
-This example exits non-zero when command paths for the same address disagree.
-
-Focus on a subset while debugging:
-
-```bash
-SLMP_COMPARE_ONLY='LTS10,LTC10,LCS10,LCC10,LTN10,LSTN10' \
-cargo run --features cli --example device_matrix_compare
-```
-
-### `extended_device_coverage`
-
-Real-PLC sweep for Extended Specification devices. It reads every
-`SLMP_EXT_DEVICES` x `SLMP_EXT_POINTS` x `SLMP_EXT_DIRECT_MEMORIES` candidate,
-optionally writes and restores with `SLMP_EXT_WRITE_CHECK=1`, and writes a
-Markdown report with OK/NG kept visible.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_PORT=1025 \
-SLMP_plc_profile=melsec:iq-r \
-SLMP_EXT_DEVICES='U3E0\G10' \
-SLMP_EXT_POINTS='1,2' \
-SLMP_EXT_WRITE_CHECK=1 \
-cargo run --features cli --example extended_device_coverage
-```
-
-If the PLC port is protected by a remote password, set
-`SLMP_REMOTE_PASSWORD=<password>`. The example unlocks before the sweep and
-locks the port again before exiting.
-
-### `device_range_sample_compare`
-
-Real-PLC range sample that reads the live device-range catalog, then tests up to
-10 addresses for each supported device: start, end, middle, and additional
-distributed points. Each point is read, written with two values, verified, and
-restored. Normal bit devices also compare contiguous `read_bits` results with
-`DeviceReadBlock` packed bit-word values.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_PORT=1025 \
-SLMP_plc_profile=melsec:iq-l \
-cargo run --features cli --example device_range_sample_compare
-```
-
-Focus on a subset while debugging:
-
-```bash
-SLMP_SAMPLE_ONLY='D,M,RD' \
-cargo run --features cli --example device_range_sample_compare
-```
-
-### `route_validation_compare`
-
-Real-PLC route sample aligned with the more advanced `plc-comm-slmp-dotnet`
-coverage. It compares block, random, typed, `LZ`, and range-error routes so that
-helper APIs keep resolving to the intended SLMP commands.
-
-```bash
-SLMP_HOST=192.168.250.100 \
-SLMP_PORT=1025 \
-SLMP_plc_profile=melsec:iq-l \
-cargo run --features cli --example route_validation_compare
-```
-
-Use `SLMP_PORT=1027 SLMP_TRANSPORT=udp` for the iQ-L UDP path.
-
-The shared environment variables for these examples are documented in
-[`docs/RECIPES.md`](docs/RECIPES.md).
-
-For live PLC-dependent device limits resolved from a user-selected PLC profile
-plus family `SD` registers, see [`docs/DEVICE_RANGES.md`](docs/DEVICE_RANGES.md).
-
-## Public API Surface
-
-Main exports:
-
-- `SlmpConnectionOptions`
-- `SlmpClient`
-- `SlmpAddress`
-- `read_type_name` / `read_device_range_catalog` / `read_device_range_catalog_for_family`
-- `read_typed` / `write_typed`
-- `write_bit_in_word`
-- `read_named` / `write_named`
-- `poll_named`
-- `run_device_range_sample_compare`
-- `run_route_validation_compare`
-- `read_words_single_request` / `read_dwords_single_request`
-- `read_words_chunked` / `read_dwords_chunked`
-- `write_words_single_request` / `write_dwords_single_request`
-- `write_words_chunked` / `write_dwords_chunked`
-
-Important model types:
-
-- `SlmpDeviceAddress`
-- `SlmpQualifiedDeviceAddress`
-- `SlmpTargetAddress`
-- `SlmpExtensionSpec`
-- `SlmpTypeNameInfo`
-- `SlmpDeviceRangeCatalog`, `SlmpDeviceRangeEntry`, `SlmpDeviceRangeFamily`
-- `SlmpRandomReadResult`
-- `SlmpBlockRead`, `SlmpBlockWrite`, `SlmpBlockReadResult`
-- `SlmpLongTimerResult`
-- `SlmpValue`
-
-## Supported Address Forms
-
-High-level helpers are intended to cover these forms first.
-
-- plain word devices: `D100`, `R50`, `ZR0`, `TN0`, `CN0`
-- plain bit devices: `M1000`, `X20`, `Y20`, `B10`
-- typed suffixes: `D100:S`, `D200:D`, `D300:L`, `D400:F`
-- bit-in-word form: `D50.3`
-- long current-value forms: `LTN10:D`, `LSTN20:D`, `LCN30:D`
-- extended devices: `J1\\SW0`, `U3\\G100`, `U3E0\\HG0`
-
-High-level address syntax is shared across the PLC helper libraries:
-
-- use `:` for data types and special views: `D100:U`, `D100:S`, `D100:D`,
-  `D100:L`, `D100:F`, `D100:STR`
-- use `.` only for bit-in-word access: `D50.0` through `D50.F`
-- `D50.D` is bit `0xD` / bit 13, not a 32-bit data type request
-- low-level SLMP routes still encode word/dword/float access internally; the
-  `:D` / `:F` spelling is the public helper-layer form
-
-`.bit` notation is only valid for word devices. Address bit devices directly.
-
-See also:
-
-- [`docs/ADDRESS_FORMS.md`](docs/ADDRESS_FORMS.md)
-- [`docs/DEVICE_RANGES.md`](docs/DEVICE_RANGES.md)
-- [`docs/RECIPES.md`](docs/RECIPES.md)
-
-## Choosing the Right API
-
-- Use raw device methods when you need exact SLMP request control.
-- Use `read_typed` and `write_typed` when one address maps to one scalar value.
-- Use `read_named` and `write_named` when your application needs a snapshot with
-  mixed dtypes and bit-in-word decoding.
-- Use `poll_named` for a lightweight periodic stream.
-- Use `read_random` and `read_block` when you want to keep request counts low.
-- Use the extended-device methods for `J...` and `U...` paths. `G` requires a
-  `U...` qualified module path, and `HG` is valid only for `U3E0\\HG` through
-  `U3E3\\HG`; direct/unitless `G` or `HG` names are rejected before transport.
-- `read_named` and `write_named` currently target plain device addresses, not
-  `J...` or `U...` qualified addresses.
-
-## Long-Family Behavior
-
-The Rust implementation follows the same normalized behavior as the other
-libraries:
-
-- `LTN`, `LSTN`, `LCN`, and `LZ` default to 32-bit reads
-- `LCN` high-level reads and writes use random dword access (`0x0403` / `0x1402`)
-- `LTS`, `LTC`, `LSTS`, `LSTC`, `LCS`, and `LCC` are state reads
-- `LCS` and `LCC` reads use direct bit read through `read_typed` / `read_named`
-- `LCS` and `LCC` are rejected for `Read Random (0x0403)`, `Read Block (0x0406)`,
-  `Write Block (0x1406)`, and `Entry Monitor Device (0x0801)`
-- direct bit reads/writes (`0x0401` / `0x1401`) and Read Random (`0x0403`) for
-  `LTS`, `LTC`, `LSTS`, and `LSTC` are rejected by the Rust client API; use
-  helper APIs, random bit write (`0x1402`), or 4-word block reads from
-  `LTN` / `LSTN`
-- direct bit writes (`0x1401`) for `LCS` and `LCC` are also rejected; use
-  `write_typed` / `write_named` so random bit write (`0x1402`) is selected
-- direct dword reads for `LTN`, `LSTN`, `LCN`, and `LZ` are rejected; use helper APIs,
-  random dword high-level access, or explicit 4-word block reads where supported
-
-Route guard note: keep low-level direct bit routes guarded for
-`LTS`/`LTC`/`LSTS`/`LSTC` and direct bit writes guarded for `LCS`/`LCC`.
-High-level writes must continue to resolve to random bit write (`0x1402`).
-
-That behavior is intentional and is enforced through
-`plc-comm-slmp-cross-verify`.
-
-## Cross-Verify
-
-This repo is designed to participate in:
-
-- `plc-comm-slmp-cross-verify/specs/shared`
-- `python verify.py --clients rust`
-- full parity runs with Python, .NET, C++, and Node-RED
-- live PLC verification through the same saved baseline/profile flow
-
-The wrapper binary used by the harness is:
-
-```bash
-cargo run --features cli --bin slmp_verify_client -- 127.0.0.1 9000 read-type
-```
-
-## Development
-
-Format and test:
-
-```bash
-cargo fmt
-cargo test
-```
-
-Run the Rust tests:
-
-```bash
-cargo test
-```
-
-Check the Node binding scaffold:
-
-```bash
-cargo check -p slmp-node
-```
-
-Run Rust-only parity through the canonical harness:
-
-```bash
-cd ../plc-comm-slmp-cross-verify
-python verify.py --clients rust
-```
-
-Run full parity:
-
-```bash
-cd ../plc-comm-slmp-cross-verify
-python verify.py
-```
-
-Run live PLC verification with the validated R120 profile:
-
-```bash
-cd ../plc-comm-slmp-cross-verify
-python slmp_live_verify.py \
-  --ip 192.168.250.100 \
-  --port 1025 \
-  --profile r120pcpu_tcp1025 \
-  --include-stateful \
-  --include-remote
-```
-
-## Node Binding
-
-`crates/slmp-node` is currently a thin `napi-rs` scaffold. It is not yet the
-main delivery path. The current purpose is to keep the Rust workspace ready for
-future Node package work without redesigning the crate layout later.
-
-## License
+## Documentation links
+
+| Page | Link |
+| --- | --- |
+| Getting started | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) |
+| Usage guide | [docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.md) |
+| Supported registers | [docs/SUPPORTED_REGISTERS.md](docs/SUPPORTED_REGISTERS.md) |
+| PLC profiles | [docs/PROFILES.md](docs/PROFILES.md) |
+| Examples | [examples/README.md](examples/README.md) |
+
+## Hardware verified
+
+The repository includes live validation records under `docs/`.
+
+| PLC | Profile | Path | Validation record |
+| --- | --- | --- | --- |
+| Mitsubishi iQ-F / FX5UC-32MT/D | `SlmpPlcProfile::IqF` | TCP `1025`, UDP `1027` | [docs/IQF_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQF_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi iQ-R / R08CPU | `SlmpPlcProfile::IqR` | TCP `1025`, UDP `1027` | [docs/IQR_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQR_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi iQ-L / L16HCPU | `SlmpPlcProfile::IqL` | TCP `1025`, UDP `1027` | [docs/IQL_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQL_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi LCPU | `SlmpPlcProfile::LCpu` | TCP `1025`, UDP `1027` | [docs/LCPU_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/LCPU_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi Q12HCPU | `SlmpPlcProfile::QCpu` | TCP `1025` | [docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
+| Mitsubishi Q26UDEHCPU | `SlmpPlcProfile::QnU` | TCP `1025` | [docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
+| Mitsubishi Q06UDVCPU | `SlmpPlcProfile::QnUDV` | TCP `1025` | [docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
+
+## License and registry
 
 Distributed under the MIT License.
+
+Package registry: [crates.io/crates/plc-comm-slmp-rust](https://crates.io/crates/plc-comm-slmp-rust)

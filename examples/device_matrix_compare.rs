@@ -991,7 +991,7 @@ async fn compare_ext_word_device(
 async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("device_matrix_compare");
     let options = options_from_env()?;
-    let mode = options.compatibility_mode;
+    let mode = options.compatibility_mode();
     let client = SlmpClient::connect(options).await?;
     let selected = env_csv("SLMP_COMPARE_ONLY", "");
     let run_all = selected.is_empty();
