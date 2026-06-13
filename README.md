@@ -12,17 +12,17 @@ Async Rust library for Mitsubishi SLMP (Seamless Message Protocol) Binary 3E/4E 
 
 `SlmpConnectionOptions::new(host, plc_profile)` derives the frame and compatibility mode from the selected `SlmpPlcProfile`.
 
-| `SlmpPlcProfile` variant | Hardware | Frame | Notes |
-| --- | --- | --- | --- |
-| `SlmpPlcProfile::IqF` | MELSEC iQ-F | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`; `X` and `Y` string addresses use iQ-F octal notation. |
-| `SlmpPlcProfile::IqR` | MELSEC iQ-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
-| `SlmpPlcProfile::IqL` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`; address parsing follows iQ-R rules. |
-| `SlmpPlcProfile::MxF` | MELSEC MX-F | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
-| `SlmpPlcProfile::MxR` | MELSEC MX-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
-| `SlmpPlcProfile::QCpu` | MELSEC QCPU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
-| `SlmpPlcProfile::LCpu` | MELSEC LCPU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
-| `SlmpPlcProfile::QnU` | MELSEC QnU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
-| `SlmpPlcProfile::QnUDV` | MELSEC QnUDV | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
+| `SlmpPlcProfile` variant | Canonical profile | Hardware | Frame | Notes |
+| --- | --- | --- | --- | --- |
+| `SlmpPlcProfile::IqF` | `melsec:iq-f` | MELSEC iQ-F | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`; `X` and `Y` string addresses use iQ-F octal notation. |
+| `SlmpPlcProfile::IqR` | `melsec:iq-r` | MELSEC iQ-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
+| `SlmpPlcProfile::IqL` | `melsec:iq-l` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`; address parsing follows iQ-R rules. |
+| `SlmpPlcProfile::MxF` | `melsec:mx-f` | MELSEC MX-F | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
+| `SlmpPlcProfile::MxR` | `melsec:mx-r` | MELSEC MX-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
+| `SlmpPlcProfile::QCpu` | `melsec:qcpu` | MELSEC QCPU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
+| `SlmpPlcProfile::LCpu` | `melsec:lcpu` | MELSEC LCPU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
+| `SlmpPlcProfile::QnU` | `melsec:qnu` | MELSEC QnU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
+| `SlmpPlcProfile::QnUDV` | `melsec:qnudv` | MELSEC QnUDV | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |
 
 ## Supported device types
 
@@ -82,15 +82,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The repository includes live validation records under `docs/`.
 
-| PLC | Profile | Path | Validation record |
-| --- | --- | --- | --- |
-| Mitsubishi iQ-F / FX5UC-32MT/D | `SlmpPlcProfile::IqF` | TCP `1025`, UDP `1027` | [docs/IQF_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQF_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
-| Mitsubishi iQ-R / R08CPU | `SlmpPlcProfile::IqR` | TCP `1025`, UDP `1027` | [docs/IQR_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQR_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
-| Mitsubishi iQ-L / L16HCPU | `SlmpPlcProfile::IqL` | TCP `1025`, UDP `1027` | [docs/IQL_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQL_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
-| Mitsubishi LCPU | `SlmpPlcProfile::LCpu` | TCP `1025`, UDP `1027` | [docs/LCPU_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/LCPU_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
-| Mitsubishi Q12HCPU | `SlmpPlcProfile::QCpu` | TCP `1025` | [docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
-| Mitsubishi Q26UDEHCPU | `SlmpPlcProfile::QnU` | TCP `1025` | [docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
-| Mitsubishi Q06UDVCPU | `SlmpPlcProfile::QnUDV` | TCP `1025` | [docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
+| PLC | Canonical profile | API profile | Path | Validation record |
+| --- | --- | --- | --- | --- |
+| Mitsubishi iQ-F / FX5UC-32MT/D | `melsec:iq-f` | `SlmpPlcProfile::IqF` | TCP `1025`, UDP `1027` | [docs/IQF_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQF_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi iQ-R / R08CPU | `melsec:iq-r` | `SlmpPlcProfile::IqR` | TCP `1025`, UDP `1027` | [docs/IQR_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQR_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi iQ-L / L16HCPU | `melsec:iq-l` | `SlmpPlcProfile::IqL` | TCP `1025`, UDP `1027` | [docs/IQL_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/IQL_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi LCPU | `melsec:lcpu` | `SlmpPlcProfile::LCpu` | TCP `1025`, UDP `1027` | [docs/LCPU_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md](docs/LCPU_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md) |
+| Mitsubishi Q12HCPU | `melsec:qcpu` | `SlmpPlcProfile::QCpu` | TCP `1025` | [docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
+| Mitsubishi Q26UDEHCPU | `melsec:qnu` | `SlmpPlcProfile::QnU` | TCP `1025` | [docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
+| Mitsubishi Q06UDVCPU | `melsec:qnudv` | `SlmpPlcProfile::QnUDV` | TCP `1025` | [docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md](docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md) |
 
 ## License and registry
 
