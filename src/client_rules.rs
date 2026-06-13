@@ -1,28 +1,13 @@
-use crate::device_ranges::SlmpDeviceRangeFamily;
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState,
-    SlmpCpuOperationStatus, SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile,
+    SlmpCpuOperationStatus, SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult,
 };
 
 const DIRECT_WORD_POINT_LIMIT: usize = 960;
 const DIRECT_BIT_POINT_LIMIT: usize = 7168;
 const MEMORY_WORD_LIMIT: usize = 480;
 const EXTEND_UNIT_BYTE_LIMIT: usize = 1920;
-
-pub(crate) fn map_plc_profile_to_range_family(family: SlmpPlcProfile) -> SlmpDeviceRangeFamily {
-    match family {
-        SlmpPlcProfile::IqF => SlmpDeviceRangeFamily::IqF,
-        SlmpPlcProfile::IqR => SlmpDeviceRangeFamily::IqR,
-        SlmpPlcProfile::IqL => SlmpDeviceRangeFamily::IqL,
-        SlmpPlcProfile::MxF => SlmpDeviceRangeFamily::MxF,
-        SlmpPlcProfile::MxR => SlmpDeviceRangeFamily::MxR,
-        SlmpPlcProfile::QCpu => SlmpDeviceRangeFamily::QCpu,
-        SlmpPlcProfile::LCpu => SlmpDeviceRangeFamily::LCpu,
-        SlmpPlcProfile::QnU => SlmpDeviceRangeFamily::QnU,
-        SlmpPlcProfile::QnUDV => SlmpDeviceRangeFamily::QnUDV,
-    }
-}
 
 pub(crate) fn validate_non_empty_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
     if count == 0 {
@@ -480,26 +465,6 @@ pub(crate) fn decode_cpu_operation_state(status_word: u16) -> SlmpCpuOperationSt
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn maps_plc_profile_to_matching_device_range_family() {
-        assert_eq!(
-            map_plc_profile_to_range_family(SlmpPlcProfile::IqR),
-            SlmpDeviceRangeFamily::IqR
-        );
-        assert_eq!(
-            map_plc_profile_to_range_family(SlmpPlcProfile::IqL),
-            SlmpDeviceRangeFamily::IqL
-        );
-        assert_eq!(
-            map_plc_profile_to_range_family(SlmpPlcProfile::MxF),
-            SlmpDeviceRangeFamily::MxF
-        );
-        assert_eq!(
-            map_plc_profile_to_range_family(SlmpPlcProfile::QnUDV),
-            SlmpDeviceRangeFamily::QnUDV
-        );
-    }
 
     #[test]
     fn validates_u16_sized_counts() {

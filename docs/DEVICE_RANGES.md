@@ -2,13 +2,22 @@
 
 This document replaces `plc_device_range_registers - base.csv`.
 
-The crate now owns the device-range rules in source code and reads live upper
-bounds from the PLC itself after the caller chooses the PLC family:
+The crate owns the device-range rules in source code and reads live upper
+bounds from the PLC itself after the caller chooses the canonical PLC profile:
 
-1. caller selects `SlmpPlcFamily`
-2. the library derives the matching device-range family
-3. read the family-specific `SD` register window
+1. caller selects `SlmpPlcProfile`
+2. the library uses that exact canonical PLC profile
+3. read the profile-specific `SD` register window
 4. build a `SlmpDeviceRangeCatalog` with point counts and 0-based address ranges
+
+## Explicit Profile Policy
+
+The library does not infer `SlmpPlcProfile` from `ReadTypeName`, model text, or
+model code. `ReadTypeName` is diagnostic information only. Some PLCs or
+communication paths cannot return a useful type name, and a wrong model-to-
+profile conversion can select the wrong address grammar or range catalog. The
+application, configuration UI, or operator must keep control of the PLC profile
+selection.
 
 `point_count` is the usable point count reported by the PLC or by a fixed
 family rule. `upper_bound` is the inclusive last address, so for 0-based
@@ -31,18 +40,18 @@ Example:
 
 ```rust
 use plc_comm_slmp::{
-    SlmpClient, SlmpConnectionOptions, SlmpPlcFamily,
+    SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcFamily::IqF);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF);
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
     let catalog = client.read_device_range_catalog().await?;
 
-    println!("selected={} -> {:?}", catalog.model, catalog.family);
+    println!("selected={} -> {:?}", catalog.model, catalog.plc_profile);
     for entry in catalog.entries.iter().filter(|x| x.supported) {
         println!(
             "{}: points={:?}, range={:?}, source={}",
@@ -58,7 +67,7 @@ Returned types:
 
 - `SlmpDeviceRangeCatalog`
 - `SlmpDeviceRangeEntry`
-- `SlmpDeviceRangeFamily`
+- `SlmpPlcProfile`
 - `SlmpDeviceRangeCategory`
 - `SlmpDeviceRangeNotation`
 
@@ -67,44 +76,22 @@ address text this crate expects.
 
 ## Internal Mapping
 
-`read_device_range_catalog()` uses the `SlmpPlcFamily` configured on
+`read_device_range_catalog()` uses the `SlmpPlcProfile` configured on
 `SlmpConnectionOptions`. `iq-l` uses independent iQ-L device-range rules.
-`iQ-L` and legacy `LCPU` are treated as different PLC families in this crate;
+`iQ-L` and legacy `LCPU` are treated as different PLC profiles in this crate;
 they are not interchangeable.
 
-The lower-level model-code and model-text resolution tables are used only by
-explicit device-range catalog calls.
-
-Embedded model-code tables cover the known codes shared during implementation
-for these families:
+Embedded profile rules cover:
 
 - `IqR`
 - `IqL`
+- `MxF`
 - `MxR`
 - `IqF`
 - `QCpu`
 - `LCpu`
 - `QnU`
 - `QnUDV`
-
-`MxF` currently resolves by normalized model text prefixes:
-
-- `MXF100-8-N32`
-- `MXF100-16-N32`
-- `MXF100-8-P32`
-- `MXF100-16-P32`
-- generic fallback prefix `MXF`
-
-Other notable model-name fallback groups:
-
-- `R...` -> `IqR`
-- `FX5U...`, `FX5UC...`, `FX5UJ...`, `FX5S...` -> `IqF`
-- `Q00U...`, `Q03UD...`, `Q50UDEH...` -> `QnU`
-- `Q03UDV...`, `Q04UDPV...` -> `QnUDV`
-- `L02...`, `LJ72GF15-T2` -> `LCpu`
-- `L04HCPU`, `L08HCPU`, `L16HCPU`, `L32HCPU` -> `IqL`
-
-Unknown models return `SlmpError`.
 
 ## Range Rules
 

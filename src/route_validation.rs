@@ -1,12 +1,13 @@
 use crate::address::SlmpAddress;
 use crate::client::SlmpClient;
 use crate::device_ranges::{
-    SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeFamily,
-    SlmpDeviceRangeNotation,
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeNotation,
 };
 use crate::error::SlmpError;
 use crate::helpers::{SlmpValue, read_typed, write_typed};
-use crate::model::{SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpDeviceAddress};
+use crate::model::{
+    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpDeviceAddress, SlmpPlcProfile,
+};
 use std::future::Future;
 
 const DEFAULT_RANGE_END_CODE: u16 = 0x4031;
@@ -33,7 +34,7 @@ pub struct SlmpRouteValidationOptions {
     #[serde(default = "default_lz_device")]
     pub lz_device: String,
     #[serde(default)]
-    pub range_family: Option<SlmpDeviceRangeFamily>,
+    pub plc_profile: Option<SlmpPlcProfile>,
     #[serde(default = "default_range_error_devices")]
     pub range_error_devices: Vec<String>,
 }
@@ -46,7 +47,7 @@ impl Default for SlmpRouteValidationOptions {
             float_device: default_float_device(),
             bit_device: default_bit_device(),
             lz_device: default_lz_device(),
-            range_family: None,
+            plc_profile: None,
             range_error_devices: default_range_error_devices(),
         }
     }
@@ -119,7 +120,7 @@ pub struct SlmpRouteValidationCase {
 #[serde(rename_all = "camelCase")]
 pub struct SlmpRouteValidationReport {
     pub model: String,
-    pub family: SlmpDeviceRangeFamily,
+    pub plc_profile: SlmpPlcProfile,
     pub options: SlmpRouteValidationOptions,
     pub summary: SlmpRouteValidationSummary,
     pub cases: Vec<SlmpRouteValidationCase>,
@@ -162,15 +163,15 @@ pub async fn run_route_validation_compare(
         .await
         .map(|info| info.model)
         .unwrap_or_else(|_| "unknown".to_string());
-    let family = match options.range_family {
-        Some(family) => family,
-        None => client.configured_device_range_family().await,
+    let plc_profile = match options.plc_profile {
+        Some(plc_profile) => plc_profile,
+        None => client.plc_profile().await,
     };
-    let options = apply_family_default_devices(options, family);
-    let capabilities = route_capabilities(family);
+    let options = apply_profile_default_devices(options, plc_profile);
+    let capabilities = route_capabilities(plc_profile);
     let mut report = SlmpRouteValidationReport {
         model,
-        family,
+        plc_profile,
         options: options.clone(),
         summary: SlmpRouteValidationSummary::default(),
         cases: Vec::new(),
@@ -190,13 +191,13 @@ pub async fn run_route_validation_compare(
             "block",
             "read_block_matches_direct",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support block route 0x0406"),
+            format!("{plc_profile:?} does not support block route 0x0406"),
         );
         report.push(
             "block",
             "write_block_roundtrip",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support block route 0x1406"),
+            format!("{plc_profile:?} does not support block route 0x1406"),
         );
     }
     if capabilities.lz {
@@ -209,7 +210,7 @@ pub async fn run_route_validation_compare(
             "block",
             "lz_blocks_rejected",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support LZ"),
+            format!("{plc_profile:?} does not support LZ"),
         );
     }
     if capabilities.random {
@@ -226,13 +227,13 @@ pub async fn run_route_validation_compare(
             "random",
             "read_random_matches_direct",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support random route 0x0403"),
+            format!("{plc_profile:?} does not support random route 0x0403"),
         );
         report.push(
             "random",
             "write_random_roundtrip",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support random route 0x1402"),
+            format!("{plc_profile:?} does not support random route 0x1402"),
         );
     }
     if capabilities.lz {
@@ -245,7 +246,7 @@ pub async fn run_route_validation_compare(
             "random",
             "lz_word_entries_rejected",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support LZ"),
+            format!("{plc_profile:?} does not support LZ"),
         );
     }
     record_case(&mut report, "typed", "word_dword_float_roundtrip", || {
@@ -266,17 +267,17 @@ pub async fn run_route_validation_compare(
             "typed",
             "lz_random_dword_roundtrip",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support LZ random dword route"),
+            format!("{plc_profile:?} does not support LZ random dword route"),
         );
         report.push(
             "typed",
             "lz_invalid_dtypes_rejected",
             SlmpRouteValidationStatus::Skipped,
-            format!("{family:?} does not support LZ random dword route"),
+            format!("{plc_profile:?} does not support LZ random dword route"),
         );
     }
 
-    validate_range_error_routes(client, &options, family, capabilities, &mut report).await?;
+    validate_range_error_routes(client, &options, plc_profile, capabilities, &mut report).await?;
     Ok(report)
 }
 
@@ -667,13 +668,17 @@ async fn validate_lz_typed_guards(
 async fn validate_range_error_routes(
     client: &SlmpClient,
     options: &SlmpRouteValidationOptions,
-    family: SlmpDeviceRangeFamily,
+    plc_profile: SlmpPlcProfile,
     capabilities: RouteCapabilities,
     report: &mut SlmpRouteValidationReport,
 ) -> Result<(), SlmpError> {
-    let expected_end_code = expected_range_end_code(family);
-    let catalog = match options.range_family {
-        Some(family) => client.read_device_range_catalog_for_family(family).await?,
+    let expected_end_code = expected_range_end_code(plc_profile);
+    let catalog = match options.plc_profile {
+        Some(plc_profile) => {
+            client
+                .read_device_range_catalog_for_plc_profile(plc_profile)
+                .await?
+        }
         None => client.read_device_range_catalog().await?,
     };
     for device in &options.range_error_devices {
@@ -682,7 +687,7 @@ async fn validate_range_error_routes(
                 "range",
                 &format!("{device}_out_of_range"),
                 SlmpRouteValidationStatus::Skipped,
-                format!("{device} is not in the {family:?} range catalog"),
+                format!("{device} is not in the {plc_profile:?} range catalog"),
             );
             continue;
         };
@@ -691,7 +696,7 @@ async fn validate_range_error_routes(
                 "range",
                 &format!("{device}_out_of_range"),
                 SlmpRouteValidationStatus::Skipped,
-                format!("{device} is unsupported in the {family:?} range catalog"),
+                format!("{device} is unsupported in the {plc_profile:?} range catalog"),
             );
             continue;
         }
@@ -1074,11 +1079,11 @@ fn alternate_u32(original: u32, candidate: u32) -> u32 {
     }
 }
 
-fn apply_family_default_devices(
+fn apply_profile_default_devices(
     mut options: SlmpRouteValidationOptions,
-    family: SlmpDeviceRangeFamily,
+    plc_profile: SlmpPlcProfile,
 ) -> SlmpRouteValidationOptions {
-    if family == SlmpDeviceRangeFamily::IqF {
+    if plc_profile == SlmpPlcProfile::IqF {
         if options.word_device == default_word_device() {
             options.word_device = "D1000".to_string();
         }
@@ -1092,19 +1097,19 @@ fn apply_family_default_devices(
     options
 }
 
-fn expected_range_end_code(family: SlmpDeviceRangeFamily) -> u16 {
-    match family {
-        SlmpDeviceRangeFamily::IqF => IQF_RANGE_END_CODE,
+fn expected_range_end_code(plc_profile: SlmpPlcProfile) -> u16 {
+    match plc_profile {
+        SlmpPlcProfile::IqF => IQF_RANGE_END_CODE,
         _ => DEFAULT_RANGE_END_CODE,
     }
 }
 
-fn route_capabilities(family: SlmpDeviceRangeFamily) -> RouteCapabilities {
-    match family {
-        SlmpDeviceRangeFamily::QCpu
-        | SlmpDeviceRangeFamily::LCpu
-        | SlmpDeviceRangeFamily::QnU
-        | SlmpDeviceRangeFamily::QnUDV => RouteCapabilities {
+fn route_capabilities(plc_profile: SlmpPlcProfile) -> RouteCapabilities {
+    match plc_profile {
+        SlmpPlcProfile::QCpu
+        | SlmpPlcProfile::LCpu
+        | SlmpPlcProfile::QnU
+        | SlmpPlcProfile::QnUDV => RouteCapabilities {
             block: false,
             random: false,
             lz: false,

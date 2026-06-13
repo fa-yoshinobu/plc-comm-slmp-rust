@@ -86,18 +86,8 @@ impl SlmpPlcProfile {
         }
     }
 
-    pub fn address_family(self) -> Self {
-        match self {
-            // iQ-L keeps its own PLC profile and device-range family. We only
-            // reuse iQ-R-style address parsing rules here where the notation
-            // grammar matches.
-            Self::IqL => Self::IqR,
-            other => other,
-        }
-    }
-
     pub fn uses_iqf_xy_octal(self) -> bool {
-        matches!(self.address_family(), Self::IqF)
+        matches!(self, Self::IqF)
     }
 
     pub fn uses_iqr_protocol(self) -> bool {
@@ -611,5 +601,10 @@ mod tests {
         assert_eq!(SlmpPlcProfile::parse_label("iqr"), None);
         assert_eq!(SlmpPlcProfile::parse_label("q"), None);
         assert_eq!(SlmpPlcProfile::parse_label("qnudvcpu"), None);
+    }
+
+    #[test]
+    fn iq_l_uses_its_own_profile_for_address_rules() {
+        assert!(!SlmpPlcProfile::IqL.uses_iqf_xy_octal());
     }
 }

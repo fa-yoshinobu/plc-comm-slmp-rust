@@ -171,7 +171,7 @@ fn ensure_device_supported_for_family(
     code: SlmpDeviceCode,
     family: Option<SlmpPlcProfile>,
 ) -> Result<(), SlmpError> {
-    if family.is_some_and(|family| family.address_family() == SlmpPlcProfile::IqF)
+    if family.is_some_and(|family| family == SlmpPlcProfile::IqF)
         && matches!(code, SlmpDeviceCode::DX | SlmpDeviceCode::DY)
     {
         return Err(SlmpError::new(format!(

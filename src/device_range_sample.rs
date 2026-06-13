@@ -1,9 +1,9 @@
 use crate::address::SlmpAddress;
 use crate::client::SlmpClient;
-use crate::device_ranges::{SlmpDeviceRangeEntry, SlmpDeviceRangeFamily};
+use crate::device_ranges::SlmpDeviceRangeEntry;
 use crate::error::SlmpError;
 use crate::helpers::{SlmpValue, read_typed, write_typed};
-use crate::model::{SlmpBlockRead, SlmpDeviceAddress, SlmpDeviceCode};
+use crate::model::{SlmpBlockRead, SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -137,7 +137,7 @@ impl SlmpDeviceRangeSampleDeviceReport {
 #[serde(rename_all = "camelCase")]
 pub struct SlmpDeviceRangeSampleReport {
     pub model: String,
-    pub family: SlmpDeviceRangeFamily,
+    pub plc_profile: SlmpPlcProfile,
     pub sample_points: usize,
     pub only: Vec<String>,
     pub summary: SlmpDeviceRangeSampleSummary,
@@ -158,10 +158,10 @@ pub async fn run_device_range_sample_compare(
     let only = options.only.iter().cloned().collect::<BTreeSet<_>>();
     let plc_profile = client.plc_profile().await;
     let catalog = client.read_device_range_catalog().await?;
-    let range_family = catalog.family;
+    let catalog_plc_profile = catalog.plc_profile;
     let mut report = SlmpDeviceRangeSampleReport {
         model: catalog.model,
-        family: range_family,
+        plc_profile: catalog_plc_profile,
         sample_points: options.sample_points,
         only: options.only,
         summary: SlmpDeviceRangeSampleSummary::default(),
@@ -233,7 +233,7 @@ pub async fn run_device_range_sample_compare(
             }
 
             if kind == SlmpDeviceRangeSampleValueKind::Bit
-                && supports_bit_block_route(range_family)
+                && supports_bit_block_route(catalog_plc_profile)
                 && supports_direct_bit_block(code)
             {
                 let available_bits = upper_bound.saturating_sub(number) + 1;
@@ -359,13 +359,10 @@ fn supports_direct_bit_block_write(code: SlmpDeviceCode) -> bool {
     supports_direct_bit_block(code) && !matches!(code, SlmpDeviceCode::SM)
 }
 
-fn supports_bit_block_route(family: SlmpDeviceRangeFamily) -> bool {
+fn supports_bit_block_route(plc_profile: SlmpPlcProfile) -> bool {
     !matches!(
-        family,
-        SlmpDeviceRangeFamily::QCpu
-            | SlmpDeviceRangeFamily::LCpu
-            | SlmpDeviceRangeFamily::QnU
-            | SlmpDeviceRangeFamily::QnUDV
+        plc_profile,
+        SlmpPlcProfile::QCpu | SlmpPlcProfile::LCpu | SlmpPlcProfile::QnU | SlmpPlcProfile::QnUDV
     )
 }
 

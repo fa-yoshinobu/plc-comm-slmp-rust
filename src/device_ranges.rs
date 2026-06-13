@@ -1,20 +1,7 @@
 use crate::client::SlmpClient;
 use crate::error::SlmpError;
-use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpTypeNameInfo};
+use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile};
 use std::collections::BTreeMap;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum SlmpDeviceRangeFamily {
-    IqR,
-    IqL,
-    MxF,
-    MxR,
-    IqF,
-    QCpu,
-    LCpu,
-    QnU,
-    QnUDV,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SlmpDeviceRangeCategory {
@@ -49,12 +36,13 @@ pub struct SlmpDeviceRangeEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SlmpDeviceRangeCatalog {
-    /// PLC model text when known, or a user-selected family label.
+    /// Synthetic label for the explicitly selected PLC profile.
     pub model: String,
-    /// Model code when known. Zero when the caller selected the family explicitly.
+    /// Always zero because device-range catalogs do not infer profiles from type-name responses.
     pub model_code: u16,
+    /// Always false because profile selection is explicit.
     pub has_model_code: bool,
-    pub family: SlmpDeviceRangeFamily,
+    pub plc_profile: SlmpPlcProfile,
     pub entries: Vec<SlmpDeviceRangeEntry>,
 }
 
@@ -88,7 +76,7 @@ struct SlmpDeviceRangeRow {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SlmpDeviceRangeProfile {
-    pub(crate) family: SlmpDeviceRangeFamily,
+    pub(crate) plc_profile: SlmpPlcProfile,
     pub(crate) register_start: u16,
     pub(crate) register_count: u16,
     rules: BTreeMap<&'static str, SlmpRangeValueSpec>,
@@ -106,67 +94,19 @@ const LT_DEVICES: &[(&str, bool)] = &[("LTS", true), ("LTC", true), ("LTN", fals
 const LST_DEVICES: &[(&str, bool)] = &[("LSTS", true), ("LSTC", true), ("LSTN", false)];
 const LC_DEVICES: &[(&str, bool)] = &[("LCS", true), ("LCC", true), ("LCN", false)];
 
-pub(crate) fn normalize_model(model: &str) -> String {
-    model
-        .trim()
-        .trim_end_matches('\0')
-        .trim()
-        .to_ascii_uppercase()
-}
-
-#[cfg(test)]
-pub(crate) fn resolve_family(
-    type_info: &SlmpTypeNameInfo,
-) -> Result<SlmpDeviceRangeFamily, SlmpError> {
-    if type_info.has_model_code {
-        if let Some(family) = family_from_model_code(type_info.model_code) {
-            return Ok(family);
-        }
-    }
-
-    let normalized = normalize_model(&type_info.model);
-    if let Some(family) = family_from_model_name(&normalized) {
-        return Ok(family);
-    }
-
-    let code_text = if type_info.has_model_code {
-        format!("0x{:04X}", type_info.model_code)
-    } else {
-        "none".to_string()
-    };
-    Err(SlmpError::new(format!(
-        "Unsupported PLC model for device-range rules: model='{normalized}', model_code={code_text}."
-    )))
-}
-
-#[cfg(test)]
-pub(crate) fn resolve_profile(
-    type_info: &SlmpTypeNameInfo,
-) -> Result<SlmpDeviceRangeProfile, SlmpError> {
-    Ok(match resolve_family(type_info)? {
-        SlmpDeviceRangeFamily::IqR => create_iqr_profile(),
-        SlmpDeviceRangeFamily::IqL => create_iql_profile(),
-        SlmpDeviceRangeFamily::MxF => create_mxf_profile(),
-        SlmpDeviceRangeFamily::MxR => create_mxr_profile(),
-        SlmpDeviceRangeFamily::IqF => create_iqf_profile(),
-        SlmpDeviceRangeFamily::QCpu => create_qcpu_profile(),
-        SlmpDeviceRangeFamily::LCpu => create_lcpu_profile(),
-        SlmpDeviceRangeFamily::QnU => create_qnu_profile(),
-        SlmpDeviceRangeFamily::QnUDV => create_qnudv_profile(),
-    })
-}
-
-pub(crate) fn resolve_profile_for_family(family: SlmpDeviceRangeFamily) -> SlmpDeviceRangeProfile {
-    match family {
-        SlmpDeviceRangeFamily::IqR => create_iqr_profile(),
-        SlmpDeviceRangeFamily::IqL => create_iql_profile(),
-        SlmpDeviceRangeFamily::MxF => create_mxf_profile(),
-        SlmpDeviceRangeFamily::MxR => create_mxr_profile(),
-        SlmpDeviceRangeFamily::IqF => create_iqf_profile(),
-        SlmpDeviceRangeFamily::QCpu => create_qcpu_profile(),
-        SlmpDeviceRangeFamily::LCpu => create_lcpu_profile(),
-        SlmpDeviceRangeFamily::QnU => create_qnu_profile(),
-        SlmpDeviceRangeFamily::QnUDV => create_qnudv_profile(),
+pub(crate) fn resolve_profile_for_plc_profile(
+    plc_profile: SlmpPlcProfile,
+) -> SlmpDeviceRangeProfile {
+    match plc_profile {
+        SlmpPlcProfile::IqR => create_iqr_profile(),
+        SlmpPlcProfile::IqL => create_iql_profile(),
+        SlmpPlcProfile::MxF => create_mxf_profile(),
+        SlmpPlcProfile::MxR => create_mxr_profile(),
+        SlmpPlcProfile::IqF => create_iqf_profile(),
+        SlmpPlcProfile::QCpu => create_qcpu_profile(),
+        SlmpPlcProfile::LCpu => create_lcpu_profile(),
+        SlmpPlcProfile::QnU => create_qnu_profile(),
+        SlmpPlcProfile::QnUDV => create_qnudv_profile(),
     }
 }
 
@@ -193,7 +133,6 @@ pub(crate) async fn read_registers(
 }
 
 pub(crate) fn build_catalog(
-    type_info: &SlmpTypeNameInfo,
     profile: &SlmpDeviceRangeProfile,
     registers: &BTreeMap<u16, u16>,
 ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
@@ -206,11 +145,11 @@ pub(crate) fn build_catalog(
             .ok_or_else(|| SlmpError::new(format!("Missing range rule for item {item}.")))?;
         let raw_point_count = evaluate_point_count(spec, registers)?;
         let (point_count, family_note) =
-            apply_family_point_count_cap(profile.family, item, raw_point_count);
+            apply_profile_point_count_cap(profile.plc_profile, item, raw_point_count);
         let upper_bound = point_count_to_upper_bound(point_count);
         let supported = spec.kind != SlmpRangeValueKind::Unsupported;
         for (device, is_bit_device) in row.devices {
-            let notation = resolve_notation(profile.family, device, row.notation);
+            let notation = resolve_notation(profile.plc_profile, device, row.notation);
             entries.push(SlmpDeviceRangeEntry {
                 device: (*device).to_string(),
                 category: row.category,
@@ -228,30 +167,20 @@ pub(crate) fn build_catalog(
     }
 
     Ok(SlmpDeviceRangeCatalog {
-        model: normalize_model(&type_info.model),
-        model_code: type_info.model_code,
-        has_model_code: type_info.has_model_code,
-        family: profile.family,
+        model: profile_label(profile.plc_profile).to_string(),
+        model_code: 0,
+        has_model_code: false,
+        plc_profile: profile.plc_profile,
         entries,
     })
 }
 
-pub(crate) fn build_catalog_for_family(
-    family: SlmpDeviceRangeFamily,
+pub(crate) fn build_catalog_for_plc_profile(
+    plc_profile: SlmpPlcProfile,
     registers: &BTreeMap<u16, u16>,
 ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
-    let profile = resolve_profile_for_family(family);
-    let mut catalog = build_catalog(
-        &SlmpTypeNameInfo {
-            model: family_label(family).to_string(),
-            model_code: 0,
-            has_model_code: false,
-        },
-        &profile,
-        registers,
-    )?;
-    catalog.model = family_label(family).to_string();
-    Ok(catalog)
+    let profile = resolve_profile_for_plc_profile(plc_profile);
+    build_catalog(&profile, registers)
 }
 
 pub(crate) fn replace_fixed_point_count(
@@ -277,17 +206,17 @@ pub(crate) fn replace_fixed_point_count(
     catalog
 }
 
-pub(crate) fn family_label(family: SlmpDeviceRangeFamily) -> &'static str {
-    match family {
-        SlmpDeviceRangeFamily::IqR => "IQ-R",
-        SlmpDeviceRangeFamily::IqL => "iQ-L",
-        SlmpDeviceRangeFamily::MxF => "MX-F",
-        SlmpDeviceRangeFamily::MxR => "MX-R",
-        SlmpDeviceRangeFamily::IqF => "IQ-F",
-        SlmpDeviceRangeFamily::QCpu => "QCPU",
-        SlmpDeviceRangeFamily::LCpu => "LCPU",
-        SlmpDeviceRangeFamily::QnU => "QnU",
-        SlmpDeviceRangeFamily::QnUDV => "QnUDV",
+pub(crate) fn profile_label(plc_profile: SlmpPlcProfile) -> &'static str {
+    match plc_profile {
+        SlmpPlcProfile::IqR => "IQ-R",
+        SlmpPlcProfile::IqL => "iQ-L",
+        SlmpPlcProfile::MxF => "MX-F",
+        SlmpPlcProfile::MxR => "MX-R",
+        SlmpPlcProfile::IqF => "IQ-F",
+        SlmpPlcProfile::QCpu => "QCPU",
+        SlmpPlcProfile::LCpu => "LCPU",
+        SlmpPlcProfile::QnU => "QnU",
+        SlmpPlcProfile::QnUDV => "QnUDV",
     }
 }
 
@@ -309,15 +238,15 @@ fn evaluate_point_count(
     })
 }
 
-fn apply_family_point_count_cap(
-    family: SlmpDeviceRangeFamily,
+fn apply_profile_point_count_cap(
+    plc_profile: SlmpPlcProfile,
     item: &str,
     point_count: Option<u32>,
 ) -> (Option<u32>, Option<&'static str>) {
     let Some(value) = point_count else {
         return (None, None);
     };
-    let Some(cap) = family_point_count_cap(family, item) else {
+    let Some(cap) = profile_point_count_cap(plc_profile, item) else {
         return (Some(value), None);
     };
     if value > cap {
@@ -330,8 +259,8 @@ fn apply_family_point_count_cap(
     }
 }
 
-fn family_point_count_cap(family: SlmpDeviceRangeFamily, item: &str) -> Option<u32> {
-    if family != SlmpDeviceRangeFamily::IqR {
+fn profile_point_count_cap(plc_profile: SlmpPlcProfile, item: &str) -> Option<u32> {
+    if plc_profile != SlmpPlcProfile::IqR {
         return None;
     }
 
@@ -363,11 +292,11 @@ fn point_count_to_upper_bound(point_count: Option<u32>) -> Option<u32> {
 }
 
 fn resolve_notation(
-    family: SlmpDeviceRangeFamily,
+    plc_profile: SlmpPlcProfile,
     device: &str,
     default_notation: SlmpDeviceRangeNotation,
 ) -> SlmpDeviceRangeNotation {
-    if family == SlmpDeviceRangeFamily::IqF && matches!(device, "X" | "Y") {
+    if plc_profile == SlmpPlcProfile::IqF && matches!(device, "X" | "Y") {
         return SlmpDeviceRangeNotation::Octal;
     }
 
@@ -569,95 +498,8 @@ fn multi(
     }
 }
 
-#[cfg(test)]
-fn family_from_model_code(model_code: u16) -> Option<SlmpDeviceRangeFamily> {
-    Some(match model_code {
-        0x0250 | 0x0251 | 0x0041 | 0x0042 | 0x0043 | 0x0044 | 0x004B | 0x004C | 0x0230 => {
-            SlmpDeviceRangeFamily::QCpu
-        }
-        0x0260 | 0x0261 | 0x0262 | 0x0263 | 0x0268 | 0x0269 | 0x026A | 0x0266 | 0x026B | 0x0267
-        | 0x026C | 0x026D | 0x026E => SlmpDeviceRangeFamily::QnU,
-        0x0366 | 0x0367 | 0x0368 | 0x036A | 0x036C => SlmpDeviceRangeFamily::QnUDV,
-        0x0543 | 0x0541 | 0x0544 | 0x0545 | 0x0542 | 0x0641 => SlmpDeviceRangeFamily::LCpu,
-        0x48C0..=0x48C3 => SlmpDeviceRangeFamily::IqL,
-        0x48A0 | 0x48A1 | 0x48A2 | 0x4800 | 0x4801 | 0x4802 | 0x4803 | 0x4804 | 0x4805 | 0x4806
-        | 0x4807 | 0x4808 | 0x4809 | 0x4841 | 0x4842 | 0x4843 | 0x4844 | 0x4851 | 0x4852
-        | 0x4853 | 0x4854 | 0x4891 | 0x4892 | 0x4893 | 0x4894 | 0x4820 | 0x4E01 | 0x4860
-        | 0x4861 | 0x4862 | 0x0642 => SlmpDeviceRangeFamily::IqR,
-        0x48E9 | 0x48EA | 0x48EB | 0x48EE | 0x48EF => SlmpDeviceRangeFamily::MxR,
-        0x4A21 | 0x4A23 | 0x4A24 | 0x4A29 | 0x4A2B | 0x4A2C | 0x4A31 | 0x4A33 | 0x4A34 | 0x4A41
-        | 0x4A43 | 0x4A44 | 0x4A49 | 0x4A4B | 0x4A4C | 0x4A51 | 0x4A53 | 0x4A54 | 0x4A91
-        | 0x4A92 | 0x4A93 | 0x4A99 | 0x4A9A | 0x4A9B | 0x4AA9 | 0x4AB1 | 0x4AB9 | 0x4B0D
-        | 0x4B0E | 0x4B0F | 0x4B14 | 0x4B15 | 0x4B16 | 0x4B1B | 0x4B1C | 0x4B1D | 0x4B4E
-        | 0x4B4F | 0x4B50 | 0x4B51 | 0x4B55 | 0x4B56 | 0x4B57 | 0x4B58 | 0x4B5C | 0x4B5D
-        | 0x4B5E | 0x4B5F => SlmpDeviceRangeFamily::IqF,
-        _ => return None,
-    })
-}
-
-#[cfg(test)]
-fn family_from_model_name(model: &str) -> Option<SlmpDeviceRangeFamily> {
-    const PREFIXES: &[(&str, SlmpDeviceRangeFamily)] = &[
-        ("Q04UDPV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q06UDPV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q13UDPV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q26UDPV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q03UDV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q04UDV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q06UDV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q13UDV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q26UDV", SlmpDeviceRangeFamily::QnUDV),
-        ("Q00UJ", SlmpDeviceRangeFamily::QnU),
-        ("Q00U", SlmpDeviceRangeFamily::QnU),
-        ("Q01U", SlmpDeviceRangeFamily::QnU),
-        ("Q02U", SlmpDeviceRangeFamily::QnU),
-        ("Q03UD", SlmpDeviceRangeFamily::QnU),
-        ("Q04UD", SlmpDeviceRangeFamily::QnU),
-        ("Q06UD", SlmpDeviceRangeFamily::QnU),
-        ("Q10UD", SlmpDeviceRangeFamily::QnU),
-        ("Q13UD", SlmpDeviceRangeFamily::QnU),
-        ("Q20UD", SlmpDeviceRangeFamily::QnU),
-        ("Q26UD", SlmpDeviceRangeFamily::QnU),
-        ("Q50UDEH", SlmpDeviceRangeFamily::QnU),
-        ("Q100UDEH", SlmpDeviceRangeFamily::QnU),
-        ("FX5UC", SlmpDeviceRangeFamily::IqF),
-        ("FX5UJ", SlmpDeviceRangeFamily::IqF),
-        ("FX5U", SlmpDeviceRangeFamily::IqF),
-        ("FX5S", SlmpDeviceRangeFamily::IqF),
-        ("MXF100-", SlmpDeviceRangeFamily::MxF),
-        ("MXF", SlmpDeviceRangeFamily::MxF),
-        ("MXR", SlmpDeviceRangeFamily::MxR),
-        ("LJ72GF15-T2", SlmpDeviceRangeFamily::LCpu),
-        ("L02SCPU", SlmpDeviceRangeFamily::LCpu),
-        ("L02CPU", SlmpDeviceRangeFamily::LCpu),
-        ("L06CPU", SlmpDeviceRangeFamily::LCpu),
-        ("L26CPU", SlmpDeviceRangeFamily::LCpu),
-        ("L04HCPU", SlmpDeviceRangeFamily::IqL),
-        ("L08HCPU", SlmpDeviceRangeFamily::IqL),
-        ("L16HCPU", SlmpDeviceRangeFamily::IqL),
-        ("L32HCPU", SlmpDeviceRangeFamily::IqL),
-        ("RJ72GF15-T2", SlmpDeviceRangeFamily::IqR),
-        ("NZ2GF-ETB", SlmpDeviceRangeFamily::IqR),
-        ("MI5122-VW", SlmpDeviceRangeFamily::IqR),
-        ("QS001CPU", SlmpDeviceRangeFamily::QCpu),
-        ("Q00JCPU", SlmpDeviceRangeFamily::QCpu),
-        ("Q00CPU", SlmpDeviceRangeFamily::QCpu),
-        ("Q01CPU", SlmpDeviceRangeFamily::QCpu),
-        ("Q02", SlmpDeviceRangeFamily::QCpu),
-        ("Q06", SlmpDeviceRangeFamily::QCpu),
-        ("Q12", SlmpDeviceRangeFamily::QCpu),
-        ("Q25", SlmpDeviceRangeFamily::QCpu),
-        ("R", SlmpDeviceRangeFamily::IqR),
-    ];
-
-    PREFIXES
-        .iter()
-        .find(|(prefix, _)| model.starts_with(prefix))
-        .map(|(_, family)| *family)
-}
-
 fn create_profile(
-    family: SlmpDeviceRangeFamily,
+    plc_profile: SlmpPlcProfile,
     register_start: u16,
     register_count: u16,
     rules: Vec<(&'static str, SlmpRangeValueSpec)>,
@@ -667,7 +509,7 @@ fn create_profile(
         map.insert(item, spec);
     }
     SlmpDeviceRangeProfile {
-        family,
+        plc_profile,
         register_start,
         register_count,
         rules: map,
@@ -771,7 +613,7 @@ fn unsupported(notes: &'static str) -> SlmpRangeValueSpec {
 
 fn create_iqr_profile() -> SlmpDeviceRangeProfile {
     create_profile(
-        SlmpDeviceRangeFamily::IqR,
+        SlmpPlcProfile::IqR,
         260,
         50,
         vec![
@@ -813,14 +655,51 @@ fn create_iqr_profile() -> SlmpDeviceRangeProfile {
 }
 
 fn create_iql_profile() -> SlmpDeviceRangeProfile {
-    let mut profile = create_iqr_profile();
-    profile.family = SlmpDeviceRangeFamily::IqL;
-    profile
+    create_profile(
+        SlmpPlcProfile::IqL,
+        260,
+        50,
+        vec![
+            ("X", dword_register(260, "SD260-SD261 (32-bit)", None)),
+            ("Y", dword_register(262, "SD262-SD263 (32-bit)", None)),
+            ("M", dword_register(264, "SD264-SD265 (32-bit)", None)),
+            ("B", dword_register(266, "SD266-SD267 (32-bit)", None)),
+            ("SB", dword_register(268, "SD268-SD269 (32-bit)", None)),
+            ("F", dword_register(270, "SD270-SD271 (32-bit)", None)),
+            ("V", dword_register(272, "SD272-SD273 (32-bit)", None)),
+            ("L", dword_register(274, "SD274-SD275 (32-bit)", None)),
+            ("S", dword_register(276, "SD276-SD277 (32-bit)", None)),
+            ("D", dword_register(280, "SD280-SD281 (32-bit)", None)),
+            ("W", dword_register(282, "SD282-SD283 (32-bit)", None)),
+            ("SW", dword_register(284, "SD284-SD285 (32-bit)", None)),
+            (
+                "R",
+                dword_register_clipped(
+                    306,
+                    32768,
+                    "SD306-SD307 (32-bit)",
+                    Some("Upper bound is clipped to 32768."),
+                ),
+            ),
+            ("T", dword_register(288, "SD288-SD289 (32-bit)", None)),
+            ("ST", dword_register(290, "SD290-SD291 (32-bit)", None)),
+            ("C", dword_register(292, "SD292-SD293 (32-bit)", None)),
+            ("LT", dword_register(294, "SD294-SD295 (32-bit)", None)),
+            ("LST", dword_register(296, "SD296-SD297 (32-bit)", None)),
+            ("LC", dword_register(298, "SD298-SD299 (32-bit)", None)),
+            ("Z", word_register(300, "SD300", None)),
+            ("LZ", word_register(302, "SD302", None)),
+            ("ZR", dword_register(306, "SD306-SD307 (32-bit)", None)),
+            ("RD", dword_register(308, "SD308-SD309 (32-bit)", None)),
+            ("SM", fixed(4096, "Fixed family limit")),
+            ("SD", fixed(4096, "Fixed family limit")),
+        ],
+    )
 }
 
 fn create_mxf_profile() -> SlmpDeviceRangeProfile {
     let mut profile = create_iqr_profile();
-    profile.family = SlmpDeviceRangeFamily::MxF;
+    profile.plc_profile = SlmpPlcProfile::MxF;
     profile
         .rules
         .insert("S", unsupported("Not supported on MX-F."));
@@ -835,7 +714,7 @@ fn create_mxf_profile() -> SlmpDeviceRangeProfile {
 
 fn create_mxr_profile() -> SlmpDeviceRangeProfile {
     let mut profile = create_iqr_profile();
-    profile.family = SlmpDeviceRangeFamily::MxR;
+    profile.plc_profile = SlmpPlcProfile::MxR;
     profile
         .rules
         .insert("S", unsupported("Not supported on MX-R."));
@@ -850,7 +729,7 @@ fn create_mxr_profile() -> SlmpDeviceRangeProfile {
 
 fn create_iqf_profile() -> SlmpDeviceRangeProfile {
     create_profile(
-        SlmpDeviceRangeFamily::IqF,
+        SlmpPlcProfile::IqF,
         260,
         46,
         vec![
@@ -899,7 +778,7 @@ fn create_iqf_profile() -> SlmpDeviceRangeProfile {
 
 fn create_qcpu_profile() -> SlmpDeviceRangeProfile {
     create_profile(
-        SlmpDeviceRangeFamily::QCpu,
+        SlmpPlcProfile::QCpu,
         290,
         15,
         vec![
@@ -968,18 +847,18 @@ fn create_qcpu_profile() -> SlmpDeviceRangeProfile {
 }
 
 fn create_lcpu_like_profile(
-    family: SlmpDeviceRangeFamily,
-    family_name: &'static str,
+    plc_profile: SlmpPlcProfile,
+    profile_name: &'static str,
 ) -> SlmpDeviceRangeProfile {
-    let unsupported_note = match family {
-        SlmpDeviceRangeFamily::LCpu => "Not supported on LCPU.",
-        SlmpDeviceRangeFamily::QnU => "Not supported on QnU.",
-        SlmpDeviceRangeFamily::QnUDV => "Not supported on QnUDV.",
-        _ => family_name,
+    let unsupported_note = match plc_profile {
+        SlmpPlcProfile::LCpu => "Not supported on LCPU.",
+        SlmpPlcProfile::QnU => "Not supported on QnU.",
+        SlmpPlcProfile::QnUDV => "Not supported on QnUDV.",
+        _ => profile_name,
     };
 
     create_profile(
-        family,
+        plc_profile,
         286,
         26,
         vec![
@@ -1021,15 +900,15 @@ fn create_lcpu_like_profile(
 }
 
 fn create_lcpu_profile() -> SlmpDeviceRangeProfile {
-    create_lcpu_like_profile(SlmpDeviceRangeFamily::LCpu, "LCPU")
+    create_lcpu_like_profile(SlmpPlcProfile::LCpu, "LCPU")
 }
 
 fn create_qnu_profile() -> SlmpDeviceRangeProfile {
-    create_lcpu_like_profile(SlmpDeviceRangeFamily::QnU, "QnU")
+    create_lcpu_like_profile(SlmpPlcProfile::QnU, "QnU")
 }
 
 fn create_qnudv_profile() -> SlmpDeviceRangeProfile {
-    create_lcpu_like_profile(SlmpDeviceRangeFamily::QnUDV, "QnUDV")
+    create_lcpu_like_profile(SlmpPlcProfile::QnUDV, "QnUDV")
 }
 
 #[cfg(test)]
@@ -1058,38 +937,9 @@ mod tests {
     }
 
     #[test]
-    fn normalize_model_trims_and_upcases() {
-        assert_eq!(normalize_model(" R120PCPU\0 "), "R120PCPU");
-        assert_eq!(normalize_model("fx5u-32mr/ds"), "FX5U-32MR/DS");
-    }
-
-    #[test]
-    fn resolve_family_uses_model_code_and_name_rules() {
-        let qnudv = resolve_family(&SlmpTypeNameInfo {
-            model: "Q03UDVCPU".to_string(),
-            model_code: 0x0366,
-            has_model_code: true,
-        })
-        .unwrap();
-        let mxf = resolve_family(&SlmpTypeNameInfo {
-            model: "MXF100-8-N32".to_string(),
-            model_code: 0,
-            has_model_code: false,
-        })
-        .unwrap();
-
-        assert_eq!(qnudv, SlmpDeviceRangeFamily::QnUDV);
-        assert_eq!(mxf, SlmpDeviceRangeFamily::MxF);
-    }
-
-    #[test]
     fn build_catalog_qcpu_clips_and_leaves_conditional_bounds_open() {
-        let type_info = SlmpTypeNameInfo {
-            model: "Q00CPU".to_string(),
-            model_code: 0x0251,
-            has_model_code: true,
-        };
-        let profile = resolve_profile(&type_info).unwrap();
+        let plc_profile = SlmpPlcProfile::QCpu;
+        let profile = resolve_profile_for_plc_profile(plc_profile);
         let mut snapshot = create_snapshot(&profile);
         snapshot.insert(290, 123);
         snapshot.insert(292, 50000);
@@ -1097,9 +947,9 @@ mod tests {
         snapshot.insert(302, 50000);
         snapshot.insert(303, 60000);
 
-        let catalog = build_catalog(&type_info, &profile, &snapshot).unwrap();
+        let catalog = build_catalog_for_plc_profile(plc_profile, &snapshot).unwrap();
 
-        assert_eq!(catalog.family, SlmpDeviceRangeFamily::QCpu);
+        assert_eq!(catalog.plc_profile, SlmpPlcProfile::QCpu);
         assert_eq!(entry(&catalog, "X").point_count, Some(123));
         assert_eq!(entry(&catalog, "X").upper_bound, Some(122));
         assert_eq!(
@@ -1125,12 +975,8 @@ mod tests {
 
     #[test]
     fn build_catalog_iqr_reads_dword_registers_and_caps_family_maximums() {
-        let type_info = SlmpTypeNameInfo {
-            model: "R120PCPU".to_string(),
-            model_code: 0x4844,
-            has_model_code: true,
-        };
-        let profile = resolve_profile(&type_info).unwrap();
+        let plc_profile = SlmpPlcProfile::IqR;
+        let profile = resolve_profile_for_plc_profile(plc_profile);
         let mut snapshot = create_snapshot(&profile);
         insert_dword(&mut snapshot, 260, 12_289);
         insert_dword(&mut snapshot, 264, 94_674_945);
@@ -1145,7 +991,7 @@ mod tests {
         insert_dword(&mut snapshot, 298, 2_784_545);
         insert_dword(&mut snapshot, 306, 0x0002_0001);
 
-        let catalog = build_catalog(&type_info, &profile, &snapshot).unwrap();
+        let catalog = build_catalog_for_plc_profile(plc_profile, &snapshot).unwrap();
 
         assert_eq!(entry(&catalog, "X").point_count, Some(12_288));
         assert_eq!(entry(&catalog, "X").upper_bound, Some(12_287));
@@ -1181,19 +1027,15 @@ mod tests {
 
     #[test]
     fn build_catalog_iqf_formats_x_and_y_in_octal() {
-        let type_info = SlmpTypeNameInfo {
-            model: "FX5UC-32MT/D".to_string(),
-            model_code: 0x4A91,
-            has_model_code: true,
-        };
-        let profile = resolve_profile(&type_info).unwrap();
+        let plc_profile = SlmpPlcProfile::IqF;
+        let profile = resolve_profile_for_plc_profile(plc_profile);
         let mut snapshot = create_snapshot(&profile);
         snapshot.insert(260, 1024);
         snapshot.insert(261, 0);
         snapshot.insert(262, 1024);
         snapshot.insert(263, 0);
 
-        let catalog = build_catalog(&type_info, &profile, &snapshot).unwrap();
+        let catalog = build_catalog_for_plc_profile(plc_profile, &snapshot).unwrap();
 
         assert_eq!(
             entry(&catalog, "X").notation,
@@ -1220,19 +1062,15 @@ mod tests {
 
     #[test]
     fn build_catalog_qnu_uses_sd300_for_st_family_and_fixed_z_limit() {
-        let type_info = SlmpTypeNameInfo {
-            model: "Q03UDECPU".to_string(),
-            model_code: 0x0268,
-            has_model_code: true,
-        };
-        let profile = resolve_profile(&type_info).unwrap();
+        let plc_profile = SlmpPlcProfile::QnU;
+        let profile = resolve_profile_for_plc_profile(plc_profile);
         let mut snapshot = create_snapshot(&profile);
         snapshot.insert(300, 16);
         snapshot.insert(301, 1024);
 
-        let catalog = build_catalog(&type_info, &profile, &snapshot).unwrap();
+        let catalog = build_catalog_for_plc_profile(plc_profile, &snapshot).unwrap();
 
-        assert_eq!(catalog.family, SlmpDeviceRangeFamily::QnU);
+        assert_eq!(catalog.plc_profile, SlmpPlcProfile::QnU);
         assert_eq!(entry(&catalog, "STS").point_count, Some(16));
         assert_eq!(entry(&catalog, "STS").upper_bound, Some(15));
         assert_eq!(

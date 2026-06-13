@@ -1,10 +1,10 @@
 use crate::address::device_spec_size;
 use crate::client_rules as rules;
 use crate::device_ranges::{
-    SlmpDeviceRangeCatalog, SlmpDeviceRangeFamily,
-    build_catalog_for_family as build_device_range_catalog_for_family,
+    SlmpDeviceRangeCatalog,
+    build_catalog_for_plc_profile as build_device_range_catalog_for_plc_profile,
     read_registers as read_device_range_registers,
-    resolve_profile_for_family as resolve_device_range_profile_for_family,
+    resolve_profile_for_plc_profile as resolve_device_range_profile_for_plc_profile,
 };
 use crate::error::SlmpError;
 use crate::model::{
@@ -108,20 +108,20 @@ impl SlmpClient {
     }
 
     pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
-        let family = self.configured_device_range_family().await;
-        let profile = resolve_device_range_profile_for_family(family);
+        let plc_profile = self.plc_profile().await;
+        let profile = resolve_device_range_profile_for_plc_profile(plc_profile);
         let registers = read_device_range_registers(self, &profile).await?;
-        let catalog = build_device_range_catalog_for_family(family, &registers)?;
+        let catalog = build_device_range_catalog_for_plc_profile(plc_profile, &registers)?;
         self.resolve_device_range_runtime_limits(catalog).await
     }
 
-    pub async fn read_device_range_catalog_for_family(
+    pub async fn read_device_range_catalog_for_plc_profile(
         &self,
-        family: SlmpDeviceRangeFamily,
+        plc_profile: SlmpPlcProfile,
     ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
-        let profile = resolve_device_range_profile_for_family(family);
+        let profile = resolve_device_range_profile_for_plc_profile(plc_profile);
         let registers = read_device_range_registers(self, &profile).await?;
-        let catalog = build_device_range_catalog_for_family(family, &registers)?;
+        let catalog = build_device_range_catalog_for_plc_profile(plc_profile, &registers)?;
         self.resolve_device_range_runtime_limits(catalog).await
     }
 
@@ -130,16 +130,16 @@ impl SlmpClient {
         mut catalog: SlmpDeviceRangeCatalog,
     ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
         if !matches!(
-            catalog.family,
-            SlmpDeviceRangeFamily::QCpu
-                | SlmpDeviceRangeFamily::LCpu
-                | SlmpDeviceRangeFamily::QnU
-                | SlmpDeviceRangeFamily::QnUDV
+            catalog.plc_profile,
+            SlmpPlcProfile::QCpu
+                | SlmpPlcProfile::LCpu
+                | SlmpPlcProfile::QnU
+                | SlmpPlcProfile::QnUDV
         ) {
             return Ok(catalog);
         }
 
-        if catalog.family == SlmpDeviceRangeFamily::QCpu {
+        if catalog.plc_profile == SlmpPlcProfile::QCpu {
             let z_count = if self.can_read_one_word(SlmpDeviceCode::Z, 15).await {
                 16
             } else {
@@ -210,10 +210,6 @@ impl SlmpClient {
         self.read_words_raw(SlmpDeviceAddress::new(device, number), 1)
             .await
             .is_ok()
-    }
-
-    pub async fn configured_device_range_family(&self) -> SlmpDeviceRangeFamily {
-        rules::map_plc_profile_to_range_family(self.inner.lock().await.options.plc_profile)
     }
 
     pub async fn read_words_raw(

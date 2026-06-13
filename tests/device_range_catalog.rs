@@ -1,4 +1,4 @@
-use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpDeviceRangeFamily, SlmpPlcProfile};
+use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -19,7 +19,7 @@ async fn read_device_range_catalog_uses_configured_family_sd_window() {
     let catalog = client.read_device_range_catalog().await.unwrap();
 
     assert_eq!(server.request_count().await, 1);
-    assert_eq!(catalog.family, SlmpDeviceRangeFamily::QCpu);
+    assert_eq!(catalog.plc_profile, SlmpPlcProfile::QCpu);
     assert_eq!(entry(&catalog, "X").point_count, Some(123));
     assert_eq!(entry(&catalog, "X").upper_bound, Some(122));
     assert_eq!(
@@ -41,7 +41,7 @@ async fn read_device_range_catalog_uses_configured_family_sd_window() {
 }
 
 #[tokio::test]
-async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_window() {
+async fn read_device_range_catalog_for_plc_profile_uses_only_profile_specific_sd_window() {
     let mut sd_values = vec![0u16; 46];
     sd_values[0] = 1024;
     sd_values[2] = 1024;
@@ -59,14 +59,14 @@ async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_windo
     let client = SlmpClient::connect(options).await.unwrap();
 
     let catalog = client
-        .read_device_range_catalog_for_family(SlmpDeviceRangeFamily::IqF)
+        .read_device_range_catalog_for_plc_profile(SlmpPlcProfile::IqF)
         .await
         .unwrap();
 
     assert_eq!(server.request_count().await, 1);
     assert!(!catalog.has_model_code);
     assert_eq!(catalog.model, "IQ-F");
-    assert_eq!(catalog.family, SlmpDeviceRangeFamily::IqF);
+    assert_eq!(catalog.plc_profile, SlmpPlcProfile::IqF);
     assert_eq!(
         entry(&catalog, "X").address_range.as_deref(),
         Some("X0000-X1777")
@@ -82,7 +82,7 @@ async fn read_device_range_catalog_for_family_uses_only_family_specific_sd_windo
 }
 
 #[tokio::test]
-async fn read_device_range_catalog_for_family_exposes_iql_family() {
+async fn read_device_range_catalog_for_plc_profile_exposes_iql_profile() {
     let mut sd_values = vec![0u16; 50];
     sd_values[0] = 0x3000;
     sd_values[2] = 0x3000;
@@ -113,12 +113,12 @@ async fn read_device_range_catalog_for_family_exposes_iql_family() {
     let client = SlmpClient::connect(options).await.unwrap();
 
     let catalog = client
-        .read_device_range_catalog_for_family(SlmpDeviceRangeFamily::IqL)
+        .read_device_range_catalog_for_plc_profile(SlmpPlcProfile::IqL)
         .await
         .unwrap();
 
     assert_eq!(catalog.model, "iQ-L");
-    assert_eq!(catalog.family, SlmpDeviceRangeFamily::IqL);
+    assert_eq!(catalog.plc_profile, SlmpPlcProfile::IqL);
     assert_eq!(
         entry(&catalog, "SM").address_range.as_deref(),
         Some("SM0-SM4095")
@@ -150,7 +150,7 @@ async fn read_device_range_catalog_for_family_exposes_iql_family() {
 }
 
 #[tokio::test]
-async fn read_device_range_catalog_for_family_caps_iqr_sd_point_counts() {
+async fn read_device_range_catalog_for_plc_profile_caps_iqr_sd_point_counts() {
     let mut sd_values = vec![0u16; 50];
     set_dword(&mut sd_values, 0, 12_289);
     set_dword(&mut sd_values, 4, 94_674_945);
@@ -167,13 +167,13 @@ async fn read_device_range_catalog_for_family_caps_iqr_sd_point_counts() {
     let client = SlmpClient::connect(options).await.unwrap();
 
     let catalog = client
-        .read_device_range_catalog_for_family(SlmpDeviceRangeFamily::IqR)
+        .read_device_range_catalog_for_plc_profile(SlmpPlcProfile::IqR)
         .await
         .unwrap();
 
     assert_eq!(server.request_count().await, 1);
     assert_eq!(catalog.model, "IQ-R");
-    assert_eq!(catalog.family, SlmpDeviceRangeFamily::IqR);
+    assert_eq!(catalog.plc_profile, SlmpPlcProfile::IqR);
     assert_eq!(entry(&catalog, "X").point_count, Some(12_288));
     assert_eq!(
         entry(&catalog, "X").address_range.as_deref(),

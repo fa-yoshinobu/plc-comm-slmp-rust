@@ -25,8 +25,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await?;
 
     println!(
-        "catalog -> model={} family={:?} sample_points={}",
-        report.model, report.family, report.sample_points
+        "catalog -> model={} plc_profile={:?} sample_points={}",
+        report.model, report.plc_profile, report.sample_points
     );
 
     for device in &report.devices {

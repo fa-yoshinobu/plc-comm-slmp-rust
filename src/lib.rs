@@ -118,8 +118,7 @@ pub use device_range_sample::{
     run_device_range_sample_compare,
 };
 pub use device_ranges::{
-    SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeFamily,
-    SlmpDeviceRangeNotation,
+    SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeNotation,
 };
 pub use error::SlmpError;
 pub use error_codes::{

@@ -27,7 +27,7 @@ Completed work:
 
 Moved helpers:
 
-- `map_plc_family_to_range_family`
+- `map_plc_profile_to_range_profile`
 - `validate_non_empty_u16_count`
 - `validate_u16_count`
 - `validate_direct_bit_read`
@@ -65,7 +65,7 @@ Covered behavior includes:
 
 - Bit unpacking.
 - Long timer word decoding.
-- PLC family and range-family classification.
+- PLC profile classification.
 - Validation guards.
 - Conversion helpers.
 - CPU operation-state decoding.

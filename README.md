@@ -16,7 +16,7 @@ Async Rust library for Mitsubishi SLMP (Seamless Message Protocol) Binary 3E/4E 
 | --- | --- | --- | --- | --- |
 | `SlmpPlcProfile::IqF` | `melsec:iq-f` | MELSEC iQ-F | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`; `X` and `Y` string addresses use iQ-F octal notation. |
 | `SlmpPlcProfile::IqR` | `melsec:iq-r` | MELSEC iQ-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
-| `SlmpPlcProfile::IqL` | `melsec:iq-l` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`; address parsing follows iQ-R rules. |
+| `SlmpPlcProfile::IqL` | `melsec:iq-l` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`; keeps its own address/range profile with iQ-R-equivalent rules. |
 | `SlmpPlcProfile::MxF` | `melsec:mx-f` | MELSEC MX-F | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
 | `SlmpPlcProfile::MxR` | `melsec:mx-r` | MELSEC MX-R | `SlmpFrameType::Frame4E` | Uses `SlmpCompatibilityMode::Iqr`. |
 | `SlmpPlcProfile::QCpu` | `melsec:qcpu` | MELSEC QCPU | `SlmpFrameType::Frame3E` | Uses `SlmpCompatibilityMode::Legacy`. |

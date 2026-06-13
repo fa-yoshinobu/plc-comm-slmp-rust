@@ -12,8 +12,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let client = plc_comm_slmp::SlmpClient::connect(options).await?;
     let catalog = client.read_device_range_catalog().await?;
     println!(
-        "catalog -> model={} code=0x{:04X} family={:?}",
-        catalog.model, catalog.model_code, catalog.family
+        "catalog -> model={} code=0x{:04X} plc_profile={:?}",
+        catalog.model, catalog.model_code, catalog.plc_profile
     );
 
     // Each entry includes support state, notation, live point count, and display range.
