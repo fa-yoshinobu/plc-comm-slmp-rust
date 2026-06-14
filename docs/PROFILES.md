@@ -1,20 +1,22 @@
 # PLC profiles
 
-`SlmpPlcProfile` is the public selector that binds a PLC family to the SLMP frame and compatibility mode used by the client.
+The canonical profile is the stable configuration value for PLC selection.
+`SlmpPlcProfile` is the Rust API selector that binds that profile to the SLMP
+frame and compatibility mode used by the client.
 
 ## Profiles table
 
-| `SlmpPlcProfile` variant | Canonical string | Hardware | Frame | Mode | Notes |
+| Canonical profile | Human label | Rust selector | Frame | Mode | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `SlmpPlcProfile::IqF` | `melsec:iq-f` | MELSEC iQ-F | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | iQ-F address rules; `DX` and `DY` are rejected. |
-| `SlmpPlcProfile::IqR` | `melsec:iq-r` | MELSEC iQ-R | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
-| `SlmpPlcProfile::IqL` | `melsec:iq-l` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R-equivalent address parsing while remaining separately selectable. |
-| `SlmpPlcProfile::MxF` | `melsec:mx-f` | MELSEC MX-F | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
-| `SlmpPlcProfile::MxR` | `melsec:mx-r` | MELSEC MX-R | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
-| `SlmpPlcProfile::QCpu` | `melsec:qcpu` | MELSEC QCPU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
-| `SlmpPlcProfile::LCpu` | `melsec:lcpu` | MELSEC LCPU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
-| `SlmpPlcProfile::QnU` | `melsec:qnu` | MELSEC QnU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
-| `SlmpPlcProfile::QnUDV` | `melsec:qnudv` | MELSEC QnUDV | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `melsec:iq-f` | MELSEC iQ-F | `SlmpPlcProfile::IqF` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | iQ-F address rules; `DX` and `DY` are rejected. |
+| `melsec:iq-r` | MELSEC iQ-R | `SlmpPlcProfile::IqR` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
+| `melsec:iq-l` | MELSEC iQ-L | `SlmpPlcProfile::IqL` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R-equivalent address parsing while remaining separately selectable. |
+| `melsec:mx-f` | MELSEC MX-F | `SlmpPlcProfile::MxF` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
+| `melsec:mx-r` | MELSEC MX-R | `SlmpPlcProfile::MxR` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
+| `melsec:qcpu` | MELSEC QCPU | `SlmpPlcProfile::QCpu` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `melsec:lcpu` | MELSEC LCPU | `SlmpPlcProfile::LCpu` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `melsec:qnu` | MELSEC QnU | `SlmpPlcProfile::QnU` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `melsec:qnudv` | MELSEC QnUDV | `SlmpPlcProfile::QnUDV` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
 
 ## How to select
 
@@ -34,16 +36,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Text configuration should store the canonical profile exactly:
+
+```rust
+use plc_comm_slmp::SlmpPlcProfile;
+
+let profile = SlmpPlcProfile::parse_label("melsec:iq-r")
+    .expect("unknown canonical PLC profile");
+assert_eq!(profile, SlmpPlcProfile::IqR);
+```
+
 ## Profile-specific cautions
 
-| Profile | Caution |
-| --- | --- |
-| `SlmpPlcProfile::IqF` | Frame 3E, Legacy mode. `DX` and `DY` are not valid. Do not use Frame 4E. |
-| `SlmpPlcProfile::IqR` | Frame 4E, iQR mode. |
-| `SlmpPlcProfile::IqL` | Frame 4E, iQR mode. |
-| `SlmpPlcProfile::MxF` | Frame 4E, iQR mode. |
-| `SlmpPlcProfile::MxR` | Frame 4E, iQR mode. |
-| `SlmpPlcProfile::QCpu` | Frame 3E, Legacy mode. |
-| `SlmpPlcProfile::LCpu` | Frame 3E, Legacy mode. |
-| `SlmpPlcProfile::QnU` | Frame 3E, Legacy mode. |
-| `SlmpPlcProfile::QnUDV` | Frame 3E, Legacy mode. |
+| Canonical profile | Human label | Caution |
+| --- | --- | --- |
+| `melsec:iq-f` | MELSEC iQ-F | Frame 3E, Legacy mode. `DX` and `DY` are not valid. Do not use Frame 4E. |
+| `melsec:iq-r` | MELSEC iQ-R | Frame 4E, iQR mode. |
+| `melsec:iq-l` | MELSEC iQ-L | Frame 4E, iQR mode. |
+| `melsec:mx-f` | MELSEC MX-F | Frame 4E, iQR mode. |
+| `melsec:mx-r` | MELSEC MX-R | Frame 4E, iQR mode. |
+| `melsec:qcpu` | MELSEC QCPU | Frame 3E, Legacy mode. |
+| `melsec:lcpu` | MELSEC LCPU | Frame 3E, Legacy mode. |
+| `melsec:qnu` | MELSEC QnU | Frame 3E, Legacy mode. |
+| `melsec:qnudv` | MELSEC QnUDV | Frame 3E, Legacy mode. |

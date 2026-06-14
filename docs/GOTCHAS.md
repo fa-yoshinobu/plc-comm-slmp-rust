@@ -199,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| Text configuration such as `iq-r` or `MELSEC:IQ-R` cannot be converted to a profile. | `SlmpPlcProfile::parse_label` accepts only exact canonical strings, and `SlmpConnectionOptions::new` requires a concrete enum value. There is no `Unspecified` fallback in this crate. | Parse only canonical strings such as `melsec:iq-r`, or let your UI store the enum directly. |
+| Text configuration such as `iq-r` or `MELSEC:IQ-R` cannot be converted to a profile. | `SlmpPlcProfile::parse_label` accepts only exact canonical profile values, and `SlmpConnectionOptions::new` requires a concrete Rust selector. There is no `Unspecified` fallback in this crate. | Store only canonical profiles such as `melsec:iq-r`, or let your UI store the selector directly. |
 
 ```rust
 use plc_comm_slmp::{SlmpConnectionOptions, SlmpPlcProfile};
