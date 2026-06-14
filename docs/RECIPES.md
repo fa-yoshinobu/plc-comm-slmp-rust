@@ -8,7 +8,7 @@ These examples are intended to be runnable as-is with environment variables.
 | --- | --- | --- |
 | `SLMP_HOST` | `127.0.0.1` | PLC or mock server host |
 | `SLMP_PORT` | `1025` | TCP/UDP port |
-| `SLMP_PLC_FAMILY` | `iq-r` | `iq-f`, `iq-r`, `iq-l`, `mx-f`, `mx-r`, `qcpu`, `lcpu`, `qnu`, or `qnudv` |
+| `SLMP_PLC_FAMILY` | `melsec:iq-r` | `melsec:iq-f`, `melsec:iq-r`, `melsec:iq-l`, `melsec:mx-f`, `melsec:mx-r`, `melsec:qcpu`, `melsec:lcpu`, `melsec:qnu`, or `melsec:qnudv` |
 | `SLMP_TRANSPORT` | `tcp` | `tcp` or `udp` |
 | `SLMP_TARGET` | unset | `SELF`, `SELF-CPU1`, or `NAME,NET,ST,IO,MD` |
 | `SLMP_NETWORK` / `SLMP_STATION` | unset | Other-station target, for example `SLMP_NETWORK=1 SLMP_STATION=2` |
@@ -23,7 +23,7 @@ These examples are intended to be runnable as-is with environment variables.
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-r \
+SLMP_PLC_FAMILY=melsec:iq-r \
 cargo run --example raw_read_write
 ```
 
@@ -41,7 +41,7 @@ cargo run --example raw_read_write
 ```bash
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
-SLMP_PLC_FAMILY=iq-f \
+SLMP_PLC_FAMILY=melsec:iq-f \
 SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
 cargo run --example named_helpers
 ```
@@ -62,7 +62,7 @@ cargo run --example named_helpers
 ```bash
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
-SLMP_PLC_FAMILY=iq-r \
+SLMP_PLC_FAMILY=melsec:iq-r \
 SLMP_RANDOM_WORDS='D100,R10' \
 SLMP_RANDOM_DWORDS='D200,LTN10' \
 SLMP_EXT_DEVICE='J1\W10' \
@@ -78,7 +78,7 @@ multiple read/write paths stay aligned on the same addresses.
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
-SLMP_PLC_FAMILY=iq-r \
+SLMP_PLC_FAMILY=melsec:iq-r \
 cargo run --example device_matrix_compare
 ```
 
