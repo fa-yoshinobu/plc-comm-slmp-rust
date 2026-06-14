@@ -7,8 +7,9 @@ description = "Async Rust SLMP client based on the plc-comm-slmp-dotnet implemen
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/fa-yoshinobu/plc-comm-slmp-rust"
-homepage = "https://github.com/fa-yoshinobu/plc-comm-slmp-rust"
-keywords = ["slmp", "plc", "mitsubishi", "mcprotocol", "tokio"]
+homepage = "https://fa-yoshinobu.github.io/plc-comm-docs-site/"
+documentation = "https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/rust/GETTING_STARTED/"
+keywords = ["slmp", "plc", "melsec", "mcprotocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 include = [
     "Cargo.toml",
