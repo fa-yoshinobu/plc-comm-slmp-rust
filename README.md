@@ -1,6 +1,5 @@
 [![CI](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/plc-comm-slmp-rust.svg)](https://crates.io/crates/plc-comm-slmp-rust)
-[![docs.rs](https://img.shields.io/docsrs/plc-comm-slmp-rust)](https://docs.rs/plc-comm-slmp-rust)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 # MELSEC SLMP for Rust
@@ -54,7 +53,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [Supported registers](docs/SUPPORTED_REGISTERS.md) | Check supported device families, address syntax, and numbering rules. |
 | [PLC profiles](docs/PROFILES.md) | Choose the canonical MELSEC profile and frame behavior. |
 | [Examples](examples/README.md) | Run maintained Rust examples. |
-| [API docs](https://docs.rs/plc-comm-slmp-rust) | Browse the generated Rust API reference. |
 
 ## Hardware verified
 
