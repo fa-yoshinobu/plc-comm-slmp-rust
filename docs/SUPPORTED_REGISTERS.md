@@ -51,4 +51,30 @@ This page lists the device families exposed by the public helper-layer address p
 | Extended devices | `G` and `HG` are not in the public high-level surface. Use low-level extended-device APIs with qualified addresses such as `U3\G100` or `U3E0\HG0`. |
 | PLC range limits | Use `SlmpClient::read_device_range_catalog()` to read live bounds for your selected profile. |
 
+## Long timer and long counter behavior
+
+`LTN`, `LSTN`, `LCN`, and `LZ` are 32-bit logical families. Use helper APIs,
+random dword high-level access, or 4-word block reads where supported. They are
+not exposed as plain direct dword reads in the Rust client API.
+
+`LCS` and `LCC` use direct bit read through `read_typed` / `read_named`.
+`LTS`, `LTC`, `LSTS`, and `LSTC` are not exposed through direct bit
+read/write or Read Random in the Rust client API; use helper APIs for reads and
+random bit write where applicable.
+
+## Extended device forms
+
+Extended addresses are supported for both `J` and `U` forms through
+`parse_qualified_device` and the raw extended read/write APIs.
+
+| Form | Meaning |
+| --- | --- |
+| `J1\W10` | Network direct memory. |
+| `J1\X10` | Network direct bit device. |
+| `U3\G100` | Extension unit direct memory. |
+| `U3E0\HG0` | iQ-R multi-CPU high-speed CPU-buffer memory. |
+
+`HG` is valid only for `U3E0\HG` through `U3E3\HG`. Lower-unit forms such as
+`U1\HG` are rejected before transport.
+
 For profile selection, see [PROFILES.md](PROFILES.md).
