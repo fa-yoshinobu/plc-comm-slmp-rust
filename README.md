@@ -77,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Supported registers | [docs/SUPPORTED_REGISTERS.md](docs/SUPPORTED_REGISTERS.md) |
 | PLC profiles | [docs/PROFILES.md](docs/PROFILES.md) |
 | Examples | [examples/README.md](examples/README.md) |
+| Full documentation site | [plc-comm-docs-site](https://github.com/fa-yoshinobu/plc-comm-docs-site) |
 
 ## Hardware verified
 
