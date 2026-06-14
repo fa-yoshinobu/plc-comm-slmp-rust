@@ -2,7 +2,7 @@
 
 ## Start here
 
-Use this page when you want the shortest path from a Rust program to a Mitsubishi PLC. The examples use TCP at `192.168.250.100:1025`.
+Use this page when you want the shortest path from a Rust program to a MELSEC PLC. The examples use TCP at `192.168.250.100:1025`.
 
 ## Prerequisites
 

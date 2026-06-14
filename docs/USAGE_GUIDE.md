@@ -7,6 +7,7 @@
 | `SlmpConnectionOptions::new(host, plc_profile)` | Creating a connection configuration with profile-derived defaults. |
 | `SlmpClient::connect(options)` | Opening a TCP or UDP SLMP client. |
 | `SlmpAddress::parse("D100")` | Parsing a device address into `SlmpDeviceAddress`. |
+| `read_latest_self_diagnosis_error_code` | Reading the latest PLC self-diagnosis error code from `SD0`. |
 | `read_typed` and `write_typed` | Reading or writing one scalar value. |
 | `read_named` and `write_named` | Reading or writing a small mixed snapshot by address text. |
 | `read_words_single_request` and `read_words_chunked` | Reading contiguous word ranges. |
@@ -44,6 +45,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = SlmpClient::connect(options).await?;
     println!("{:?}", client.plc_profile().await);
+    client.close().await?;
+
+    Ok(())
+}
+```
+
+## PLC diagnostics
+
+`SlmpClient::read_latest_self_diagnosis_error_code` reads `SD0`, the latest PLC self-diagnosis error code, and returns the raw 16-bit value. Format it as hexadecimal when displaying it.
+
+This value is separate from `SlmpError.end_code`. `SlmpError.end_code` is the SLMP response end code for a communication request, while `SD0` is the PLC CPU's self-diagnosis error register.
+
+```rust
+use plc_comm_slmp::{
+    SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    options.port = 1025;
+
+    let client = SlmpClient::connect(options).await?;
+    let error_code = client.read_latest_self_diagnosis_error_code().await?;
+    println!("latest self-diagnosis error code: 0x{error_code:04X}");
     client.close().await?;
 
     Ok(())

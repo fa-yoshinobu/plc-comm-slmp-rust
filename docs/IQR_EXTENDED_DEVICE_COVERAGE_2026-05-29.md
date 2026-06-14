@@ -1,7 +1,7 @@
 # iQ-R Extended Device Coverage 2026-05-29
 
 - Target: `192.168.250.100:1025` TCP and `192.168.250.100:1027` UDP
-- PLC: Mitsubishi `R08CPU`
+- PLC: MELSEC `R08CPU`
 - Profile: `SLMP_PLC_FAMILY=iq-r` (`Frame4E` + `Iqr`)
 - Scope: Extended Specification write-check coverage
 - Remote password: enabled on the port; validation used `SLMP_REMOTE_PASSWORD`

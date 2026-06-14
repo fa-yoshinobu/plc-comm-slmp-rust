@@ -7,7 +7,7 @@
 - Transport: TCP
 - Access profile: 3E frame, legacy compatibility
 - Family selected for catalog: `QnU`
-- Connected PLC: Mitsubishi `Q26UDEHCPU`
+- Connected PLC: MELSEC `Q26UDEHCPU`
 
 This file is the current QnU record for 2026-05-15. It supersedes the earlier
 same-day QnU notes and records the Q26UDEHCPU results only.

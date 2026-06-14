@@ -96,7 +96,7 @@ Embedded profile rules cover:
 ## Range Rules
 
 `Addr` is the crate-facing address notation, not necessarily the notation used
-in Mitsubishi manuals.
+in MELSEC manuals.
 
 For iQ-R-series range rows, the `SD` register value is the PLC-configured
 current point count. The catalog must cap that value at the iQ-R-series maximum
@@ -156,7 +156,7 @@ so these maximum addresses are representable by the protocol format.
 ## Notes
 
 - `QCPU` `D` and `W` exclude the extended area and are clipped to `32768`.
-- `QCPU` `Z` is runtime-probed. A Mitsubishi `Q12HCPU` was live-checked on
+- `QCPU` `Z` is runtime-probed. A MELSEC `Q12HCPU` was live-checked on
   2026-05-15 and resolved to `Z0-Z15`. The current Q12HCPU record is
   `docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md`.
 - `QCPU` `ZR` remains supported, but there is no finite upper-bound register, so
@@ -179,5 +179,5 @@ so these maximum addresses are representable by the protocol format.
   of range. `QnUDV` was live-checked on 2026-05-15 against `Q06UDVCPU` with
   `ZR393215` accepted, `ZR393216` returning `0x4031`, and `R32767` accepted
   with `R32768` blocked by the client guard or returned as out of range.
-- `iQ-F` `X` and `Y` are documented in Mitsubishi manuals with octal addressing.
+- `iQ-F` `X` and `Y` are documented in MELSEC manuals with octal addressing.
   This crate emits `Octal` and formats ranges such as `X0000-X1777`.

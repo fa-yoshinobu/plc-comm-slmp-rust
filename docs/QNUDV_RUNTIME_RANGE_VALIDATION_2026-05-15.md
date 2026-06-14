@@ -7,7 +7,7 @@
 - Transport: TCP
 - Access profile: 3E frame, legacy compatibility
 - Family selected for catalog: `QnUDV`
-- Connected PLC: Mitsubishi `Q06UDVCPU`
+- Connected PLC: MELSEC `Q06UDVCPU`
 
 This file is the current QnUDV record and supersedes the earlier QnUDV runtime
 range note.

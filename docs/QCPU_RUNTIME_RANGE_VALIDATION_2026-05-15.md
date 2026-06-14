@@ -7,7 +7,7 @@
 - Transport: TCP
 - Access profile: 3E frame, legacy compatibility
 - Family selected for catalog: `QCPU`
-- Connected PLC: Mitsubishi `Q12HCPU`
+- Connected PLC: MELSEC `Q12HCPU`
 
 This file is the current Q12HCPU/QCPU record for 2026-05-15 and supersedes the
 earlier same-day notes that only covered a subset of the checks.

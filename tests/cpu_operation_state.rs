@@ -33,6 +33,27 @@ async fn read_cpu_operation_state_returns_unknown_for_unhandled_code() {
     assert_eq!(state.raw_code, 0x05);
 }
 
+#[tokio::test]
+async fn read_latest_self_diagnosis_error_code_reads_sd0() {
+    let server = SingleWordServer::start(0x1234).await.unwrap();
+
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error_code = client
+        .read_latest_self_diagnosis_error_code()
+        .await
+        .unwrap();
+
+    assert_eq!(error_code, 0x1234);
+    let request = server.first_request().await.unwrap();
+    assert_eq!(
+        &request[19..27],
+        &[0x00, 0x00, 0x00, 0x00, 0xA9, 0x00, 0x01, 0x00]
+    );
+}
+
 struct SingleWordServer {
     port: u16,
     requests: std::sync::Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
@@ -69,6 +90,10 @@ impl SingleWordServer {
 
     async fn request_count(&self) -> usize {
         self.requests.lock().await.len()
+    }
+
+    async fn first_request(&self) -> Option<Vec<u8>> {
+        self.requests.lock().await.first().cloned()
     }
 }
 

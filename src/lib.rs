@@ -1,4 +1,4 @@
-//! Async Rust client for Mitsubishi SLMP Binary 3E and 4E.
+//! Async Rust client for MELSEC SLMP Binary 3E and 4E.
 //!
 //! This crate follows the same operation semantics as the sibling
 //! `plc-comm-slmp-python`, `.NET`, `C++`, `Node-RED`, and `cross-verify`

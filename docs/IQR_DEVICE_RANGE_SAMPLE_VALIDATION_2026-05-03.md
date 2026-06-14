@@ -4,7 +4,7 @@ Date: 2026-05-03
 
 Target:
 
-- PLC: Mitsubishi iQ-R / R08CPU
+- PLC: MELSEC iQ-R / R08CPU
 - Host: `192.168.250.100`
 - TCP port: `1025`
 - UDP port: `1027`

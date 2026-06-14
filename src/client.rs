@@ -107,6 +107,14 @@ impl SlmpClient {
         self.inner.lock().await.read_cpu_operation_state().await
     }
 
+    pub async fn read_latest_self_diagnosis_error_code(&self) -> Result<u16, SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .read_latest_self_diagnosis_error_code()
+            .await
+    }
+
     pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
         let plc_profile = self.plc_profile().await;
         let profile = resolve_device_range_profile_for_plc_profile(plc_profile);
@@ -647,6 +655,16 @@ impl ClientInner {
             .next()
             .ok_or_else(|| SlmpError::new("read_cpu_operation_state expected one word"))?;
         Ok(rules::decode_cpu_operation_state(status_word))
+    }
+
+    async fn read_latest_self_diagnosis_error_code(&mut self) -> Result<u16, SlmpError> {
+        self.read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::SD, 0), 1)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                SlmpError::new("read_latest_self_diagnosis_error_code expected one word")
+            })
     }
 
     async fn read_words_raw(

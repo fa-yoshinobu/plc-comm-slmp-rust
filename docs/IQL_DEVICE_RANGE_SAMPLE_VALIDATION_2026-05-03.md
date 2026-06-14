@@ -4,7 +4,7 @@ Date: 2026-05-03
 
 Target:
 
-- PLC: Mitsubishi iQ-L / L16HCPU
+- PLC: MELSEC iQ-L / L16HCPU
 - Host: `192.168.250.100`
 - Port: `1025`
 - Transport: TCP

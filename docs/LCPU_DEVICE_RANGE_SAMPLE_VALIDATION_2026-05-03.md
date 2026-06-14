@@ -4,7 +4,7 @@ Date: 2026-05-03
 
 Target:
 
-- PLC: Mitsubishi LCPU
+- PLC: MELSEC LCPU
 - Host: `192.168.250.100`
 - TCP port: `1025`
 - UDP port: `1027`

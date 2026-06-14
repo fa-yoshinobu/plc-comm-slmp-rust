@@ -113,7 +113,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   - QCPU/LCPU/QnU/QnUDV `ZR` is selected by probing readable addresses and may
     resolve to 0 points.
   - `R` matches the checked `ZR` size and is capped at `R32767`.
-  - `QCPU` was live-checked on 2026-05-15 against a Mitsubishi `Q12HCPU` at
+  - `QCPU` was live-checked on 2026-05-15 against a MELSEC `Q12HCPU` at
     `192.168.250.100:1025` over TCP with 3E/legacy access: the catalog command
     reported `Z0-Z15`, `ZR0-ZR131071`, and `R0-R32767`. The current Q12HCPU
     record also includes cross-stack direct read/write/restore, random
@@ -124,13 +124,13 @@ This file tracks active follow-up items for the SLMP Rust library.
   - `LCPU` was live-checked on 2026-05-01: `Z` remains the spec-fixed
     `Z0-Z19` range, `ZR393215` read successfully, and `ZR393216` returned
     `0x4031`. `R` matches that `ZR` size, capped at `R32767`.
-  - `QnUDV` was live-checked on 2026-05-15 against Mitsubishi `Q06UDVCPU` at
+  - `QnUDV` was live-checked on 2026-05-15 against MELSEC `Q06UDVCPU` at
     `192.168.250.100:1025` over TCP with 3E/legacy access: `Z19` read
     successfully, `Z20` returned `0x4031`, `ZR393215` read successfully,
     `ZR393216` returned `0x4031`, and `R32767` read successfully with `R32768`
     blocked by the client guard or returned as out of range.
 
-- [x] **Live-check QnU runtime ranges**: On 2026-05-15, the live Mitsubishi
+- [x] **Live-check QnU runtime ranges**: On 2026-05-15, the live MELSEC
   `Q26UDEHCPU` at `192.168.250.100:1025` was checked over TCP with 3E/legacy
   access. The catalog reported `Z0-Z19`, `ZR0-ZR655359`, and `R0-R32767`.
   Boundary reads confirmed `Z19` OK / `Z20` -> `0x4031`, `ZR655359` OK /
