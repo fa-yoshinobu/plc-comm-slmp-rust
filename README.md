@@ -48,12 +48,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Page | Use it for |
 | --- | --- |
-| Getting started | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) |
-| Usage guide | [docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.md) |
-| Supported registers | [docs/SUPPORTED_REGISTERS.md](docs/SUPPORTED_REGISTERS.md) |
-| PLC profiles | [docs/PROFILES.md](docs/PROFILES.md) |
-| Examples | [examples/README.md](examples/README.md) |
-| Full documentation site | [plc-comm-docs-site](https://fa-yoshinobu.github.io/plc-comm-docs-site/) |
+| [Full documentation site](https://fa-yoshinobu.github.io/plc-comm-docs-site/) | Unified docs for all PLC communication libraries. |
+| [Getting started](docs/GETTING_STARTED.md) | Install the crate, connect to your PLC, and run your first SLMP read/write. |
+| [Usage guide](docs/USAGE_GUIDE.md) | Use the high-level API and common SLMP workflows. |
+| [Supported registers](docs/SUPPORTED_REGISTERS.md) | Check supported device families, address syntax, and numbering rules. |
+| [PLC profiles](docs/PROFILES.md) | Choose the canonical MELSEC profile and frame behavior. |
+| [Examples](examples/README.md) | Run maintained Rust examples. |
+| [API docs](https://docs.rs/plc-comm-slmp-rust) | Browse the generated Rust API reference. |
 
 ## Hardware verified
 
