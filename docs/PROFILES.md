@@ -4,24 +4,34 @@
 
 ## Profiles table
 
-| `SlmpPlcProfile` variant | Hardware | Frame | Mode | Notes |
-| --- | --- | --- | --- | --- |
-| `SlmpPlcProfile::IqF` | MELSEC iQ-F | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | iQ-F address rules; `DX` and `DY` are rejected. |
-| `SlmpPlcProfile::IqR` | MELSEC iQ-R | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
-| `SlmpPlcProfile::IqL` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R address parsing rules. |
-| `SlmpPlcProfile::MxF` | MELSEC MX-F | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
-| `SlmpPlcProfile::MxR` | MELSEC MX-R | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
-| `SlmpPlcProfile::QCpu` | MELSEC QCPU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
-| `SlmpPlcProfile::LCpu` | MELSEC LCPU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
-| `SlmpPlcProfile::QnU` | MELSEC QnU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
-| `SlmpPlcProfile::QnUDV` | MELSEC QnUDV | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `SlmpPlcProfile` variant | Canonical string | Hardware | Frame | Mode | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `SlmpPlcProfile::IqF` | `melsec:iq-f` | MELSEC iQ-F | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | iQ-F address rules; `DX` and `DY` are rejected. |
+| `SlmpPlcProfile::IqR` | `melsec:iq-r` | MELSEC iQ-R | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
+| `SlmpPlcProfile::IqL` | `melsec:iq-l` | MELSEC iQ-L | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R-equivalent address parsing while remaining separately selectable. |
+| `SlmpPlcProfile::MxF` | `melsec:mx-f` | MELSEC MX-F | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
+| `SlmpPlcProfile::MxR` | `melsec:mx-r` | MELSEC MX-R | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
+| `SlmpPlcProfile::QCpu` | `melsec:qcpu` | MELSEC QCPU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `SlmpPlcProfile::LCpu` | `melsec:lcpu` | MELSEC LCPU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `SlmpPlcProfile::QnU` | `melsec:qnu` | MELSEC QnU | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
+| `SlmpPlcProfile::QnUDV` | `melsec:qnudv` | MELSEC QnUDV | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
 
 ## How to select
 
 ```rust
-let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-options.port = 1025;
-let client = SlmpClient::connect(options).await?;
+use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    options.port = 1025;
+
+    let client = SlmpClient::connect(options).await?;
+    println!("{}", client.plc_profile().await.canonical_name());
+    client.close().await?;
+
+    Ok(())
+}
 ```
 
 ## Profile-specific cautions
