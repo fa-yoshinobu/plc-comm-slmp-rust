@@ -158,7 +158,7 @@ pub(crate) fn validate_block_write_limits(
 }
 
 pub(crate) fn validate_memory_word_length(word_length: usize, name: &str) -> Result<(), SlmpError> {
-    if word_length < 1 || word_length > MEMORY_WORD_LIMIT {
+    if !(1..=MEMORY_WORD_LIMIT).contains(&word_length) {
         return Err(SlmpError::new(format!(
             "{name} word length out of range (1..480): {word_length}"
         )));
@@ -170,7 +170,7 @@ pub(crate) fn validate_extend_unit_byte_length(
     byte_length: usize,
     name: &str,
 ) -> Result<(), SlmpError> {
-    if byte_length < 2 || byte_length > EXTEND_UNIT_BYTE_LIMIT {
+    if !(2..=EXTEND_UNIT_BYTE_LIMIT).contains(&byte_length) {
         return Err(SlmpError::new(format!(
             "{name} byte length out of range (2..1920): {byte_length}"
         )));
@@ -182,7 +182,7 @@ pub(crate) fn validate_extend_unit_word_length(
     word_length: usize,
     name: &str,
 ) -> Result<(), SlmpError> {
-    if word_length < 1 || word_length > DIRECT_WORD_POINT_LIMIT {
+    if !(1..=DIRECT_WORD_POINT_LIMIT).contains(&word_length) {
         return Err(SlmpError::new(format!(
             "{name} word length out of range (1..960): {word_length}"
         )));
