@@ -158,7 +158,7 @@ so these maximum addresses are representable by the protocol format.
 - `QCPU` `D` and `W` exclude the extended area and are clipped to `32768`.
 - `QCPU` `Z` is runtime-probed. A MELSEC `Q12HCPU` was live-checked on
   2026-05-15 and resolved to `Z0-Z15`. The current Q12HCPU record is
-  `docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md`.
+  maintainer archive.
 - `QCPU` `ZR` remains supported, but there is no finite upper-bound register, so
   the base catalog reports `supported = true`, `point_count = None`, and
   `address_range = None`. Runtime probing on the same `Q12HCPU` target resolved
@@ -168,10 +168,10 @@ so these maximum addresses are representable by the protocol format.
 - `Z` on `LCPU`, `QnU`, and `QnUDV` is treated as the fixed `Z0-Z19` family
   limit. `QnU` was live-checked on 2026-05-15 against `Q26UDEHCPU`: `Z19` read
   successfully and `Z20` returned `0x4031`. The current QnU record is
-  `docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md`. `QnUDV` was live-checked
+  maintainer archive. `QnUDV` was live-checked
   on 2026-05-15 against `Q06UDVCPU`: `Z19` read successfully and `Z20` returned
   `0x4031`. The current QnUDV record is
-  `docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md`.
+  maintainer archive.
 - `ZR` and `R` on `LCPU`, `QnU`, and `QnUDV` are runtime-limited by probing
   readable `ZR` addresses. `QnU` was live-checked on 2026-05-15 against
   `Q26UDEHCPU` with `ZR655359` accepted, `ZR655360` returning `0x4031`, and

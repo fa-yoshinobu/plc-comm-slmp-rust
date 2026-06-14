@@ -11,7 +11,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   read/write/read-back/restore verification. The same run also passed 129
   bit-block checks comparing contiguous `read_bits` results with `DeviceReadBlock`
   packed bit-word values. `S` remains unsupported by design. See
-  `docs/IQL_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md`. The same shared
+  maintainer archive. The same shared
   checker was also invoked through the Android Rust bridge and iOS C ABI on
   2026-05-03 with the same pass counts. The same validation also passed over
   UDP `192.168.250.100:1027` through Rust, Android Rust bridge, and iOS C ABI.
@@ -35,7 +35,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   passed through the Android Rust bridge and iOS C ABI. The first full TCP run
   while the X unit was installed failed only on `X0` / bit-block writes starting
   at `X0` and `X1`; after the X unit was removed, full validation passed. See
-  `docs/IQR_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md`.
+  maintainer archive.
 
 - [x] **iQ-F sample and route validation**: On 2026-05-03, the live iQ-F
   `FX5UC-32MT/D` at `192.168.250.100` passed all-device sample and route
@@ -44,7 +44,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   `restore_failed=0`, `skipped=10`, `unsupported=0`, `bit_blocks_passed=110`,
   `bit_blocks_failed=0`. Route result: `passed=17`, `failed=0`, `warned=0`,
   `skipped=2` (`ZR`, `RD`). Do not select `Frame4E` for iQ-F; it is unsupported
-  by the manual. See `docs/IQF_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md`.
+  by the manual. See maintainer archive.
 
 - [x] **LCPU route and all-device candidate validation**: On 2026-05-03, the live
   LCPU at `192.168.250.100` was checked over TCP `1025` and UDP `1027` using
@@ -56,7 +56,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   `read_failed=0`, `write_failed=0`, `readback_failed=5`, `restore_failed=0`,
   `skipped=11`, `unsupported=1`. Readback NG points were `SB6FF`, `SB7FF`,
   `SW6FF`, `SW7FF`, and `SD1279`. See
-  `docs/LCPU_DEVICE_RANGE_SAMPLE_VALIDATION_2026-05-03.md`.
+  maintainer archive.
 
 - [x] **Investigate LCPU readback NG points**: Human review confirmed that
   `SB6FF`, `SB7FF`, `SW6FF`, `SW7FF`, and `SD1279` are expected
@@ -71,7 +71,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   read/write/restore, random read/write, word-only block read/write, bit-block
   NG behavior, mixed-block NG behavior, and read-only `U0\G10` Extended
   Specification checks across Python, Node-RED, .NET, Rust, and C++ Minimal.
-  See `docs/QNUDV_RUNTIME_RANGE_VALIDATION_2026-05-15.md` and
+  See maintainer archive and
   `../plc-comm-slmp-cross-verify/QNUDV_CROSS_STACK_VALIDATION_2026-05-15.md`.
 
 - [x] **Investigate QnUDV readback NG point**: Human review confirmed that
@@ -87,7 +87,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   `RD:U` also passed. Random write/read-back/restore passed at the reference
   size `SLMP_RANDOM_DEVICE_POINTS=48`; this is a target observation only, not a
   fixed library-wide upper limit. See
-  `docs/IQL_LIVE_STRESS_VALIDATION_2026-05-03.md`.
+  maintainer archive.
 
 - [x] **iQ-L basic live read/write stress validation**: Added
   `examples/iql_live_stress.rs` and ran it against the live iQ-L over TCP
@@ -119,7 +119,7 @@ This file tracks active follow-up items for the SLMP Rust library.
     record also includes cross-stack direct read/write/restore, random
     read/write, word-only block read/write, bit-block NG behavior, mixed-block
     NG behavior, and read-only `U0\G10` Extended Specification checks. See
-    `docs/QCPU_RUNTIME_RANGE_VALIDATION_2026-05-15.md` and
+    maintainer archive and
     `../plc-comm-slmp-cross-verify/QCPU_CROSS_STACK_VALIDATION_2026-05-15.md`.
   - `LCPU` was live-checked on 2026-05-01: `Z` remains the spec-fixed
     `Z0-Z19` range, `ZR393215` read successfully, and `ZR393216` returned
@@ -140,7 +140,7 @@ This file tracks active follow-up items for the SLMP Rust library.
   bit-block NG behavior, mixed-block NG behavior, and read-only `U0\G10`
   Extended Specification checks across Python, Node-RED, .NET, Rust, and C++
   Minimal. See
-  `docs/QNU_RUNTIME_RANGE_VALIDATION_2026-05-15.md` and
+  maintainer archive and
   `../plc-comm-slmp-cross-verify/QNU_CROSS_STACK_VALIDATION_2026-05-15.md`.
 
 ## 2. Protocol Follow-Up
