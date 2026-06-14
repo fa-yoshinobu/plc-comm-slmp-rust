@@ -37,10 +37,6 @@ jobs:
         working-directory: plc-comm-slmp-rust
         run: cargo build --features cli --bin slmp_verify_client
 
-      - name: Build API docs
-        working-directory: plc-comm-slmp-rust
-        run: cargo doc --no-deps -p plc-comm-slmp-rust
-
   trigger-docs-rebuild:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: rust-core
