@@ -269,6 +269,16 @@ pub fn parse_target_auto_number(text: &str) -> Result<u32, SlmpError> {
         .map_err(|_| SlmpError::new("Invalid numeric text."))
 }
 
+fn parse_target_u8(text: &str, label: &str) -> Result<u8, SlmpError> {
+    let value = parse_target_auto_number(text)?;
+    u8::try_from(value).map_err(|_| SlmpError::new(format!("{label} must be 0..255.")))
+}
+
+fn parse_target_u16(text: &str, label: &str) -> Result<u16, SlmpError> {
+    let value = parse_target_auto_number(text)?;
+    u16::try_from(value).map_err(|_| SlmpError::new(format!("{label} must be 0..65535.")))
+}
+
 pub fn parse_named_target(text: &str) -> Result<SlmpNamedTarget, SlmpError> {
     let token = text.trim();
     if token.eq_ignore_ascii_case("SELF") {
@@ -297,10 +307,10 @@ pub fn parse_named_target(text: &str) -> Result<SlmpNamedTarget, SlmpError> {
         return Ok(SlmpNamedTarget {
             name: parts[0].to_string(),
             target: SlmpTargetAddress {
-                network: parse_target_auto_number(parts[1])? as u8,
-                station: parse_target_auto_number(parts[2])? as u8,
-                module_io: parse_target_auto_number(parts[3])? as u16,
-                multidrop: parse_target_auto_number(parts[4])? as u8,
+                network: parse_target_u8(parts[1], "network")?,
+                station: parse_target_u8(parts[2], "station")?,
+                module_io: parse_target_u16(parts[3], "module_io")?,
+                multidrop: parse_target_u8(parts[4], "multidrop")?,
             },
         });
     }
@@ -320,7 +330,7 @@ pub fn device_spec_size(mode: SlmpCompatibilityMode) -> usize {
 mod tests {
     use super::{
         SlmpAddress, parse_device, parse_device_for_family_hint, parse_device_for_plc_profile,
-        parse_named_address,
+        parse_named_address, parse_named_target,
     };
     use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile};
 
@@ -392,6 +402,34 @@ mod tests {
             "unexpected error: {}",
             error.message
         );
+    }
+
+    #[test]
+    fn named_target_accepts_numeric_boundaries() {
+        let parsed = parse_named_target("PLC,0xFF,255,0xFFFF,0").unwrap();
+
+        assert_eq!(parsed.name, "PLC");
+        assert_eq!(parsed.target.network, 0xFF);
+        assert_eq!(parsed.target.station, 255);
+        assert_eq!(parsed.target.module_io, 0xFFFF);
+        assert_eq!(parsed.target.multidrop, 0);
+    }
+
+    #[test]
+    fn named_target_rejects_out_of_range_fields_before_casting() {
+        for (target, label) in [
+            ("PLC,256,0,0,0", "network"),
+            ("PLC,0,256,0,0", "station"),
+            ("PLC,0,0,65536,0", "module_io"),
+            ("PLC,0,0,0,256", "multidrop"),
+        ] {
+            let error = parse_named_target(target).unwrap_err();
+            assert!(
+                error.message.contains(label),
+                "unexpected error for {target}: {}",
+                error.message
+            );
+        }
     }
 
     #[test]

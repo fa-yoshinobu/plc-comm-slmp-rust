@@ -1214,6 +1214,10 @@ impl ClientInner {
     }
 
     async fn remote_run(&mut self, force: bool, clear_mode: u16) -> Result<(), SlmpError> {
+        if clear_mode > 2 {
+            return Err(SlmpError::new("remote run clear_mode must be 0, 1, or 2."));
+        }
+
         let mode = if force { 0x03 } else { 0x01 };
         let payload = [
             mode,
