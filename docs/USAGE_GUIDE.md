@@ -122,9 +122,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = SlmpClient::connect(options).await?;
     let device = SlmpAddress::parse("D600")?;
 
+    let original = read_typed(&client, device, "U").await?;
     write_typed(&client, device, "U", &SlmpValue::U16(42)).await?;
     let value = read_typed(&client, device, "U").await?;
     println!("{:?}", value);
+    write_typed(&client, device, "U", &original).await?;
     client.close().await?;
 
     Ok(())
@@ -191,8 +193,8 @@ Use `.n` notation when reading through `read_named`, and use `write_bit_in_word`
 
 ```rust
 use plc_comm_slmp::{
-    read_named, write_bit_in_word, SlmpAddress, SlmpClient, SlmpConnectionOptions,
-    SlmpPlcProfile,
+    read_named, read_typed, write_bit_in_word, write_typed, SlmpAddress, SlmpClient,
+    SlmpConnectionOptions, SlmpPlcProfile,
 };
 
 #[tokio::main]
@@ -201,11 +203,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
-    write_bit_in_word(&client, SlmpAddress::parse("D50")?, 3, true).await?;
+    let word = SlmpAddress::parse("D50")?;
+    let original = read_typed(&client, word, "U").await?;
+    write_bit_in_word(&client, word, 3, true).await?;
 
     let addresses = vec!["D50.3".to_string()];
     let snapshot = read_named(&client, &addresses).await?;
     println!("{:?}", snapshot);
+    write_typed(&client, word, "U", &original).await?;
     client.close().await?;
 
     Ok(())

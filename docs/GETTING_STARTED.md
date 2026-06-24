@@ -84,9 +84,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = SlmpClient::connect(options).await?;
     let address = SlmpAddress::parse("D600")?;
 
+    let original = read_typed(&client, address, "U").await?;
     write_typed(&client, address, "U", &SlmpValue::U16(42)).await?;
     let value = read_typed(&client, address, "U").await?;
     println!("{:?}", value);
+    write_typed(&client, address, "U", &original).await?;
     client.close().await?;
 
     Ok(())
@@ -99,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 2. TCP port `1025` is open on your PLC Ethernet module or built-in Ethernet port.
 3. `SlmpPlcProfile::IqR` matches your real hardware, or you selected the correct variant from [profiles](PROFILES.md).
 4. A read from `D100` returns a `SlmpValue` without an SLMP end code error.
-5. Any write test uses a register reserved for testing.
+5. Any write test uses a register reserved for testing and restores the original value.
 
 ## If it does not work
 
