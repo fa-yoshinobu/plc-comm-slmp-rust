@@ -25,6 +25,15 @@ async fn cpu_operations_keep_remote_stop_on_manual_fixed_mode() {
 }
 
 #[tokio::test]
+async fn remote_run_rejects_invalid_clear_mode() {
+    let server = MultiShotServer::start(0).await.unwrap();
+    let client = connect(server.port).await;
+
+    let err = client.remote_run(false, 3).await.unwrap_err();
+    assert!(err.message.contains("clear_mode"));
+}
+
+#[tokio::test]
 async fn remote_reset_sends_fixed_reset_data() {
     let server = MultiShotServer::start(1).await.unwrap();
     let client = connect(server.port).await;
