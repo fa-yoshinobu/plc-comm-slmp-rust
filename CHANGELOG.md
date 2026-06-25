@@ -5,111 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+**Entry labels**
+
+- `Release`: Package/version metadata and publishing preparation.
+- `Library`: Runtime behavior, public API, protocol handling, or validation in the distributed library.
+- `Docs`: README, user guides, generated API docs, or other documentation-only changes.
+- `Samples`: Examples, sample flows, sample scripts, or sample applications.
+- `Tests`: Test suites, test fixtures, golden vectors, or verification data.
+- `Tooling`: Developer/operator command-line tools and helper utilities.
+- `CI`: Release checks, workflow scripts, or automation-only changes.
+
 ## [1.0.1] - 2026-06-25
 
 ### Changed
-- [Samples] Examples now require `SLMP_PLC_PROFILE`; they no longer default to `melsec:iq-r` when the PLC profile environment variable is omitted.
-- [Tooling] `slmp_bench_client` now requires `--plc-profile`; it no longer defaults to `melsec:iq-r`.
+- Release: Bumped crate metadata to `1.0.1`.
+- Samples: Examples now require `SLMP_PLC_PROFILE`; they no longer default to `melsec:iq-r` when the PLC profile environment variable is omitted.
+- Tooling: `slmp_bench_client` now requires `--plc-profile`; it no longer defaults to `melsec:iq-r`.
 
 ### Removed
-- [Samples] Removed the legacy `SLMP_PLC_FAMILY` and `SLMP_plc_profile` environment-variable aliases from the examples. Use the exact canonical `SLMP_PLC_PROFILE` name instead.
+- Samples: Removed the legacy `SLMP_PLC_FAMILY` and `SLMP_plc_profile` environment-variable aliases from the examples. Use the exact canonical `SLMP_PLC_PROFILE` name instead.
 
 ## [1.0.0] - 2026-06-24
 
 ### Changed
-- Bumped crate metadata, lockfile metadata, and the `slmp-node` workspace crate to `1.0.0` for the first stable release line.
+- Release: Bumped crate metadata, lockfile metadata, and the `slmp-node` workspace crate to `1.0.0` for the first stable release line.
 
 ### Fixed
-- Reject `remote_run` clear modes outside `0`, `1`, and `2` before building the SLMP request payload.
-- Validate named-target `network`, `station`, `module_io`, and `multidrop` fields before narrowing to `u8` or `u16`, preventing silent wraparound for out-of-range values.
-
-## [0.8.0] - 2026-06-14
-
-### Changed
-- Bumped release metadata to 0.8.0 for the unified PLC communication library release.
-
-## [0.1.11] - 2026-06-12
-
-### Changed
-- Removed the non-manual `remote_force_stop()` high-level helper; Remote STOP now exposes only the manual fixed request data `01 00`.
-- Restricted `SlmpPlcProfile::parse_label()` to canonical `melsec:...` profile names; short aliases such as `iq-r`, `iqr`, `q`, and `qnudvcpu` are now rejected.
-- Aligned Self Test loopback input validation with the manual: 1..960 bytes, ASCII `0`-`9`/`A`-`F` only.
-- Enabled TCP_NODELAY for TCP transport to avoid delayed-ACK latency spikes.
-- Enabled TCP keepalive for TCP transport by default (`SlmpConnectionOptions::tcp_keepalive`, default 30 seconds) so mobile clients fail faster after silent Wi-Fi reconnects or background disconnects.
-- Added manual point-limit preflight checks for continuous, random, block, memory, and helper-layer requests so oversized requests fail before transport.
-- Refreshed the README package example and included the Rust eyecatch image in the crate package.
-
-## [0.1.10] - 2026-06-12
-
-### Added
-- Added SLMP end-code name/message helpers for the full communication error-code table, and exposed them from `SlmpError`.
-
-### Changed
-- Removed `retry_mixed_on_error` from `SlmpBlockWriteOptions`; mixed block-write failures now return the PLC end code unchanged, and only explicit `split_mixed_blocks` sends separate block writes.
-- Guarded Extended Specification `G`/`HG` access before transport: `G` now requires a `U...` qualified module path, and `HG` is accepted only for `U3E0\HG` through `U3E3\HG` with the matching direct-memory code.
-
-## [0.1.9] - 2026-05-02
-
-### Changed
-- Bumped the library revision for README alignment.
-- Refreshed Cargo.lock dependency versions.
-
-## [0.1.8] - 2026-04-27
-
-### Fixed
-- Tightened SLMP device-name parsing so a matched device code with an invalid number fails immediately instead of checking shorter code candidates.
-- Added regression coverage for hexadecimal device numbers whose number text is entirely `A-F`.
-
-## [0.1.7] - 2026-04-27
-
-### Added
-- Added label array and label random read/write APIs, model types, tests, and `slmp_verify_client` command coverage.
-
-### Changed
-- Expanded the Rust cross-verify wrapper so label commands participate in the shared SLMP parity suite.
-
-## [0.1.6] - 2026-04-27
-
-### Changed
-- Tightened long-device route guards so `LTN/LSTN/LCN/LZ` avoid unsupported direct/raw word and dword paths, while supported random/named dword paths remain available.
-- Aligned `LCS/LCC` write validation with the random/named bit route policy.
-- Added UDP transport selection to `slmp_verify_client` for cross-library real-device validation.
-
-## [0.1.5] - 2026-04-20
-
-### Fixed
-- `slmp_verify_client` now parses named write values with the active `SlmpPlcFamily`, so `X`/`Y` addresses work in cross-verify named-write flows.
-
-### Changed
-- CI now builds `slmp_verify_client` with the required `cli` feature enabled.
-
-## [0.1.4] - 2026-04-14
-
-### Changed
-- The standard connection route now requires explicit `SlmpPlcFamily`, and the normal client path derives frame/profile defaults from that family instead of exposing profile selection as the application-facing route.
-- `read_device_range_catalog()` now follows the configured family directly, while profile probing remains a separate diagnostic helper.
-
-## [0.1.3] - 2026-04-14
-
-### Added
-- `SlmpPlcFamily` defaults and the family-driven high-level helper surface.
-
-### Changed
-- High-level string device parsing and device-range catalog reads now use explicit PLC-family rules. `X/Y` strings require explicit family, `iQ-F` uses octal, and other supported families use hexadecimal.
-
-## [0.1.2] - 2026-04-14
-
-### Added
-- Public device-range catalog support, connection-profile probing, and runnable examples for device-range lookup and CPU operation-state inspection.
-
-### Changed
-- Refreshed the README and docs so the new device-range and profile-probe helpers are documented alongside the existing client surface.
-
-## [0.1.1] - 2026-04-13
-
-### Added
-- Expanded README, address guide, recipe guide, and runnable examples for raw reads/writes, named helpers, advanced operations, and live device-matrix comparison.
-
-### Changed
-- Long timer and long retentive timer device handling now blocks unsupported direct-read paths and uses only the supported helper and block-read routes.
-- `LCS/LCC` now reject unsupported random, block, and monitor-registration commands so the Rust client matches the shared cross-library consistency rules.
+- Library: Reject `remote_run` clear modes outside `0`, `1`, and `2` before building the SLMP request payload.
+- Library: Validate named-target `network`, `station`, `module_io`, and `multidrop` fields before narrowing to `u8` or `u16`, preventing silent wraparound for out-of-range values.
