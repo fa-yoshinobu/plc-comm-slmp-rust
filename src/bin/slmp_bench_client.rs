@@ -397,7 +397,8 @@ impl BenchConfig {
         };
         let port = parse_option(&args, "--port", default_port)?;
         let plc_profile = SlmpPlcProfile::parse_label(
-            &option(&args, "--plc-profile").ok_or_else(|| "--plc-profile is required".to_string())?,
+            &option(&args, "--plc-profile")
+                .ok_or_else(|| "--plc-profile is required".to_string())?,
         )
         .ok_or_else(|| "unsupported --plc-profile".to_string())?;
         let operation_timeout_ms: u64 = parse_option(&args, "--operation-timeout-ms", "2000")?;
