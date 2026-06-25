@@ -168,7 +168,7 @@ async fn check_word_device(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("extended_device_coverage");
+    print_connection_banner("extended_device_coverage")?;
     let options = options_from_env()?;
     let client = SlmpClient::connect(options).await?;
     let remote_password = std::env::var("SLMP_REMOTE_PASSWORD")
@@ -294,7 +294,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         env_string("SLMP_HOST", "192.168.250.100")
     ));
     report.push_str(&format!("- Port: {}\n", env_port_label()));
-    report.push_str(&format!("- PLC profile: {}\n", env_profile_label()));
+    report.push_str(&format!("- PLC profile: {}\n", env_profile_label()?));
     report.push_str(&format!(
         "- Transport: {}\n",
         env_string("SLMP_TRANSPORT", "tcp")

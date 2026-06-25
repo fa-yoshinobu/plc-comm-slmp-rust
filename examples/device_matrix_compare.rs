@@ -989,7 +989,7 @@ async fn compare_ext_word_device(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("device_matrix_compare");
+    print_connection_banner("device_matrix_compare")?;
     let options = options_from_env()?;
     let mode = options.compatibility_mode();
     let client = SlmpClient::connect(options).await?;

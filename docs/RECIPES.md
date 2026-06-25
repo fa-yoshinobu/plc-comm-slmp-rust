@@ -8,7 +8,7 @@ These examples are intended to be runnable as-is with environment variables.
 | --- | --- | --- |
 | `SLMP_HOST` | `127.0.0.1` | PLC or mock server host |
 | `SLMP_PORT` | `1025` | TCP/UDP port |
-| `SLMP_PLC_PROFILE` | `melsec:iq-r` | `melsec:iq-f`, `melsec:iq-r`, `melsec:iq-l`, `melsec:mx-f`, `melsec:mx-r`, `melsec:qcpu`, `melsec:lcpu`, `melsec:qnu`, or `melsec:qnudv` |
+| `SLMP_PLC_PROFILE` | required | `melsec:iq-f`, `melsec:iq-r`, `melsec:iq-l`, `melsec:mx-f`, `melsec:mx-r`, `melsec:qcpu`, `melsec:lcpu`, `melsec:qnu`, or `melsec:qnudv` |
 | `SLMP_TRANSPORT` | `tcp` | `tcp` or `udp` |
 | `SLMP_TARGET` | unset | `SELF`, `SELF-CPU1`, or `NAME,NET,ST,IO,MD` |
 | `SLMP_NETWORK` / `SLMP_STATION` | unset | Other-station target, for example `SLMP_NETWORK=1 SLMP_STATION=2` |
@@ -16,8 +16,6 @@ These examples are intended to be runnable as-is with environment variables.
 | `SLMP_TIMEOUT_MS` | `3000` | socket timeout |
 | `SLMP_MONITORING_TIMER` | `16` | SLMP monitoring timer |
 | `SLMP_ENABLE_WRITES` | `0` | set `1` to enable write examples |
-
-`SLMP_PLC_FAMILY` is still accepted by the examples as a compatibility alias, but new documentation should use `SLMP_PLC_PROFILE`.
 
 ## Raw Read / Write
 

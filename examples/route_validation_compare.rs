@@ -10,7 +10,7 @@ fn make_error(message: impl Into<String>) -> Box<dyn Error> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("route_validation_compare");
+    print_connection_banner("route_validation_compare")?;
     let options = options_from_env()?;
     let client = SlmpClient::connect(options).await?;
     let report = run_route_validation_compare(

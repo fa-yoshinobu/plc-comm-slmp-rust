@@ -7,7 +7,7 @@ use std::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("device_range_catalog");
+    print_connection_banner("device_range_catalog")?;
     let options = options_from_env()?;
     let client = plc_comm_slmp::SlmpClient::connect(options).await?;
     let catalog = client.read_device_range_catalog().await?;

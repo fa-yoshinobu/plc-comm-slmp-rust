@@ -17,7 +17,7 @@ fn print_snapshot(label: &str, snapshot: &NamedAddress) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("named_helpers");
+    print_connection_banner("named_helpers")?;
     let client = connect_from_env().await?;
 
     // Named reads let you collect mixed word, float, bit-in-word, and long-family values.

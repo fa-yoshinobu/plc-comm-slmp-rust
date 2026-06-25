@@ -15,7 +15,7 @@ fn parse_u16_csv(key: &str, default: &str) -> Result<Vec<u16>, Box<dyn Error>> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("raw_read_write");
+    print_connection_banner("raw_read_write")?;
     let client = connect_from_env().await?;
 
     // Start with a plain data-register read before trying any writes.

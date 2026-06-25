@@ -7,6 +7,8 @@ use plc_comm_slmp::{
 use std::env;
 use std::error::Error;
 
+const PLC_PROFILE_REQUIRED_MESSAGE: &str = "SLMP_PLC_PROFILE is required. Use melsec:iq-f, melsec:iq-r, melsec:iq-l, melsec:mx-f, melsec:mx-r, melsec:qcpu, melsec:lcpu, melsec:qnu, or melsec:qnudv.";
+
 pub fn env_string(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
 }
@@ -18,11 +20,14 @@ pub fn env_bool(key: &str) -> bool {
     )
 }
 
-pub fn env_profile_label() -> String {
-    env::var("SLMP_PLC_PROFILE")
-        .or_else(|_| env::var("SLMP_plc_profile"))
-        .or_else(|_| env::var("SLMP_PLC_FAMILY"))
-        .unwrap_or_else(|_| "melsec:iq-r".to_string())
+pub fn env_profile_label() -> Result<String, Box<dyn Error>> {
+    env::var("SLMP_PLC_PROFILE").map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            PLC_PROFILE_REQUIRED_MESSAGE.to_string(),
+        )
+        .into()
+    })
 }
 
 pub fn env_transport_label() -> String {
@@ -45,7 +50,7 @@ pub fn env_csv(key: &str, default: &str) -> Vec<String> {
 
 pub fn options_from_env() -> Result<SlmpConnectionOptions, Box<dyn Error>> {
     let host = env_string("SLMP_HOST", "192.168.250.100");
-    let plc_profile = parse_plc_profile(&env_profile_label())?;
+    let plc_profile = parse_plc_profile(&env_profile_label()?)?;
     let mut options = SlmpConnectionOptions::new(host, plc_profile);
     let transport = env_transport_label();
     options.port = env_port_label().parse()?;
@@ -91,8 +96,8 @@ pub async fn connect_from_env() -> Result<SlmpClient, Box<dyn Error>> {
     Ok(SlmpClient::connect(options_from_env()?).await?)
 }
 
-pub fn print_connection_banner(example: &str) {
-    let plc_profile = env_profile_label();
+pub fn print_connection_banner(example: &str) -> Result<(), Box<dyn Error>> {
+    let plc_profile = env_profile_label()?;
     let profile = SlmpPlcProfile::parse_label(&plc_profile).map(SlmpPlcProfile::defaults);
     println!(
         "{example}: host={} port={} plc_profile={} frame={} compatibility={} transport={} target={}",
@@ -108,6 +113,7 @@ pub fn print_connection_banner(example: &str) {
         env_transport_label(),
         format_env_target()
     );
+    Ok(())
 }
 
 fn format_env_target() -> String {
@@ -133,8 +139,7 @@ fn parse_plc_profile(value: &str) -> Result<SlmpPlcProfile, Box<dyn Error>> {
     SlmpPlcProfile::parse_label(value).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "SLMP_PLC_PROFILE is required. Use melsec:iq-f, melsec:iq-r, melsec:iq-l, melsec:mx-f, melsec:mx-r, melsec:qcpu, melsec:lcpu, melsec:qnu, or melsec:qnudv."
-                .to_string(),
+            PLC_PROFILE_REQUIRED_MESSAGE.to_string(),
         )
         .into()
     })

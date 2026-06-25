@@ -10,7 +10,7 @@ fn make_error(message: impl Into<String>) -> Box<dyn Error> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("device_range_sample_compare");
+    print_connection_banner("device_range_sample_compare")?;
     let sample_points = env_string("SLMP_SAMPLE_POINTS", "10").parse::<usize>()?;
     let only = env_csv("SLMP_SAMPLE_ONLY", "");
     let options = options_from_env()?;

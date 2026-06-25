@@ -26,7 +26,7 @@ fn build_extension_spec(device: &plc_comm_slmp::SlmpQualifiedDeviceAddress) -> S
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print_connection_banner("advanced_operations");
+    print_connection_banner("advanced_operations")?;
     let client = connect_from_env().await?;
 
     // Type-name support is useful when the selected PLC route returns model text.
