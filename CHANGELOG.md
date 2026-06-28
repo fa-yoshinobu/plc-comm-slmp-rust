@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Tooling`: Developer/operator command-line tools and helper utilities.
 - `CI`: Release checks, workflow scripts, or automation-only changes.
 
+## [Unreleased] - 2026-06-28
+
+### Fixed
+- Library: `BIT_IN_WORD` now requires an explicit `.0` through `.F` bit index instead of treating a missing bit index as bit 0.
+- Tooling: `slmp_verify_client` now rejects invalid numeric CLI input for ports, targets, counts, write values, block values, label byte values, and label array options instead of silently defaulting or narrowing them.
+- Tooling: `slmp_verify_client` now rejects out-of-range values before converting them to `u8`, `u16`, or `u32`.
+- Tooling: `slmp_verify_client` now accepts only `0` or `1` for bit write values.
+
+### Tests
+- Tests: Added coverage for rejecting bit-in-word named addresses without an explicit bit index.
+- Tests: Added `slmp_verify_client` coverage for invalid target numbers, invalid count values, and out-of-range label byte values.
+
 ## [1.0.1] - 2026-06-25
 
 ### Changed

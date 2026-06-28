@@ -49,7 +49,6 @@ struct NamedReadEntry {
     address: String,
     device: SlmpDeviceAddress,
     dtype: String,
-    bit_index: Option<u8>,
     bit_word_read: Option<BitWordRead>,
     long_timer_read: Option<LongTimerReadSpec>,
 }
@@ -375,13 +374,8 @@ pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<
         validate_long_timer_entry(address, device, &resolved_dtype)?;
         if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
-            write_bit_in_word(
-                client,
-                device,
-                parts.bit_index.unwrap_or(0),
-                scalar_to_bool(value)?,
-            )
-            .await?;
+            let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
+            write_bit_in_word(client, device, bit_index, scalar_to_bool(value)?).await?;
             continue;
         }
         write_typed(client, device, &resolved_dtype, value).await?;
@@ -439,13 +433,11 @@ fn compile_read_plan(
 
         let bit_word_read = if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
+            let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
             if device.code.is_word_batchable() && seen_word_devices.insert(device) {
                 word_devices.push(device);
             }
-            Some(BitWordRead {
-                device,
-                bit_index: parts.bit_index.unwrap_or(0),
-            })
+            Some(BitWordRead { device, bit_index })
         } else if dtype == "BIT" {
             let bit_word_read = plain_bit_word_read(device);
             if let Some(read) = bit_word_read
@@ -472,7 +464,6 @@ fn compile_read_plan(
             address: address.clone(),
             device,
             dtype,
-            bit_index: parts.bit_index,
             bit_word_read,
             long_timer_read: long_timer_read_spec(device.code),
         });
@@ -524,10 +515,9 @@ async fn read_named_compiled(
                 decode_long_like_value(&entry.dtype, spec, long_timer_cache.get(&key).unwrap())?
             }
         } else if entry.dtype == "BIT_IN_WORD" {
-            let read = entry.bit_word_read.unwrap_or(BitWordRead {
-                device: entry.device,
-                bit_index: entry.bit_index.unwrap_or(0),
-            });
+            let read = entry
+                .bit_word_read
+                .ok_or_else(|| missing_bit_in_word_index_error(&entry.address))?;
             let word = if let Some(word) = word_values.get(&read.device) {
                 *word
             } else {
@@ -725,6 +715,16 @@ fn validate_bit_in_word_target(address: &str, device: SlmpDeviceAddress) -> Resu
         )));
     }
     Ok(())
+}
+
+fn require_bit_in_word_index(address: &str, bit_index: Option<u8>) -> Result<u8, SlmpError> {
+    bit_index.ok_or_else(|| missing_bit_in_word_index_error(address))
+}
+
+fn missing_bit_in_word_index_error(address: &str) -> SlmpError {
+    SlmpError::new(format!(
+        "Address '{address}' uses BIT_IN_WORD but no bit index was specified. Use '.0' through '.F' notation."
+    ))
 }
 
 fn resolve_dtype_for_address(
@@ -925,7 +925,14 @@ pub fn parse_scalar_for_named_with_family(
 ) -> Result<SlmpValue, SlmpError> {
     let parts = parse_named_address(address)?;
     let device = parse_device_for_family_hint(&parts.base, plc_profile)?;
-    if parts.bit_index.is_some() || device.code.is_bit_device() {
+    if parts.dtype == "BIT_IN_WORD" {
+        require_bit_in_word_index(address, parts.bit_index)?;
+        return Ok(SlmpValue::Bool(matches!(
+            value,
+            "1" | "true" | "TRUE" | "True"
+        )));
+    }
+    if device.code.is_bit_device() {
         return Ok(SlmpValue::Bool(matches!(
             value,
             "1" | "true" | "TRUE" | "True"

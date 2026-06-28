@@ -57,9 +57,16 @@ impl SlmpAddress {
 pub fn parse_named_address(address: &str) -> Result<NamedAddressParts, SlmpError> {
     let trimmed = address.trim();
     if let Some((base, dtype)) = trimmed.split_once(':') {
+        let dtype = dtype.trim().to_uppercase();
+        if dtype == "BIT_IN_WORD" {
+            return Err(SlmpError::new(
+                "BIT_IN_WORD requires an explicit bit index. Use '.0' through '.F' notation.",
+            ));
+        }
+
         return Ok(NamedAddressParts {
             base: base.trim().to_string(),
-            dtype: dtype.trim().to_uppercase(),
+            dtype,
             bit_index: None,
         });
     }
@@ -439,5 +446,15 @@ mod tests {
         assert_eq!(parsed.bit_index, Some(13));
 
         assert!(parse_named_address("D100.10").is_err());
+    }
+
+    #[test]
+    fn named_address_bit_in_word_requires_explicit_bit_index() {
+        let error = parse_named_address("D100:BIT_IN_WORD").unwrap_err();
+        assert!(
+            error.message.contains("explicit bit index"),
+            "unexpected error: {}",
+            error.message
+        );
     }
 }
