@@ -17,7 +17,13 @@ async fn main() {
     }
 
     let host = args[1].clone();
-    let port: u16 = args[2].parse().unwrap_or(1025);
+    let port = match parse_cli_u16(&args[2], "port") {
+        Ok(port) => port,
+        Err(error) => {
+            println!("{}", json!({"status": "error", "message": error.message}));
+            return;
+        }
+    };
     let command = args[3].as_str();
     let address = args.get(4).cloned().unwrap_or_default();
     let mut extras = Vec::new();
@@ -67,15 +73,18 @@ async fn main() {
             }
             "--target" => {
                 index += 1;
-                if let Some(value) = args.get(index) {
-                    let parts: Vec<_> = value.split(',').collect();
-                    if parts.len() == 4 {
-                        target = Some(SlmpTargetAddress {
-                            network: parse_target_auto_number(parts[0]).unwrap_or(0) as u8,
-                            station: parse_target_auto_number(parts[1]).unwrap_or(0xFF) as u8,
-                            module_io: parse_target_auto_number(parts[2]).unwrap_or(0x03FF) as u16,
-                            multidrop: parse_target_auto_number(parts[3]).unwrap_or(0) as u8,
-                        });
+                match args.get(index).map(String::as_str).map(parse_target_flag) {
+                    Some(Ok(parsed_target)) => target = Some(parsed_target),
+                    Some(Err(error)) => {
+                        println!("{}", json!({"status": "error", "message": error.message}));
+                        return;
+                    }
+                    None => {
+                        println!(
+                            "{}",
+                            json!({"status": "error", "message": "--target requires network,station,module_io,multidrop."})
+                        );
+                        return;
                     }
                 }
             }
@@ -215,10 +224,10 @@ fn target_from_network_station(
         plc_comm_slmp::SlmpError::new("--network and --station must be specified together.")
     })?;
     Ok(SlmpTargetAddress {
-        network: parse_target_auto_number(network)? as u8,
-        station: parse_target_auto_number(station)? as u8,
-        module_io: parse_target_auto_number(module_io.unwrap_or("0x03FF"))? as u16,
-        multidrop: parse_target_auto_number(multidrop.unwrap_or("0x00"))? as u8,
+        network: parse_auto_u8(network, "network")?,
+        station: parse_auto_u8(station, "station")?,
+        module_io: parse_auto_u16(module_io.unwrap_or("0x03FF"), "module_io")?,
+        multidrop: parse_auto_u8(multidrop.unwrap_or("0x00"), "multidrop")?,
     })
 }
 
@@ -240,10 +249,7 @@ async fn run_command(
     let output = match command {
         "read" => {
             let device = SlmpAddress::parse(address)?;
-            let count = extras
-                .first()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(1);
+            let count = parse_optional_u16(extras.first().map(String::as_str), 1, "read count")?;
             match mode {
                 "bit" => {
                     json!({"status":"success","values": client.read_bits(device, count).await?.into_iter().map(u8::from).collect::<Vec<_>>() })
@@ -263,28 +269,31 @@ async fn run_command(
             let device = SlmpAddress::parse(address)?;
             match mode {
                 "bit" => {
-                    let values: Vec<bool> = extras.iter().map(|value| value == "1").collect();
+                    let values: Vec<bool> = extras
+                        .iter()
+                        .map(|value| parse_bit_value(value, "bit value"))
+                        .collect::<Result<_, _>>()?;
                     client.write_bits(device, &values).await?;
                 }
                 "dword" => {
                     let values: Vec<u32> = extras
                         .iter()
-                        .map(|value| value.parse().unwrap_or(0))
-                        .collect();
+                        .map(|value| parse_cli_u32(value, "dword value"))
+                        .collect::<Result<_, _>>()?;
                     client.write_dwords(device, &values).await?;
                 }
                 "float" => {
                     let values: Vec<f32> = extras
                         .iter()
-                        .map(|value| value.parse().unwrap_or(0.0))
-                        .collect();
+                        .map(|value| parse_cli_f32(value, "float value"))
+                        .collect::<Result<_, _>>()?;
                     client.write_float32s(device, &values).await?;
                 }
                 _ => {
                     let values: Vec<u16> = extras
                         .iter()
-                        .map(|value| value.parse().unwrap_or(0))
-                        .collect();
+                        .map(|value| parse_cli_u16(value, "word value"))
+                        .collect::<Result<_, _>>()?;
                     client.write_words(device, &values).await?;
                 }
             }
@@ -351,11 +360,21 @@ async fn run_command(
         "random-write-words" => {
             let word_entries: Vec<_> = parse_kv_pairs(words)?
                 .into_iter()
-                .map(|(device, value)| Ok((SlmpAddress::parse(&device)?, value as u16)))
+                .map(|(device, value)| {
+                    Ok((
+                        SlmpAddress::parse(&device)?,
+                        i64_to_u16(value, "random word value")?,
+                    ))
+                })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
             let dword_entries: Vec<_> = parse_kv_pairs(dwords)?
                 .into_iter()
-                .map(|(device, value)| Ok((SlmpAddress::parse(&device)?, value as u32)))
+                .map(|(device, value)| {
+                    Ok((
+                        SlmpAddress::parse(&device)?,
+                        i64_to_u32(value, "random dword value")?,
+                    ))
+                })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
             client
                 .write_random_words(&word_entries, &dword_entries)
@@ -365,7 +384,12 @@ async fn run_command(
         "random-write-bits" => {
             let bit_entries: Vec<_> = parse_kv_pairs(bits)?
                 .into_iter()
-                .map(|(device, value)| Ok((SlmpAddress::parse(&device)?, value != 0)))
+                .map(|(device, value)| {
+                    Ok((
+                        SlmpAddress::parse(&device)?,
+                        i64_to_bit(value, "random bit value")?,
+                    ))
+                })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
             client.write_random_bits(&bit_entries).await?;
             json!({"status":"success"})
@@ -376,7 +400,7 @@ async fn run_command(
                 .map(|(device, count)| {
                     Ok(SlmpBlockRead {
                         device: SlmpAddress::parse(&device)?,
-                        points: count as u16,
+                        points: i64_to_u16(count, "word block count")?,
                     })
                 })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
@@ -385,7 +409,7 @@ async fn run_command(
                 .map(|(device, count)| {
                     Ok(SlmpBlockRead {
                         device: SlmpAddress::parse(&device)?,
-                        points: count as u16,
+                        points: i64_to_u16(count, "bit block count")?,
                     })
                 })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
@@ -398,7 +422,10 @@ async fn run_command(
                 .map(|(device, values)| {
                     Ok(SlmpBlockWrite {
                         device: SlmpAddress::parse(&device)?,
-                        values: values.into_iter().map(|value| value as u16).collect(),
+                        values: values
+                            .into_iter()
+                            .map(|value| i64_to_u16(value, "word block value"))
+                            .collect::<Result<_, _>>()?,
                     })
                 })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
@@ -407,7 +434,10 @@ async fn run_command(
                 .map(|(device, values)| {
                     Ok(SlmpBlockWrite {
                         device: SlmpAddress::parse(&device)?,
-                        values: values.into_iter().map(|value| value as u16).collect(),
+                        values: values
+                            .into_iter()
+                            .map(|value| i64_to_u16(value, "bit block value"))
+                            .collect::<Result<_, _>>()?,
                     })
                 })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
@@ -426,10 +456,8 @@ async fn run_command(
         }
         "memory-read" => {
             let head = parse_target_auto_number(address)?;
-            let count = extras
-                .first()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(1);
+            let count =
+                parse_optional_u16(extras.first().map(String::as_str), 1, "memory read count")?;
             let values = client.memory_read_words(head, count).await?;
             json!({"status":"success","values": values})
         }
@@ -437,17 +465,18 @@ async fn run_command(
             let head = parse_target_auto_number(address)?;
             let values: Vec<u16> = extras
                 .iter()
-                .map(|value| value.parse().unwrap_or(0))
-                .collect();
+                .map(|value| parse_cli_u16(value, "memory write value"))
+                .collect::<Result<_, _>>()?;
             client.memory_write_words(head, &values).await?;
             json!({"status":"success"})
         }
         "extend-unit-read" => {
             let (module_no, head) = parse_module_head(address)?;
-            let count = extras
-                .first()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(1);
+            let count = parse_optional_u16(
+                extras.first().map(String::as_str),
+                1,
+                "extend unit read count",
+            )?;
             let values = client
                 .extend_unit_read_words(head, count, module_no)
                 .await?;
@@ -457,8 +486,8 @@ async fn run_command(
             let (module_no, head) = parse_module_head(address)?;
             let values: Vec<u16> = extras
                 .iter()
-                .map(|value| value.parse().unwrap_or(0))
-                .collect();
+                .map(|value| parse_cli_u16(value, "extend unit write value"))
+                .collect::<Result<_, _>>()?;
             client
                 .extend_unit_write_words(head, module_no, &values)
                 .await?;
@@ -470,7 +499,7 @@ async fn run_command(
             json!({"status":"success","values": results.into_iter().map(|item| item.data).collect::<Vec<_>>()})
         }
         "label-random-write" => {
-            let data = parse_byte_values(extras);
+            let data = parse_byte_values(extras)?;
             let points = parse_label_names(address)
                 .into_iter()
                 .map(|label| SlmpLabelRandomWritePoint {
@@ -487,7 +516,7 @@ async fn run_command(
             json!({"status":"success","values": results.into_iter().map(|item| item.data).collect::<Vec<_>>()})
         }
         "label-array-write" => {
-            let data = parse_byte_values(extras);
+            let data = parse_byte_values(extras)?;
             let points = parse_array_label_read_points(address)?
                 .into_iter()
                 .map(|point| SlmpLabelArrayWritePoint {
@@ -502,10 +531,8 @@ async fn run_command(
         }
         "read-ext" => {
             let device = parse_qualified_device(address)?;
-            let count = extras
-                .first()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(1);
+            let count =
+                parse_optional_u16(extras.first().map(String::as_str), 1, "extended read count")?;
             let extension = SlmpExtensionSpec::default();
             match mode {
                 "bit" => {
@@ -529,8 +556,8 @@ async fn run_command(
                 _ => {
                     let values: Vec<u16> = extras
                         .iter()
-                        .map(|value| value.parse().unwrap_or(0))
-                        .collect();
+                        .map(|value| parse_cli_u16(value, "extended write value"))
+                        .collect::<Result<_, _>>()?;
                     client
                         .write_words_extended(device, &values, extension)
                         .await?;
@@ -553,7 +580,10 @@ fn parse_kv_pairs(text: &str) -> Result<Vec<(String, i64)>, plc_comm_slmp::SlmpE
             let (key, value) = item
                 .split_once('=')
                 .ok_or_else(|| plc_comm_slmp::SlmpError::new("Invalid key/value pair."))?;
-            Ok((key.trim().to_string(), value.trim().parse().unwrap_or(0)))
+            Ok((
+                key.trim().to_string(),
+                parse_cli_i64(value.trim(), "key/value number")?,
+            ))
         })
         .collect()
 }
@@ -573,8 +603,8 @@ fn parse_dev_values_pairs(text: &str) -> Result<Vec<(String, Vec<i64>)>, plc_com
                 .ok_or_else(|| plc_comm_slmp::SlmpError::new("Invalid device/values pair."))?;
             let values = values
                 .split(':')
-                .map(|value| value.trim().parse().unwrap_or(0))
-                .collect();
+                .map(|value| parse_cli_i64(value.trim(), "device value"))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok((key.trim().to_string(), values))
         })
         .collect()
@@ -607,6 +637,112 @@ fn parse_named_updates(
     Ok(updates)
 }
 
+fn parse_cli_u8(value: &str, field: &str) -> Result<u8, plc_comm_slmp::SlmpError> {
+    value
+        .parse()
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("Invalid {field}: '{value}'.")))
+}
+
+fn parse_cli_u16(value: &str, field: &str) -> Result<u16, plc_comm_slmp::SlmpError> {
+    value
+        .parse()
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("Invalid {field}: '{value}'.")))
+}
+
+fn parse_cli_u32(value: &str, field: &str) -> Result<u32, plc_comm_slmp::SlmpError> {
+    value
+        .parse()
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("Invalid {field}: '{value}'.")))
+}
+
+fn parse_cli_i64(value: &str, field: &str) -> Result<i64, plc_comm_slmp::SlmpError> {
+    value
+        .parse()
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("Invalid {field}: '{value}'.")))
+}
+
+fn parse_cli_f32(value: &str, field: &str) -> Result<f32, plc_comm_slmp::SlmpError> {
+    value
+        .parse()
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("Invalid {field}: '{value}'.")))
+}
+
+fn parse_bit_value(value: &str, field: &str) -> Result<bool, plc_comm_slmp::SlmpError> {
+    match value.trim() {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => Err(plc_comm_slmp::SlmpError::new(format!(
+            "Invalid {field}: '{value}'. Use 0 or 1."
+        ))),
+    }
+}
+
+fn i64_to_u16(value: i64, field: &str) -> Result<u16, plc_comm_slmp::SlmpError> {
+    u16::try_from(value)
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("{field} is out of range: '{value}'.")))
+}
+
+fn i64_to_u32(value: i64, field: &str) -> Result<u32, plc_comm_slmp::SlmpError> {
+    u32::try_from(value)
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("{field} is out of range: '{value}'.")))
+}
+
+fn i64_to_bit(value: i64, field: &str) -> Result<bool, plc_comm_slmp::SlmpError> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(plc_comm_slmp::SlmpError::new(format!(
+            "{field} must be 0 or 1: '{value}'."
+        ))),
+    }
+}
+
+fn parse_optional_u8(
+    value: Option<&str>,
+    default: u8,
+    field: &str,
+) -> Result<u8, plc_comm_slmp::SlmpError> {
+    value.map_or(Ok(default), |value| parse_cli_u8(value, field))
+}
+
+fn parse_optional_u16(
+    value: Option<&str>,
+    default: u16,
+    field: &str,
+) -> Result<u16, plc_comm_slmp::SlmpError> {
+    value.map_or(Ok(default), |value| parse_cli_u16(value, field))
+}
+
+fn parse_auto_u8(value: &str, field: &str) -> Result<u8, plc_comm_slmp::SlmpError> {
+    let number = parse_target_auto_number(value)
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("Invalid {field}: '{value}'.")))?;
+    u8::try_from(number)
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("{field} is out of range: '{value}'.")))
+}
+
+fn parse_auto_u16(value: &str, field: &str) -> Result<u16, plc_comm_slmp::SlmpError> {
+    let number = parse_target_auto_number(value)
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("Invalid {field}: '{value}'.")))?;
+    u16::try_from(number)
+        .map_err(|_| plc_comm_slmp::SlmpError::new(format!("{field} is out of range: '{value}'.")))
+}
+
+fn parse_target_flag(value: &str) -> Result<SlmpTargetAddress, plc_comm_slmp::SlmpError> {
+    let parts: Vec<_> = value.split(',').map(str::trim).collect();
+    if parts.len() != 4 || parts.iter().any(|part| part.is_empty()) {
+        return Err(plc_comm_slmp::SlmpError::new(
+            "--target requires network,station,module_io,multidrop.",
+        ));
+    }
+
+    Ok(SlmpTargetAddress {
+        network: parse_auto_u8(parts[0], "target network")?,
+        station: parse_auto_u8(parts[1], "target station")?,
+        module_io: parse_auto_u16(parts[2], "target module_io")?,
+        multidrop: parse_auto_u8(parts[3], "target multidrop")?,
+    })
+}
+
 fn parse_device_list(
     text: &str,
 ) -> Result<Vec<plc_comm_slmp::SlmpDeviceAddress>, plc_comm_slmp::SlmpError> {
@@ -620,7 +756,7 @@ fn parse_device_list(
 
 fn parse_module_head(text: &str) -> Result<(u16, u32), plc_comm_slmp::SlmpError> {
     let parts: Vec<_> = text.split(':').collect();
-    let module_no = parse_target_auto_number(parts[0])? as u16;
+    let module_no = parse_auto_u16(parts[0], "module number")?;
     let head = if parts.len() > 1 {
         parse_target_auto_number(parts[1])?
     } else {
@@ -651,22 +787,51 @@ fn parse_array_label_read_points(
             }
             Ok(SlmpLabelArrayReadPoint {
                 label: parts[0].to_string(),
-                unit_specification: parts
-                    .get(1)
-                    .and_then(|value| value.parse::<u8>().ok())
-                    .unwrap_or(0),
-                array_data_length: parts
-                    .get(2)
-                    .and_then(|value| value.parse::<u16>().ok())
-                    .unwrap_or(1),
+                unit_specification: parse_optional_u8(
+                    parts.get(1).copied(),
+                    0,
+                    "label array unit specification",
+                )?,
+                array_data_length: parse_optional_u16(
+                    parts.get(2).copied(),
+                    1,
+                    "label array data length",
+                )?,
             })
         })
         .collect()
 }
 
-fn parse_byte_values(values: &[String]) -> Vec<u8> {
+fn parse_byte_values(values: &[String]) -> Result<Vec<u8>, plc_comm_slmp::SlmpError> {
     values
         .iter()
-        .map(|value| parse_target_auto_number(value).unwrap_or(0) as u8)
+        .map(|value| parse_auto_u8(value, "byte value"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_byte_values, parse_optional_u16, parse_target_flag};
+
+    #[test]
+    fn target_flag_rejects_invalid_numbers() {
+        let error = parse_target_flag("bad,255,0x03FF,0").unwrap_err();
+
+        assert!(error.message.contains("Invalid target network"));
+    }
+
+    #[test]
+    fn optional_count_rejects_invalid_present_value() {
+        let error = parse_optional_u16(Some("abc"), 1, "read count").unwrap_err();
+
+        assert!(error.message.contains("Invalid read count"));
+    }
+
+    #[test]
+    fn byte_values_reject_out_of_range_values() {
+        let values = vec!["256".to_string()];
+        let error = parse_byte_values(&values).unwrap_err();
+
+        assert!(error.message.contains("byte value is out of range"));
+    }
 }
