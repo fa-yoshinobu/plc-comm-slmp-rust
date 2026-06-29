@@ -18,7 +18,10 @@ fn end_code_messages_are_not_embedded() {
     assert_eq!(end_code_message_en(0x1080), None);
     assert_eq!(end_code_message_ja(0x1080), None);
     assert_eq!(end_code_message(0xC201, SlmpEndCodeLanguage::English), None);
-    assert_eq!(end_code_message(0xC201, SlmpEndCodeLanguage::Japanese), None);
+    assert_eq!(
+        end_code_message(0xC201, SlmpEndCodeLanguage::Japanese),
+        None
+    );
 }
 
 #[test]

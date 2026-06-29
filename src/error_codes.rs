@@ -42,7 +42,7 @@ pub fn end_code_name(end_code: u16) -> &'static str {
 
     let generated = Box::leak(end_code_key(end_code).into_boxed_str());
     if let Ok(mut guard) = cache.lock() {
-        *guard.entry(end_code).or_insert(generated)
+        guard.entry(end_code).or_insert(generated)
     } else {
         generated
     }
@@ -69,10 +69,7 @@ pub fn end_code_message_ja(_end_code: u16) -> Option<&'static str> {
 /// Message text is not embedded in this crate.  The language parameter is kept
 /// for source compatibility; callers that need text should resolve
 /// [`end_code_key`] in an application-owned catalog.
-pub fn end_code_message(
-    end_code: u16,
-    _language: SlmpEndCodeLanguage,
-) -> Option<&'static str> {
+pub fn end_code_message(end_code: u16, _language: SlmpEndCodeLanguage) -> Option<&'static str> {
     end_code_message_en(end_code)
 }
 

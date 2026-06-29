@@ -117,9 +117,23 @@ async fn read_named_batches_mixed_plain_bit_device_kinds() {
 #[tokio::test]
 async fn read_named_batches_each_supported_plain_bit_device_code() {
     let addresses = strings(&[
-        "SM17:BIT", "X1:BIT", "Y1:BIT", "M17:BIT", "L17:BIT", "F17:BIT", "V17:BIT",
-        "B1F:BIT", "TS17:BIT", "TC17:BIT", "STS17:BIT", "STC17:BIT", "CS17:BIT",
-        "CC17:BIT", "SB1F:BIT", "DX1:BIT", "DY1:BIT",
+        "SM17:BIT",
+        "X1:BIT",
+        "Y1:BIT",
+        "M17:BIT",
+        "L17:BIT",
+        "F17:BIT",
+        "V17:BIT",
+        "B1F:BIT",
+        "TS17:BIT",
+        "TC17:BIT",
+        "STS17:BIT",
+        "STC17:BIT",
+        "CS17:BIT",
+        "CC17:BIT",
+        "SB1F:BIT",
+        "DX1:BIT",
+        "DY1:BIT",
     ]);
     let expected_devices = [
         SlmpDeviceAddress::new(SlmpDeviceCode::SM, 16),

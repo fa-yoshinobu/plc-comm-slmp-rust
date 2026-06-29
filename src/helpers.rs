@@ -451,7 +451,8 @@ fn compile_read_plan(
                 if seen_word_devices.insert(device) {
                     word_devices.push(device);
                 }
-            } else if matches!(dtype.as_str(), "D" | "L" | "F") && device.code.is_word_batchable()
+            } else if matches!(dtype.as_str(), "D" | "L" | "F")
+                && device.code.is_word_batchable()
                 && seen_dword_devices.insert(device)
             {
                 dword_devices.push(device);
@@ -976,12 +977,10 @@ pub fn parse_scalar_for_named_with_family(
             .parse::<i64>()
             .map_err(|_| SlmpError::new("Invalid integer value."))?
     };
-    Ok(
-        match resolved_dtype.as_str() {
-            "L" => SlmpValue::I32(parsed as i32),
-            "D" => SlmpValue::U32(parsed as u32),
-            "S" => SlmpValue::I16(parsed as i16),
-            _ => SlmpValue::U16(parsed as u16),
-        },
-    )
+    Ok(match resolved_dtype.as_str() {
+        "L" => SlmpValue::I32(parsed as i32),
+        "D" => SlmpValue::U32(parsed as u32),
+        "S" => SlmpValue::I16(parsed as i16),
+        _ => SlmpValue::U16(parsed as u16),
+    })
 }
