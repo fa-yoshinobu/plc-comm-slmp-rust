@@ -57,7 +57,7 @@ impl SlmpAddress {
 pub fn parse_named_address(address: &str) -> Result<NamedAddressParts, SlmpError> {
     let trimmed = address.trim();
     if let Some((base, dtype)) = trimmed.split_once(':') {
-        let dtype = dtype.trim().to_uppercase();
+        let dtype = require_named_dtype(dtype)?;
         if dtype == "BIT_IN_WORD" {
             return Err(SlmpError::new(
                 "BIT_IN_WORD requires an explicit bit index. Use '.0' through '.F' notation.",
@@ -86,11 +86,26 @@ pub fn parse_named_address(address: &str) -> Result<NamedAddressParts, SlmpError
         ));
     }
 
-    Ok(NamedAddressParts {
-        base: trimmed.to_string(),
-        dtype: "U".to_string(),
-        bit_index: None,
-    })
+    Err(SlmpError::new(format!(
+        "Address '{trimmed}' requires an explicit dtype such as ':U', ':D', or ':BIT'."
+    )))
+}
+
+fn require_named_dtype(dtype: &str) -> Result<String, SlmpError> {
+    let normalized = dtype.trim().to_uppercase();
+    if normalized.is_empty() {
+        return Err(SlmpError::new(
+            "dtype is required; specify BIT/U/S/D/L/F explicitly.",
+        ));
+    }
+    if normalized != "BIT_IN_WORD"
+        && !matches!(normalized.as_str(), "BIT" | "U" | "S" | "D" | "L" | "F")
+    {
+        return Err(SlmpError::new(format!(
+            "Unsupported dtype '{normalized}'; expected BIT/U/S/D/L/F."
+        )));
+    }
+    Ok(normalized)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,10 +121,7 @@ pub fn normalize_named_address(address: &str) -> Result<String, SlmpError> {
     if let Some(bit_index) = parts.bit_index {
         return Ok(format!("{canonical_base}.{bit_index:X}"));
     }
-    if address.contains(':') {
-        return Ok(format!("{canonical_base}:{}", parts.dtype));
-    }
-    Ok(canonical_base)
+    Ok(format!("{canonical_base}:{}", parts.dtype))
 }
 
 pub fn parse_device(text: &str) -> Result<SlmpDeviceAddress, SlmpError> {

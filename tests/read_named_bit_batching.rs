@@ -13,14 +13,14 @@ async fn read_named_batches_plain_bits_that_share_one_word() {
         .await
         .unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
-    let addresses = strings(&["M100", "M101", "M102", "M111"]);
+    let addresses = strings(&["M100:BIT", "M101:BIT", "M102:BIT", "M111:BIT"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
 
-    assert_eq!(values["M100"], SlmpValue::Bool(true));
-    assert_eq!(values["M101"], SlmpValue::Bool(true));
-    assert_eq!(values["M102"], SlmpValue::Bool(true));
-    assert_eq!(values["M111"], SlmpValue::Bool(true));
+    assert_eq!(values["M100:BIT"], SlmpValue::Bool(true));
+    assert_eq!(values["M101:BIT"], SlmpValue::Bool(true));
+    assert_eq!(values["M102:BIT"], SlmpValue::Bool(true));
+    assert_eq!(values["M111:BIT"], SlmpValue::Bool(true));
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
@@ -38,7 +38,9 @@ async fn read_named_preserves_plain_bit_values_for_representative_word_patterns(
             .await
             .unwrap();
         let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
-        let addresses = strings(&["M100", "M101", "M102", "M103", "M110", "M111"]);
+        let addresses = strings(&[
+            "M100:BIT", "M101:BIT", "M102:BIT", "M103:BIT", "M110:BIT", "M111:BIT",
+        ]);
 
         let values = read_named(&client, &addresses).await.unwrap();
 
@@ -66,12 +68,12 @@ async fn read_named_batches_plain_bits_across_words_and_iqf_octal_xy_boundaries(
         .await
         .unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqF).await;
-    let addresses = strings(&["X17", "X20"]);
+    let addresses = strings(&["X17:BIT", "X20:BIT"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
 
-    assert_eq!(values["X17"], SlmpValue::Bool(true));
-    assert_eq!(values["X20"], SlmpValue::Bool(true));
+    assert_eq!(values["X17:BIT"], SlmpValue::Bool(true));
+    assert_eq!(values["X20:BIT"], SlmpValue::Bool(true));
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
@@ -91,13 +93,13 @@ async fn read_named_batches_mixed_plain_bit_device_kinds() {
         .await
         .unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
-    let addresses = strings(&["M100", "B1F", "SB2"]);
+    let addresses = strings(&["M100:BIT", "B1F:BIT", "SB2:BIT"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
 
-    assert_eq!(values["M100"], SlmpValue::Bool(true));
-    assert_eq!(values["B1F"], SlmpValue::Bool(true));
-    assert_eq!(values["SB2"], SlmpValue::Bool(true));
+    assert_eq!(values["M100:BIT"], SlmpValue::Bool(true));
+    assert_eq!(values["B1F:BIT"], SlmpValue::Bool(true));
+    assert_eq!(values["SB2:BIT"], SlmpValue::Bool(true));
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
@@ -115,8 +117,9 @@ async fn read_named_batches_mixed_plain_bit_device_kinds() {
 #[tokio::test]
 async fn read_named_batches_each_supported_plain_bit_device_code() {
     let addresses = strings(&[
-        "SM17", "X1", "Y1", "M17", "L17", "F17", "V17", "B1F", "TS17", "TC17", "STS17", "STC17",
-        "CS17", "CC17", "SB1F", "DX1", "DY1",
+        "SM17:BIT", "X1:BIT", "Y1:BIT", "M17:BIT", "L17:BIT", "F17:BIT", "V17:BIT",
+        "B1F:BIT", "TS17:BIT", "TC17:BIT", "STS17:BIT", "STC17:BIT", "CS17:BIT",
+        "CC17:BIT", "SB1F:BIT", "DX1:BIT", "DY1:BIT",
     ]);
     let expected_devices = [
         SlmpDeviceAddress::new(SlmpDeviceCode::SM, 16),
@@ -171,7 +174,9 @@ async fn read_named_chunks_more_than_96_batched_bit_words() {
     .await
     .unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
-    let addresses: Vec<String> = (0..0x100).map(|index| format!("M{}", index * 16)).collect();
+    let addresses: Vec<String> = (0..0x100)
+        .map(|index| format!("M{}:BIT", index * 16))
+        .collect();
 
     let values = read_named(&client, &addresses).await.unwrap();
 
@@ -192,11 +197,11 @@ async fn read_named_chunks_more_than_96_batched_bit_words() {
 async fn read_named_keeps_long_counter_state_bits_on_direct_bit_fallback() {
     let server = CapturingServer::start(vec![vec![0x10]]).await.unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
-    let addresses = strings(&["LCS30"]);
+    let addresses = strings(&["LCS30:BIT"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
 
-    assert_eq!(values["LCS30"], SlmpValue::Bool(true));
+    assert_eq!(values["LCS30:BIT"], SlmpValue::Bool(true));
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
@@ -216,14 +221,14 @@ async fn read_named_mixes_plain_bits_bit_in_word_words_and_dwords_in_one_random_
     .await
     .unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
-    let addresses = strings(&["M100", "M101", "D50.3", "D51", "D52:F"]);
+    let addresses = strings(&["M100:BIT", "M101:BIT", "D50.3", "D51:U", "D52:F"]);
 
     let values = read_named(&client, &addresses).await.unwrap();
 
-    assert_eq!(values["M100"], SlmpValue::Bool(true));
-    assert_eq!(values["M101"], SlmpValue::Bool(true));
+    assert_eq!(values["M100:BIT"], SlmpValue::Bool(true));
+    assert_eq!(values["M101:BIT"], SlmpValue::Bool(true));
     assert_eq!(values["D50.3"], SlmpValue::Bool(true));
-    assert_eq!(values["D51"], SlmpValue::U16(0x1234));
+    assert_eq!(values["D51:U"], SlmpValue::U16(0x1234));
     assert_eq!(values["D52:F"], SlmpValue::F32(1.0));
 
     let requests = server.requests().await;

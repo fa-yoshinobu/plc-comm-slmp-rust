@@ -71,7 +71,7 @@ pub async fn read_typed(
     device: SlmpDeviceAddress,
     dtype: &str,
 ) -> Result<SlmpValue, SlmpError> {
-    let normalized_dtype = dtype.to_uppercase();
+    let normalized_dtype = require_dtype(dtype)?;
     validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
     if matches!(device.code, SlmpDeviceCode::LZ) && matches!(normalized_dtype.as_str(), "D" | "L") {
         let raw = read_random_dword_scalar(client, device).await?;
@@ -123,16 +123,13 @@ pub async fn write_typed(
     dtype: &str,
     value: &SlmpValue,
 ) -> Result<(), SlmpError> {
-    let normalized_dtype = if dtype.eq_ignore_ascii_case("U") && device.code.is_bit_device() {
-        "BIT".to_string()
-    } else {
-        dtype.to_uppercase()
-    };
+    let normalized_dtype = require_dtype(dtype)?;
     if long_timer_read_spec(device.code).is_some() {
         validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
     }
     validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
-    match resolve_write_route(device, dtype) {
+    let route = resolve_write_route(device, &normalized_dtype);
+    match route {
         NamedWriteRoute::RandomBits => {
             client
                 .write_random_bits(&[(device, scalar_to_bool(value)?)])
@@ -142,15 +139,12 @@ pub async fn write_typed(
             client.write_bits(device, &[scalar_to_bool(value)?]).await
         }
         NamedWriteRoute::RandomDWords | NamedWriteRoute::ContiguousDWords => {
-            let raw = match dtype.to_uppercase().as_str() {
+            let raw = match normalized_dtype.as_str() {
                 "F" => scalar_to_f32(value)?.to_bits(),
                 "L" => scalar_to_i32(value)? as u32,
                 _ => scalar_to_u32(value)?,
             };
-            if matches!(
-                resolve_write_route(device, dtype),
-                NamedWriteRoute::RandomDWords
-            ) {
+            if matches!(route, NamedWriteRoute::RandomDWords) {
                 client.write_random_words(&[], &[(device, raw)]).await
             } else {
                 client.write_dwords(device, &[raw]).await
@@ -369,15 +363,16 @@ pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<
     for (address, value) in updates {
         let parts = parse_named_address(address)?;
         let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
-        let resolved_dtype =
-            resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
-        validate_long_timer_entry(address, device, &resolved_dtype)?;
         if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
             let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
             write_bit_in_word(client, device, bit_index, scalar_to_bool(value)?).await?;
             continue;
         }
+        let resolved_dtype =
+            resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index)?;
+        validate_named_device_dtype(address, device, &resolved_dtype)?;
+        validate_long_timer_entry(address, device, &resolved_dtype)?;
         write_typed(client, device, &resolved_dtype, value).await?;
     }
     Ok(())
@@ -427,37 +422,40 @@ fn compile_read_plan(
     for address in addresses {
         let parts = parse_named_address(address)?;
         let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
-        let dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index);
-        validate_long_timer_entry(address, device, &dtype)?;
-        validate_dword_only_entry(address, device, &dtype)?;
 
-        let bit_word_read = if parts.dtype == "BIT_IN_WORD" {
+        let (dtype, bit_word_read) = if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
             let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
             if device.code.is_word_batchable() && seen_word_devices.insert(device) {
                 word_devices.push(device);
             }
-            Some(BitWordRead { device, bit_index })
-        } else if dtype == "BIT" {
-            let bit_word_read = plain_bit_word_read(device);
-            if let Some(read) = bit_word_read
-                && seen_word_devices.insert(read.device)
+            (
+                "BIT_IN_WORD".to_string(),
+                Some(BitWordRead { device, bit_index }),
+            )
+        } else {
+            let dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index)?;
+            validate_named_device_dtype(address, device, &dtype)?;
+            validate_long_timer_entry(address, device, &dtype)?;
+            validate_dword_only_entry(address, device, &dtype)?;
+            let mut bit_word_read = None;
+            if dtype == "BIT" {
+                bit_word_read = plain_bit_word_read(device);
+                if let Some(read) = bit_word_read
+                    && seen_word_devices.insert(read.device)
+                {
+                    word_devices.push(read.device);
+                }
+            } else if matches!(dtype.as_str(), "U" | "S") && device.code.is_word_batchable() {
+                if seen_word_devices.insert(device) {
+                    word_devices.push(device);
+                }
+            } else if matches!(dtype.as_str(), "D" | "L" | "F") && device.code.is_word_batchable()
+                && seen_dword_devices.insert(device)
             {
-                word_devices.push(read.device);
-            }
-            bit_word_read
-        } else if matches!(dtype.as_str(), "U" | "S") && device.code.is_word_batchable() {
-            if seen_word_devices.insert(device) {
-                word_devices.push(device);
-            }
-            None
-        } else if matches!(dtype.as_str(), "D" | "L" | "F") && device.code.is_word_batchable() {
-            if seen_dword_devices.insert(device) {
                 dword_devices.push(device);
             }
-            None
-        } else {
-            None
+            (dtype, bit_word_read)
         };
 
         entries.push(NamedReadEntry {
@@ -727,36 +725,55 @@ fn missing_bit_in_word_index_error(address: &str) -> SlmpError {
     ))
 }
 
+fn require_dtype(dtype: &str) -> Result<String, SlmpError> {
+    let normalized = dtype.trim().to_uppercase();
+    if normalized.is_empty() {
+        return Err(SlmpError::new(
+            "dtype is required; specify BIT/U/S/D/L/F explicitly.",
+        ));
+    }
+    if !matches!(normalized.as_str(), "BIT" | "U" | "S" | "D" | "L" | "F") {
+        return Err(SlmpError::new(format!(
+            "Unsupported dtype '{normalized}'; expected BIT/U/S/D/L/F."
+        )));
+    }
+    Ok(normalized)
+}
+
+fn validate_named_device_dtype(
+    address: &str,
+    device: SlmpDeviceAddress,
+    dtype: &str,
+) -> Result<(), SlmpError> {
+    if device.code.is_bit_device() && dtype != "BIT" {
+        return Err(SlmpError::new(format!(
+            "Address '{address}' is a bit device and requires ':BIT'."
+        )));
+    }
+    if !device.code.is_bit_device() && dtype == "BIT" {
+        return Err(SlmpError::new(format!(
+            "Address '{address}' uses ':BIT', which is only valid for bit devices. Use '.bit' notation for a bit inside a word device."
+        )));
+    }
+    Ok(())
+}
+
 fn resolve_dtype_for_address(
     address: &str,
     device: SlmpDeviceAddress,
     dtype: &str,
     bit_index: Option<u8>,
-) -> String {
-    let normalized = if dtype == "U" && device.code.is_bit_device() {
-        "BIT".to_string()
-    } else {
-        dtype.to_uppercase()
-    };
-    if !address.contains(':')
-        && bit_index.is_none()
-        && matches!(
-            device.code,
-            SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN | SlmpDeviceCode::LCN | SlmpDeviceCode::LZ
-        )
-    {
-        "D".to_string()
-    } else {
-        normalized
+) -> Result<String, SlmpError> {
+    if bit_index.is_some() {
+        return Ok("BIT_IN_WORD".to_string());
     }
+    let _ = address;
+    let _ = device;
+    require_dtype(dtype)
 }
 
 fn resolve_write_route(device: SlmpDeviceAddress, dtype: &str) -> NamedWriteRoute {
-    let normalized = if dtype.eq_ignore_ascii_case("U") && device.code.is_bit_device() {
-        "BIT".to_string()
-    } else {
-        dtype.to_uppercase()
-    };
+    let normalized = dtype.to_uppercase();
     match normalized.as_str() {
         // Long-family state writes must use Device Write Random (0x1402).
         // Direct bit write (0x1401) is guarded in the low-level client.
@@ -932,13 +949,17 @@ pub fn parse_scalar_for_named_with_family(
             "1" | "true" | "TRUE" | "True"
         )));
     }
-    if device.code.is_bit_device() {
+    let resolved_dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index)?;
+    validate_named_device_dtype(address, device, &resolved_dtype)?;
+    validate_long_timer_entry(address, device, &resolved_dtype)?;
+    validate_dword_only_entry(address, device, &resolved_dtype)?;
+    if resolved_dtype == "BIT" {
         return Ok(SlmpValue::Bool(matches!(
             value,
             "1" | "true" | "TRUE" | "True"
         )));
     }
-    if parts.dtype.eq_ignore_ascii_case("F") {
+    if resolved_dtype == "F" {
         return value
             .parse::<f32>()
             .map(SlmpValue::F32)
@@ -955,7 +976,7 @@ pub fn parse_scalar_for_named_with_family(
             .map_err(|_| SlmpError::new("Invalid integer value."))?
     };
     Ok(
-        match resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index).as_str() {
+        match resolved_dtype.as_str() {
             "L" => SlmpValue::I32(parsed as i32),
             "D" => SlmpValue::U32(parsed as u32),
             "S" => SlmpValue::I16(parsed as i16),
