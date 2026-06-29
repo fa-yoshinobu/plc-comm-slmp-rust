@@ -113,7 +113,8 @@ pub async fn read_typed(
         "S" => Ok(SlmpValue::I16(
             client.read_words_raw(device, 1).await?[0] as i16,
         )),
-        _ => Ok(SlmpValue::U16(client.read_words_raw(device, 1).await?[0])),
+        "U" => Ok(SlmpValue::U16(client.read_words_raw(device, 1).await?[0])),
+        other => Err(SlmpError::new(format!("Unsupported dtype '{other}'."))),
     }
 }
 

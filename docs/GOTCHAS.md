@@ -171,6 +171,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | --- | --- | --- |
 | Simple reads such as `D100` connect but return an SLMP end code. | `SlmpPlcProfile` selects the frame type, compatibility mode, and address parsing rules. The wrong profile can make every request invalid for your PLC. | Choose the concrete profile from [PROFILES.md](PROFILES.md) in your configuration or UI. |
 
+The crate reports the raw numeric `end_code` and a deterministic resource key
+such as `slmp_end_code_c810`. Localized end-code message text is not embedded in
+the public communication crate; resolve the key in an application-owned catalog
+when user-facing text is required.
+
 ```rust
 use plc_comm_slmp::{
     read_typed, SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
