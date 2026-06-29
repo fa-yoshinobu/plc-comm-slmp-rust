@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
-    let addresses = vec!["LCS0".to_string(), "LCC0".to_string()];
+    let addresses = vec!["LCS0:BIT".to_string(), "LCC0:BIT".to_string()];
     let state = read_named(&client, &addresses).await?;
     write_typed(&client, SlmpAddress::parse("LCC0")?, "BIT", &SlmpValue::Bool(true)).await?;
     println!("{state:?}");
@@ -79,8 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = SlmpClient::connect(options).await?;
     let mut updates = NamedAddress::new();
-    updates.insert("LTS0".to_string(), SlmpValue::Bool(true));
-    updates.insert("LTC0".to_string(), SlmpValue::Bool(false));
+    updates.insert("LTS0:BIT".to_string(), SlmpValue::Bool(true));
+    updates.insert("LTC0:BIT".to_string(), SlmpValue::Bool(false));
     write_named(&client, &updates).await?;
     client.close().await?;
 

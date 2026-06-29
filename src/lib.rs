@@ -52,13 +52,13 @@
 //!
 //!     let snapshot = read_named(
 //!         &client,
-//!         &["D100".into(), "X100".into(), "D50.3".into(), "LTN10:D".into()],
+//!         &["D100:U".into(), "X100:BIT".into(), "D50.3".into(), "LTN10:D".into()],
 //!     )
 //!     .await?;
 //!     println!("{snapshot:?}");
 //!
 //!     let mut updates = NamedAddress::new();
-//!     updates.insert("D300".into(), SlmpValue::U16(42));
+//!     updates.insert("D300:U".into(), SlmpValue::U16(42));
 //!     updates.insert("D400:F".into(), SlmpValue::F32(3.14));
 //!     write_named(&client, &updates).await?;
 //!     Ok(())
@@ -68,8 +68,8 @@
 //!
 //! # Address Notes
 //!
-//! - Plain word devices: `D100`, `R50`, `ZR0`
-//! - Plain bit devices: `M100`, `X20`, `Y20`, `B10`
+//! - Word values in named helpers: `D100:U`, `R50:U`, `ZR0:U`
+//! - Bit values in named helpers: `M100:BIT`, `X20:BIT`, `Y20:BIT`, `B10:BIT`
 //! - Typed suffixes: `D200:F`, `D300:D`, `D400:L`
 //! - Bit-in-word form: `D50.3`
 //! - Long current values: `LTN10:D`, `LSTN20:D`, `LCN30:D`

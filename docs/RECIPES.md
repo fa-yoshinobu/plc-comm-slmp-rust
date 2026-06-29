@@ -42,7 +42,7 @@ cargo run --example raw_read_write
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
 SLMP_PLC_PROFILE=melsec:iq-f \
-SLMP_NAMED_ADDRESSES='D100,D200:F,D50.3,LTN10:D,LTS10' \
+SLMP_NAMED_ADDRESSES='D100:U,D200:F,D50.3,LTN10:D,LTS10:BIT' \
 cargo run --example named_helpers
 ```
 
@@ -50,7 +50,7 @@ To run the write helper too:
 
 ```bash
 SLMP_ENABLE_WRITES=1 \
-SLMP_NAMED_WRITE_WORD=D700 \
+SLMP_NAMED_WRITE_WORD=D700:U \
 SLMP_NAMED_WRITE_WORD_VALUE=42 \
 SLMP_NAMED_WRITE_FLOAT='D702:F' \
 SLMP_NAMED_WRITE_FLOAT_VALUE=3.14 \

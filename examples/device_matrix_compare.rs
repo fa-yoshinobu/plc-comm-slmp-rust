@@ -38,6 +38,14 @@ fn is_skippable_unsupported_device(error: &(dyn Error + 'static)) -> bool {
     message.contains("not supported for plc_profile") || message.contains("UnsupportedDevice")
 }
 
+fn named_bit_address(address: &str) -> String {
+    format!("{address}:BIT")
+}
+
+fn named_word_address(address: &str) -> String {
+    format!("{address}:U")
+}
+
 async fn parse_device_for_client(
     client: &SlmpClient,
     address: &str,
@@ -481,7 +489,8 @@ async fn assert_long_timer_state_reads(
     let device = parse_device_for_client(client, address).await?;
     let (base_device, contact) = long_timer_state_base(device)
         .ok_or_else(|| make_error(format!("{address} is not a long timer state device")))?;
-    let named = read_named(client, &[address.to_string()]).await?;
+    let named_address = named_bit_address(address);
+    let named = read_named(client, std::slice::from_ref(&named_address)).await?;
     let typed = read_typed(client, device, "BIT").await?.as_bool()?;
     let block_words = client.read_words_raw(base_device, 4).await?;
     let request_words = request_plain_read_words(client, mode, base_device, 4).await?;
@@ -508,7 +517,7 @@ async fn assert_long_timer_state_reads(
     };
     let observed = [
         ("read_typed", typed),
-        ("read_named", value_from_named_bool(&named, address)?),
+        ("read_named", value_from_named_bool(&named, &named_address)?),
         (
             "read_words_raw(4)",
             decode_long_state(&block_words, contact)?,
@@ -571,14 +580,15 @@ async fn assert_bit_reads(
     expected: bool,
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
-    let named = read_named(client, &[address.to_string()]).await?;
+    let named_address = named_bit_address(address);
+    let named = read_named(client, std::slice::from_ref(&named_address)).await?;
     let observed = [
         ("read_bits", client.read_bits(device, 1).await?[0]),
         (
             "read_typed",
             read_typed(client, device, "BIT").await?.as_bool()?,
         ),
-        ("read_named", value_from_named_bool(&named, address)?),
+        ("read_named", value_from_named_bool(&named, &named_address)?),
         (
             "request",
             request_plain_read_bits(client, mode, device, 1).await?[0],
@@ -603,7 +613,8 @@ async fn assert_word_reads(
     expected: u16,
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
-    let named = read_named(client, &[address.to_string()]).await?;
+    let named_address = named_word_address(address);
+    let named = read_named(client, std::slice::from_ref(&named_address)).await?;
     let random = client.read_random(&[device], &[]).await?;
     let typed = match read_typed(client, device, "U").await? {
         SlmpValue::U16(value) => value,
@@ -616,7 +627,7 @@ async fn assert_word_reads(
     let observed = [
         ("read_words_raw", client.read_words_raw(device, 1).await?[0]),
         ("read_typed", typed),
-        ("read_named", value_from_named_u16(&named, address)?),
+        ("read_named", value_from_named_u16(&named, &named_address)?),
         (
             "read_random",
             *random
@@ -679,8 +690,11 @@ async fn compare_bit_device(
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
     if long_timer_state_base(device).is_some() {
-        let original =
-            value_from_named_bool(&read_named(client, &[address.to_string()]).await?, address)?;
+        let named_address = named_bit_address(address);
+        let original = value_from_named_bool(
+            &read_named(client, std::slice::from_ref(&named_address)).await?,
+            &named_address,
+        )?;
         let result: Result<(), Box<dyn Error>> = async {
             assert_long_timer_state_reads(client, mode, address, original).await?;
             for (writer, value) in [
@@ -700,7 +714,7 @@ async fn compare_bit_device(
                     }
                     _ => {
                         let mut updates = NamedAddress::new();
-                        updates.insert(address.to_string(), SlmpValue::Bool(value));
+                        updates.insert(named_bit_address(address), SlmpValue::Bool(value));
                         write_named(client, &updates).await?;
                     }
                 }
@@ -710,7 +724,7 @@ async fn compare_bit_device(
         }
         .await;
         let mut restore = NamedAddress::new();
-        restore.insert(address.to_string(), SlmpValue::Bool(original));
+        restore.insert(named_bit_address(address), SlmpValue::Bool(original));
         write_named(client, &restore).await?;
         return result;
     }
@@ -740,7 +754,7 @@ async fn compare_bit_device(
                 }
                 "write_named:on" | "write_named:off" => {
                     let mut updates = NamedAddress::new();
-                    updates.insert(address.to_string(), SlmpValue::Bool(value));
+                    updates.insert(named_bit_address(address), SlmpValue::Bool(value));
                     write_named(client, &updates).await?;
                 }
                 _ => request_plain_write_bits(client, mode, device, &[value]).await?,
@@ -787,7 +801,7 @@ async fn compare_word_device(
                 }
                 "write_named:a" | "write_named:b" => {
                     let mut updates = NamedAddress::new();
-                    updates.insert(address.to_string(), SlmpValue::U16(value));
+                    updates.insert(named_word_address(address), SlmpValue::U16(value));
                     write_named(client, &updates).await?;
                 }
                 _ => request_plain_write_words(client, mode, device, &[value]).await?,

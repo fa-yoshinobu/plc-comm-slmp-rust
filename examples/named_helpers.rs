@@ -21,14 +21,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let client = connect_from_env().await?;
 
     // Named reads let you collect mixed word, float, bit-in-word, and long-family values.
-    let addresses = env_csv("SLMP_NAMED_ADDRESSES", "D100,D200:F,D50.3,LTN10:D,LTS10");
+    let addresses = env_csv(
+        "SLMP_NAMED_ADDRESSES",
+        "D100:U,D200:F,D50.3,LTN10:D,LTS10:BIT",
+    );
     let snapshot = read_named(&client, &addresses).await?;
     print_snapshot("named snapshot", &snapshot);
 
     if env_bool("SLMP_ENABLE_WRITES") {
         let mut updates = NamedAddress::new();
         updates.insert(
-            env_string("SLMP_NAMED_WRITE_WORD", "D700"),
+            env_string("SLMP_NAMED_WRITE_WORD", "D700:U"),
             SlmpValue::U16(env_string("SLMP_NAMED_WRITE_WORD_VALUE", "42").parse()?),
         );
         updates.insert(

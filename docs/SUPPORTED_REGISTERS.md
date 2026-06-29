@@ -8,7 +8,7 @@ This page lists the device families exposed by the public helper-layer address p
 | --- | --- | --- |
 | Special relays | `SM0` | System bit devices. |
 | Inputs and outputs | `X10`, `Y10` | Hex-addressed except iQ-F string addresses, which use octal. |
-| Internal relays | `M100`, `L100`, `F100`, `V100` | Plain form maps to `SlmpValue::Bool`. |
+| Internal relays | `M100:BIT`, `L100:BIT`, `F100:BIT`, `V100:BIT` | Use `:BIT` in named helper addresses. |
 | Link relays | `B10`, `SB10` | Hex-addressed bit families. |
 | Timer states | `TS10`, `TC10`, `STS10`, `STC10` | Contact and coil state bits. |
 | Counter states | `CS10`, `CC10` | Contact and coil state bits. |
@@ -33,19 +33,19 @@ This page lists the device families exposed by the public helper-layer address p
 
 | Suffix | Value | Use |
 | --- | --- | --- |
-| no suffix on a word device | `SlmpValue::U16` | Default word read. |
-| no suffix on a bit device | `SlmpValue::Bool` | Default bit read. |
 | `:U` | `SlmpValue::U16` | Unsigned 16-bit word. |
 | `:S` | `SlmpValue::I16` | Signed 16-bit word. |
 | `:D` | `SlmpValue::U32` | Unsigned 32-bit value. |
 | `:L` | `SlmpValue::I32` | Signed 32-bit value. |
 | `:F` | `SlmpValue::F32` | 32-bit floating-point value. |
+| `:BIT` | `SlmpValue::Bool` | Direct bit-device value. |
 | `.n` | `SlmpValue::Bool` | Bit `n` inside a word, where `n` is `0` through `F`. |
 
 ## Addressing notes
 
 | Note | Detail |
 | --- | --- |
+| Explicit named types | `read_named`, `write_named`, and `poll_named` require suffixes such as `D100:U` or `M100:BIT`; plain named addresses are rejected. |
 | Long 32-bit families | `LTN`, `LSTN`, `LCN`, and `LZ` require `:D` or `:L`; plain low-level word access is rejected. |
 | iQ-F direct I/O | `DX` and `DY` are not valid for `SlmpPlcProfile::IqF`; use `X` and `Y`. |
 | Extended devices | `G` and `HG` are not in the public high-level surface. Use low-level extended-device APIs with qualified addresses such as `U3\G100` or `U3E0\HG0`. |
@@ -57,7 +57,7 @@ This page lists the device families exposed by the public helper-layer address p
 random dword high-level access, or 4-word block reads where supported. They are
 not exposed as plain direct dword reads in the Rust client API.
 
-`LCS` and `LCC` use direct bit read through `read_typed` / `read_named`.
+`LCS` and `LCC` use direct bit read through `read_typed` / `read_named`; use `LCS0:BIT` or `LCC0:BIT` in named helper addresses.
 `LTS`, `LTC`, `LSTS`, and `LSTC` are not exposed through direct bit
 read/write or Read Random in the Rust client API; use helper APIs for reads and
 random bit write where applicable.

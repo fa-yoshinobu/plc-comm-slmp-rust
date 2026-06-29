@@ -15,7 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Tooling`: Developer/operator command-line tools and helper utilities.
 - `CI`: Release checks, workflow scripts, or automation-only changes.
 
-## [Unreleased]
+## [1.1.1] - 2026-06-29
+
+### Changed
+- Release: Bumped crate metadata to `1.1.1` and the `slmp-node` workspace crate to `1.0.2`.
+- Docs: Documented explicit named-address dtype requirements in user docs and crate-level examples.
+- Samples: Updated named-helper examples to use explicit dtype suffixes.
 
 ## [1.1.0] - 2026-06-29
 

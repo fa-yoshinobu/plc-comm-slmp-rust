@@ -147,10 +147,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = SlmpClient::connect(options).await?;
     let addresses = vec![
-        "D100".to_string(),
+        "D100:U".to_string(),
         "D200:F".to_string(),
         "D50.3".to_string(),
-        "M100".to_string(),
+        "M100:BIT".to_string(),
         "LTN10:D".to_string(),
     ];
     let snapshot = read_named(&client, &addresses).await?;
@@ -233,7 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
-    let addresses = vec!["D100".to_string(), "M100".to_string(), "D50.3".to_string()];
+    let addresses = vec!["D100:U".to_string(), "M100:BIT".to_string(), "D50.3".to_string()];
     let mut stream = Box::pin(poll_named(&client, &addresses, Duration::from_millis(500)));
 
     if let Some(snapshot) = stream.next().await.transpose()? {
@@ -304,11 +304,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Form | Example | Meaning |
 | --- | --- | --- |
-| Plain word | `D100` | Unsigned 16-bit word. |
-| Plain bit | `M100` | Boolean bit. |
 | `:U` | `D100:U` | Unsigned 16-bit word. |
 | `:S` | `D100:S` | Signed 16-bit word. |
 | `:D` | `D100:D` | Unsigned 32-bit value. |
 | `:L` | `D100:L` | Signed 32-bit value. |
 | `:F` | `D100:F` | 32-bit float. |
+| `:BIT` | `M100:BIT` | Boolean bit device value. |
 | `.n` | `D50.3` | Bit `n` inside a word, where `n` is `0` through `F`. |
+
+Named addresses used with `read_named`, `write_named`, and `poll_named` must include the intended type, for example `D100:U` or `M100:BIT`.
