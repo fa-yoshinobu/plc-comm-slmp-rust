@@ -32,7 +32,7 @@ device but does not publish a finite bound register.
 
 `SlmpClient` exposes:
 
-```rust
+```text
 pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError>
 ```
 
