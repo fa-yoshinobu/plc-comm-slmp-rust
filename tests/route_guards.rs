@@ -8,7 +8,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
 
 async fn udp_client() -> SlmpClient {
+    udp_client_with_profile(SlmpPlcProfile::IqR).await
+}
+
+async fn udp_client_with_profile(plc_profile: SlmpPlcProfile) -> SlmpClient {
     let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    options.set_plc_profile(plc_profile);
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = 9;
     SlmpClient::connect(options).await.unwrap()
@@ -777,6 +782,50 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("does not support LTN/LSTN/LCN/LZ"));
+}
+
+#[tokio::test]
+async fn q_series_profiles_reject_block_routes_before_transport() {
+    for profile in [
+        SlmpPlcProfile::QCpu,
+        SlmpPlcProfile::QnU,
+        SlmpPlcProfile::QnUDV,
+    ] {
+        let client = udp_client_with_profile(profile).await;
+        let profile_name = profile.canonical_name();
+        let err = client
+            .read_block(
+                &[SlmpBlockRead {
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                    points: 1,
+                }],
+                &[SlmpBlockRead {
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 100),
+                    points: 1,
+                }],
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Read Block (0x0406)"));
+        assert!(err.to_string().contains(profile_name));
+
+        let err = client
+            .write_block(
+                &[SlmpBlockWrite {
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                    values: vec![1],
+                }],
+                &[SlmpBlockWrite {
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 100),
+                    values: vec![1],
+                }],
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Write Block (0x1406)"));
+        assert!(err.to_string().contains(profile_name));
+    }
 }
 
 #[tokio::test]

@@ -2,6 +2,7 @@ use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState,
     SlmpCpuOperationStatus, SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult,
+    SlmpPlcProfile,
 };
 
 const DIRECT_WORD_POINT_LIMIT: usize = 960;
@@ -185,6 +186,22 @@ pub(crate) fn validate_extend_unit_word_length(
     if !(1..=DIRECT_WORD_POINT_LIMIT).contains(&word_length) {
         return Err(SlmpError::new(format!(
             "{name} word length out of range (1..960): {word_length}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_block_route_for_profile(
+    plc_profile: SlmpPlcProfile,
+    command_label: &str,
+) -> Result<(), SlmpError> {
+    if matches!(
+        plc_profile,
+        SlmpPlcProfile::QCpu | SlmpPlcProfile::QnU | SlmpPlcProfile::QnUDV
+    ) {
+        return Err(SlmpError::new(format!(
+            "{command_label} is not supported for plc_profile '{}'. Use direct or random device commands.",
+            plc_profile.canonical_name()
         )));
     }
     Ok(())

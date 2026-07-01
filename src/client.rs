@@ -1095,6 +1095,10 @@ impl ClientInner {
         word_blocks: &[SlmpBlockRead],
         bit_blocks: &[SlmpBlockRead],
     ) -> Result<SlmpBlockReadResult, SlmpError> {
+        rules::validate_block_route_for_profile(
+            self.options.plc_profile,
+            "Read Block (0x0406)",
+        )?;
         rules::validate_no_lcs_lcc_block_read(word_blocks, bit_blocks)?;
         if word_blocks.len() > 0xFF || bit_blocks.len() > 0xFF {
             return Err(SlmpError::new("block counts must be <= 255"));
@@ -1162,6 +1166,10 @@ impl ClientInner {
         bit_blocks: &[SlmpBlockWrite],
         options: SlmpBlockWriteOptions,
     ) -> Result<(), SlmpError> {
+        rules::validate_block_route_for_profile(
+            self.options.plc_profile,
+            "Write Block (0x1406)",
+        )?;
         rules::validate_no_lcs_lcc_block_write(word_blocks, bit_blocks)?;
         if options.split_mixed_blocks && !word_blocks.is_empty() && !bit_blocks.is_empty() {
             self.write_block_once(word_blocks, &[]).await?;
