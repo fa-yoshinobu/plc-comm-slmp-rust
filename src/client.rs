@@ -870,8 +870,10 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
         rules::validate_direct_access_points(points as usize, true, "read_bits_ext")?;
-        rules::validate_direct_bit_read(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+            rules::validate_direct_bit_read(device.device)?;
+        }
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, true);
         let sub = if extension.direct_memory_specification == 0xF9
@@ -896,8 +898,10 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
         rules::validate_direct_access_points(values.len(), true, "write_bits_ext")?;
-        rules::validate_direct_bit_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+            rules::validate_direct_bit_write(device.device)?;
+        }
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload = self.build_read_write_payload_extended(
             device.device,

@@ -522,6 +522,44 @@ async fn extended_g_hg_reject_unqualified_device_addresses() {
 }
 
 #[tokio::test]
+async fn qualified_g_hg_extended_bit_routes_reach_transport() {
+    let server = CapturingResponseServer::start(vec![(0, vec![0x10]), (0, Vec::new())])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let values = client
+        .read_bits_extended(
+            parse_qualified_device(r"U3E0\G10").unwrap(),
+            1,
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(values, vec![true]);
+
+    client
+        .write_bits_extended(
+            parse_qualified_device(r"U3E0\HG11").unwrap(),
+            &[true],
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 2);
+    let read_body = &requests[0][13..];
+    assert_eq!(u16::from_le_bytes([read_body[2], read_body[3]]), 0x0401);
+    assert_eq!(u16::from_le_bytes([read_body[4], read_body[5]]), 0x0083);
+    let write_body = &requests[1][13..];
+    assert_eq!(u16::from_le_bytes([write_body[2], write_body[3]]), 0x1401);
+    assert_eq!(u16::from_le_bytes([write_body[4], write_body[5]]), 0x0083);
+}
+
+#[tokio::test]
 async fn standalone_g_hg_random_bit_writes_are_rejected() {
     let client = udp_client().await;
     let err = client
