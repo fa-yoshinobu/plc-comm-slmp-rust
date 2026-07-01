@@ -9,6 +9,7 @@ This page lists the device families exposed by the public helper-layer address p
 | Special relays | `SM0` | System bit devices. |
 | Inputs and outputs | `X10`, `Y10` | Hex-addressed except iQ-F string addresses, which use octal. |
 | Internal relays | `M100:BIT`, `L100:BIT`, `F100:BIT`, `V100:BIT` | Use `:BIT` in named helper addresses. |
+| Step relays | `S10:BIT` | Read-only bit device; write routes are rejected before transport. |
 | Link relays | `B10`, `SB10` | Hex-addressed bit families. |
 | Timer states | `TS10`, `TC10`, `STS10`, `STC10` | Contact and coil state bits. |
 | Counter states | `CS10`, `CC10` | Contact and coil state bits. |
@@ -47,6 +48,7 @@ This page lists the device families exposed by the public helper-layer address p
 | --- | --- |
 | Explicit named types | `read_named`, `write_named`, and `poll_named` require suffixes such as `D100:U` or `M100:BIT`; plain named addresses are rejected. |
 | Long 32-bit families | `LTN`, `LSTN`, `LCN`, and `LZ` require `:D` or `:L`; plain low-level word access is rejected. |
+| Step relay | `S` is read-only; direct, random, and block writes are rejected before transport. |
 | iQ-F direct I/O | `DX` and `DY` are not valid for `SlmpPlcProfile::IqF`; use `X` and `Y`. |
 | Extended devices | `G` and `HG` are not in the public high-level surface. Use low-level extended-device APIs with qualified addresses such as `U3\G100` or `U3E0\HG0`. |
 | PLC range limits | Use `SlmpClient::read_device_range_catalog()` to read live bounds for your selected profile. |

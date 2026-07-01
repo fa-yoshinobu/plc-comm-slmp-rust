@@ -586,6 +586,11 @@ fn plain_bit_word_read(device: SlmpDeviceAddress) -> Option<BitWordRead> {
 }
 
 fn is_plain_bit_word_batchable(code: SlmpDeviceCode) -> bool {
+    // Do not add TS/TC/STS/STC/CS/CC/DX/DY here just because they are bit
+    // devices. R120PCPU live checks accept their direct bit reads but reject
+    // the 0x0403 random-word route used by this batching path with end code
+    // 0x4032. Keep named-bit batching limited to families validated on both
+    // mock and real PLC paths.
     matches!(
         code,
         SlmpDeviceCode::SM
@@ -596,15 +601,7 @@ fn is_plain_bit_word_batchable(code: SlmpDeviceCode) -> bool {
             | SlmpDeviceCode::F
             | SlmpDeviceCode::V
             | SlmpDeviceCode::B
-            | SlmpDeviceCode::TS
-            | SlmpDeviceCode::TC
-            | SlmpDeviceCode::STS
-            | SlmpDeviceCode::STC
-            | SlmpDeviceCode::CS
-            | SlmpDeviceCode::CC
             | SlmpDeviceCode::SB
-            | SlmpDeviceCode::DX
-            | SlmpDeviceCode::DY
     )
 }
 
@@ -822,8 +819,8 @@ fn long_timer_read_spec(code: SlmpDeviceCode) -> Option<LongTimerReadSpec> {
         SlmpDeviceCode::LSTS => (SlmpDeviceCode::LSTN, LongTimerReadKind::Contact),
         SlmpDeviceCode::LSTC => (SlmpDeviceCode::LSTN, LongTimerReadKind::Coil),
         SlmpDeviceCode::LCN => (SlmpDeviceCode::LCN, LongTimerReadKind::Current),
-        SlmpDeviceCode::LCS => (SlmpDeviceCode::LCN, LongTimerReadKind::Contact),
-        SlmpDeviceCode::LCC => (SlmpDeviceCode::LCN, LongTimerReadKind::Coil),
+        SlmpDeviceCode::LCS => (SlmpDeviceCode::LCS, LongTimerReadKind::Contact),
+        SlmpDeviceCode::LCC => (SlmpDeviceCode::LCC, LongTimerReadKind::Coil),
         _ => return None,
     };
     Some(LongTimerReadSpec { base_code, kind })
