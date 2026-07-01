@@ -803,8 +803,10 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
         rules::validate_direct_access_points(points as usize, false, "read_words_ext")?;
-        rules::validate_direct_word_read(device.device, points)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+            rules::validate_direct_word_read(device.device, points)?;
+        }
         let payload =
             self.build_read_write_payload_extended(device.device, points, None, extension, false);
         let sub = if extension.direct_memory_specification == 0xF9
@@ -835,8 +837,10 @@ impl ClientInner {
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
         rules::validate_direct_access_points(values.len(), false, "write_words_ext")?;
-        rules::validate_direct_word_write(device.device)?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+            rules::validate_direct_word_write(device.device)?;
+        }
         let payload = self.build_read_write_payload_extended(
             device.device,
             values.len() as u16,
@@ -988,7 +992,7 @@ impl ClientInner {
         word_entries: &[(SlmpDeviceAddress, u16)],
         dword_entries: &[(SlmpDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
-        rules::validate_random_write_word_devices(word_entries)?;
+        rules::validate_random_write_word_devices(word_entries, dword_entries)?;
         if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -1041,6 +1045,7 @@ impl ClientInner {
             self.options.compatibility_mode,
             "write_random_bits",
         )?;
+        rules::validate_random_bit_write_devices(bit_entries)?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let bit_value_size = if matches!(
             self.options.compatibility_mode,
@@ -1792,6 +1797,11 @@ impl ClientInner {
             if code == SlmpDeviceCode::LCS.as_u16() || code == SlmpDeviceCode::LCC.as_u16() {
                 return Err(SlmpError::new(
                     "Entry Monitor Device (0x0801) does not support LCS/LCC. Poll them through read_typed/read_named instead.",
+                ));
+            }
+            if code == SlmpDeviceCode::G.as_u16() || code == SlmpDeviceCode::HG.as_u16() {
+                return Err(SlmpError::new(
+                    "Entry Monitor Device (0x0801) does not support standalone G/HG. Use U-qualified extended access.",
                 ));
             }
             offset += spec_size;

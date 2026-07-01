@@ -117,23 +117,8 @@ async fn read_named_batches_mixed_plain_bit_device_kinds() {
 #[tokio::test]
 async fn read_named_batches_each_supported_plain_bit_device_code() {
     let addresses = strings(&[
-        "SM17:BIT",
-        "X1:BIT",
-        "Y1:BIT",
-        "M17:BIT",
-        "L17:BIT",
-        "F17:BIT",
-        "V17:BIT",
-        "B1F:BIT",
-        "TS17:BIT",
-        "TC17:BIT",
-        "STS17:BIT",
-        "STC17:BIT",
-        "CS17:BIT",
-        "CC17:BIT",
+        "SM17:BIT", "X1:BIT", "Y1:BIT", "M17:BIT", "L17:BIT", "F17:BIT", "V17:BIT", "B1F:BIT",
         "SB1F:BIT",
-        "DX1:BIT",
-        "DY1:BIT",
     ]);
     let expected_devices = [
         SlmpDeviceAddress::new(SlmpDeviceCode::SM, 16),
@@ -144,19 +129,11 @@ async fn read_named_batches_each_supported_plain_bit_device_code() {
         SlmpDeviceAddress::new(SlmpDeviceCode::F, 16),
         SlmpDeviceAddress::new(SlmpDeviceCode::V, 16),
         SlmpDeviceAddress::new(SlmpDeviceCode::B, 0x10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::TS, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::TC, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::STS, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::STC, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::CS, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::CC, 16),
         SlmpDeviceAddress::new(SlmpDeviceCode::SB, 0x10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::DX, 0),
-        SlmpDeviceAddress::new(SlmpDeviceCode::DY, 0),
     ];
     let mut words = vec![0x0002; addresses.len()];
     words[7] = 0x8000;
-    words[14] = 0x8000;
+    words[8] = 0x8000;
     let server = CapturingServer::start(vec![word_payload(&words)])
         .await
         .unwrap();
@@ -173,6 +150,48 @@ async fn read_named_batches_each_supported_plain_bit_device_code() {
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
     assert_random_shape(&requests[0], &expected_devices, &[]);
+}
+
+#[tokio::test]
+async fn read_named_uses_direct_bit_reads_for_live_sensitive_bit_devices() {
+    let addresses = strings(&[
+        "TS10:BIT",
+        "TC10:BIT",
+        "STS10:BIT",
+        "STC10:BIT",
+        "CS10:BIT",
+        "CC10:BIT",
+        "DX10:BIT",
+        "DY10:BIT",
+    ]);
+    let expected_devices = [
+        SlmpDeviceAddress::new(SlmpDeviceCode::TS, 10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::TC, 10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::STS, 10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::STC, 10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::CS, 10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::CC, 10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::DX, 0x10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::DY, 0x10),
+    ];
+    let server = CapturingServer::start(vec![vec![0x10]; addresses.len()])
+        .await
+        .unwrap();
+    let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
+
+    let values = read_named(&client, &addresses).await.unwrap();
+
+    assert!(
+        addresses
+            .iter()
+            .all(|address| values[address] == SlmpValue::Bool(true))
+    );
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), expected_devices.len());
+    for (request, device) in requests.iter().zip(expected_devices) {
+        assert_direct_bit_read(request, device, 1);
+    }
 }
 
 #[tokio::test]

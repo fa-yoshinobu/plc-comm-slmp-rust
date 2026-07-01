@@ -163,7 +163,7 @@ fn parse_device_internal(
     for prefix in [
         "LSTS", "LSTC", "LSTN", "LTS", "LTC", "LTN", "STS", "STC", "STN", "SM", "SD", "TS", "TC",
         "TN", "CS", "CC", "CN", "SB", "SW", "DX", "DY", "LCS", "LCC", "LCN", "LZ", "ZR", "RD",
-        "HG", "X", "Y", "M", "L", "F", "V", "B", "D", "W", "Z", "R", "G",
+        "HG", "X", "Y", "M", "L", "F", "V", "B", "S", "D", "W", "Z", "R", "G",
     ] {
         if token.starts_with(prefix)
             && let Some(code) = SlmpDeviceCode::parse_prefix(prefix)
@@ -400,6 +400,14 @@ mod tests {
         assert_eq!(
             parse_device("XFF").unwrap(),
             SlmpDeviceAddress::new(SlmpDeviceCode::X, 0xff)
+        );
+    }
+
+    #[test]
+    fn step_relay_is_parsed_as_decimal_bit_device() {
+        assert_eq!(
+            parse_device("S10").unwrap(),
+            SlmpDeviceAddress::new(SlmpDeviceCode::S, 10)
         );
     }
 

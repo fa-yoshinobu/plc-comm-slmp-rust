@@ -157,6 +157,7 @@ pub enum SlmpDeviceCode {
     F = 0x0093,
     V = 0x0094,
     B = 0x00A0,
+    S = 0x0098,
     D = 0x00A8,
     W = 0x00B4,
     TS = 0x00C1,
@@ -210,6 +211,7 @@ impl SlmpDeviceCode {
             Self::F => "F",
             Self::V => "V",
             Self::B => "B",
+            Self::S => "S",
             Self::D => "D",
             Self::W => "W",
             Self::TS => "TS",
@@ -262,6 +264,7 @@ impl SlmpDeviceCode {
                 | Self::F
                 | Self::V
                 | Self::B
+                | Self::S
                 | Self::TS
                 | Self::TC
                 | Self::LTS
@@ -361,6 +364,7 @@ impl SlmpDeviceCode {
             "F" => Some(Self::F),
             "V" => Some(Self::V),
             "B" => Some(Self::B),
+            "S" => Some(Self::S),
             "D" => Some(Self::D),
             "W" => Some(Self::W),
             "Z" => Some(Self::Z),

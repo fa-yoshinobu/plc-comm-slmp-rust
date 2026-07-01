@@ -269,16 +269,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## S appears in a catalog but parsing fails
+## S write is rejected
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| The live range catalog reports `S`, but `S` cannot be parsed as a public device address. | The crate intentionally does not expose the MELSEC step-relay device in the parser/client surface. | Keep `S` out of application address lists until support is added deliberately. |
+| `S10:BIT` parses and reads, but writes are rejected before transport. | Step relay `S` is exposed as a read-only SLMP bit family in this crate. | Keep `S` out of write lists and use it only for reads. |
 
 ```rust
 use plc_comm_slmp::SlmpAddress;
 
 fn main() {
-    assert!(SlmpAddress::try_parse("S0").is_none());
+    assert!(SlmpAddress::try_parse("S10").is_some());
 }
 ```

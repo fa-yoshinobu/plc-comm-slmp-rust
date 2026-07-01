@@ -19,7 +19,7 @@ Audit basis:
 | A-3 Remote Stop `1002` | High-level Remote Stop sends only fixed `01 00`. The old force variant is not a manual branch. | `remote_force_stop()` removed. |
 | A-4 Remote Password `1630/1631` | iQ-R/iQ-L use little-endian length plus ASCII password, 6..32 bytes; Q/L uses `04 00 + 4 ASCII bytes`. | Reflected in password encoding. |
 | A-5 ZR address radix | ZR device numbers are decimal. The manual table entry that looks hexadecimal is treated as unreliable. | No code change. |
-| A-6 Step relay `S` | R120PCPU can read and monitor `S`, but write failed and GX Works cannot monitor it in the user workflow. | Not exposed as a public high-level device. |
+| A-6 Step relay `S` | R120PCPU can read and monitor `S`, but write failed and GX Works cannot monitor it in the user workflow. | Exposed for reads; write routes reject `S` as read-only. |
 | A-7 Self Test `0619` | High-level API follows the manual: 1..960 bytes and ASCII `0`-`9` / `A`-`F` only. | Reflected. |
 | A-8 Link Direct `J` | Keep the current 11-byte layout and `0080/0081`; `0082/0083` failed with `0xC061` on iQ-R. | No code change. |
 | A-9 `G` / `HG` extension layout | Keep the current capture-compatible layout. The manual order failed with `0xC061` on R120PCPU. | No code change. |
@@ -55,6 +55,14 @@ instead come from batching:
 - random read/write for sparse points,
 - block read/write for mixed word/bit blocks,
 - registered monitor `0801/0802` where appropriate.
+
+For named bit reads, keep `0x0403` random word-read batching narrower than
+generic bit-device support. Python, .NET, C++ minimal, and Node-RED keep
+`TS/TC/STS/STC/CS/CC/DX/DY:BIT` on direct bit-read routes; C++ minimal and
+Node-RED may cluster contiguous bits, but that remains `0x0401` bit-unit
+access rather than random word read. R120PCPU live testing rejected the Rust
+random word-read path for these families with end code `0x4032`, so Rust keeps
+that optimization limited to `SM/X/Y/M/L/F/V/B/SB`.
 
 For phone Wi-Fi behavior, this repository now has TCP_NODELAY and a default
 30-second TCP keepalive. Applications can still choose UDP for display-only

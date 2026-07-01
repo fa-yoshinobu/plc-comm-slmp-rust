@@ -356,7 +356,7 @@ fn supports_direct_bit_block(code: SlmpDeviceCode) -> bool {
 }
 
 fn supports_direct_bit_block_write(code: SlmpDeviceCode) -> bool {
-    supports_direct_bit_block(code) && !matches!(code, SlmpDeviceCode::SM)
+    supports_direct_bit_block(code) && !matches!(code, SlmpDeviceCode::SM | SlmpDeviceCode::S)
 }
 
 fn supports_bit_block_route(plc_profile: SlmpPlcProfile) -> bool {

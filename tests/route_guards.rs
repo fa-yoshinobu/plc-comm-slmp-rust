@@ -215,6 +215,22 @@ async fn direct_bit_write_rejects_long_counter_state_devices() {
 }
 
 #[tokio::test]
+async fn s_device_writes_are_rejected_before_transport() {
+    let client = udp_client().await;
+    let err = client
+        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::S, 10), &[true])
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("S is read-only"));
+
+    let err = client
+        .write_random_bits(&[(SlmpDeviceAddress::new(SlmpDeviceCode::S, 10), true)])
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("read-only devices such as S"));
+}
+
+#[tokio::test]
 async fn direct_bit_write_rejects_long_timer_state_devices() {
     let client = udp_client().await;
     let err = client
@@ -503,6 +519,22 @@ async fn extended_g_hg_reject_unqualified_device_addresses() {
         err.to_string()
             .contains("HG Extended Device access requires U-qualified")
     );
+}
+
+#[tokio::test]
+async fn standalone_g_hg_random_bit_writes_are_rejected() {
+    let client = udp_client().await;
+    let err = client
+        .write_random_bits(&[(SlmpDeviceAddress::new(SlmpDeviceCode::G, 10), true)])
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("standalone G/HG bit entries"));
+
+    let err = client
+        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::G, 10), 1)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("standalone G/HG"));
 }
 
 #[tokio::test]
