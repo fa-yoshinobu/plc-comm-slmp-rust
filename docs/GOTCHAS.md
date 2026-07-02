@@ -120,6 +120,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | --- | --- | --- |
 | A block write that combines word blocks and bit blocks returns a PLC-side error. | Some PLC paths reject command `0x1406` for mixed word and bit payloads. | Split word and bit writes, or use `SlmpBlockWriteOptions { split_mixed_blocks: true }` intentionally. |
 
+## Q-series profiles reject block commands
+
+| Symptom | Root cause | Fix |
+| --- | --- | --- |
+| `read_block()` or `write_block()` returns an error when the client uses `melsec:qcpu`, `melsec:qnu`, or `melsec:qnudv`. | These Q-series profiles reject SLMP Read Block (`0x0406`) and Write Block (`0x1406`) before transport. | Use direct or random device commands for those profiles. |
+
 ```rust
 use plc_comm_slmp::{
     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpValue, write_typed,

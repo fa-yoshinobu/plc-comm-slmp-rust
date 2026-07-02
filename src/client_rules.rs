@@ -1,8 +1,7 @@
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState,
-    SlmpCpuOperationStatus, SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult,
-    SlmpPlcProfile,
+    SlmpCpuOperationStatus, SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile,
 };
 
 const DIRECT_WORD_POINT_LIMIT: usize = 960;
