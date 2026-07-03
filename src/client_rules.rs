@@ -1,3 +1,4 @@
+use crate::capability_profiles::{self, SlmpProfileLimit};
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState,
@@ -27,18 +28,29 @@ pub(crate) fn validate_u16_count(count: usize, name: &str) -> Result<(), SlmpErr
 pub(crate) fn validate_direct_access_points(
     points: usize,
     bit_unit: bool,
+    write: bool,
     name: &str,
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
-    let limit = if bit_unit {
-        if matches!(plc_profile, SlmpPlcProfile::IqF) {
-            DIRECT_IQF_BIT_POINT_LIMIT
-        } else {
-            DIRECT_BIT_POINT_LIMIT
-        }
-    } else {
-        DIRECT_WORD_POINT_LIMIT
+    let limit_key = match (bit_unit, write) {
+        (false, false) => SlmpProfileLimit::DirectWordRead,
+        (false, true) => SlmpProfileLimit::DirectWordWrite,
+        (true, false) => SlmpProfileLimit::DirectBitRead,
+        (true, true) => SlmpProfileLimit::DirectBitWrite,
     };
+    let limit = capability_profiles::profile_limit(plc_profile, limit_key)
+        .map(|profile_limit| profile_limit.max)
+        .unwrap_or_else(|| {
+            if bit_unit {
+                if matches!(plc_profile, SlmpPlcProfile::IqF) {
+                    DIRECT_IQF_BIT_POINT_LIMIT
+                } else {
+                    DIRECT_BIT_POINT_LIMIT
+                }
+            } else {
+                DIRECT_WORD_POINT_LIMIT
+            }
+        });
     let unit = if bit_unit { "bit" } else { "word" };
     if points < 1 || points > limit {
         return Err(SlmpError::new(format!(
@@ -52,14 +64,20 @@ pub(crate) fn validate_random_read_like_counts(
     word_points: usize,
     dword_points: usize,
     compatibility_mode: SlmpCompatibilityMode,
+    plc_profile: SlmpPlcProfile,
+    limit_key: SlmpProfileLimit,
     name: &str,
 ) -> Result<(), SlmpError> {
     let total = word_points + dword_points;
-    let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
-        192
-    } else {
-        96
-    };
+    let limit = capability_profiles::profile_limit(plc_profile, limit_key)
+        .map(|profile_limit| profile_limit.max)
+        .unwrap_or_else(|| {
+            if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+                192
+            } else {
+                96
+            }
+        });
     if total < 1 || total > limit {
         return Err(SlmpError::new(format!(
             "{name} total access points out of range (1..{limit}): word={word_points}, dword={dword_points}"
@@ -72,23 +90,44 @@ pub(crate) fn validate_random_write_word_counts(
     word_points: usize,
     dword_points: usize,
     compatibility_mode: SlmpCompatibilityMode,
+    plc_profile: SlmpPlcProfile,
     name: &str,
 ) -> Result<(), SlmpError> {
-    if word_points + dword_points < 1 {
+    let total = word_points + dword_points;
+    if total < 1 {
         return Err(SlmpError::new(format!(
             "{name} word/dword access points out of range: word={word_points}, dword={dword_points}"
         )));
     }
-    let weighted = (word_points * 12) + (dword_points * 14);
-    let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
-        1920
+    if let Some(limit) =
+        capability_profiles::profile_limit(plc_profile, SlmpProfileLimit::RandomWriteWord)
+    {
+        if total > limit.max {
+            return Err(SlmpError::new(format!(
+                "{name} word/dword access points out of range (1..{}): word={word_points}, dword={dword_points}",
+                limit.max
+            )));
+        }
+        if let Some(weighted_max) = limit.weighted_max {
+            let weighted = (word_points * 12) + (dword_points * 14);
+            if weighted > weighted_max {
+                return Err(SlmpError::new(format!(
+                    "{name} word/dword access points out of range: word={word_points}, dword={dword_points}, weighted={weighted}, limit={weighted_max}"
+                )));
+            }
+        }
     } else {
-        960
-    };
-    if weighted > limit {
-        return Err(SlmpError::new(format!(
-            "{name} word/dword access points out of range: word={word_points}, dword={dword_points}, weighted={weighted}, limit={limit}"
-        )));
+        let weighted = (word_points * 12) + (dword_points * 14);
+        let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+            1920
+        } else {
+            960
+        };
+        if weighted > limit {
+            return Err(SlmpError::new(format!(
+                "{name} word/dword access points out of range: word={word_points}, dword={dword_points}, weighted={weighted}, limit={limit}"
+            )));
+        }
     }
     Ok(())
 }
@@ -96,13 +135,18 @@ pub(crate) fn validate_random_write_word_counts(
 pub(crate) fn validate_random_bit_write_count(
     points: usize,
     compatibility_mode: SlmpCompatibilityMode,
+    plc_profile: SlmpPlcProfile,
     name: &str,
 ) -> Result<(), SlmpError> {
-    let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
-        188
-    } else {
-        94
-    };
+    let limit = capability_profiles::profile_limit(plc_profile, SlmpProfileLimit::RandomWriteBit)
+        .map(|profile_limit| profile_limit.max)
+        .unwrap_or_else(|| {
+            if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
+                188
+            } else {
+                94
+            }
+        });
     if points < 1 || points > limit {
         return Err(SlmpError::new(format!(
             "{name} bit access points out of range (1..{limit}): {points}"
@@ -200,10 +244,7 @@ pub(crate) fn validate_block_route_for_profile(
     plc_profile: SlmpPlcProfile,
     command_label: &str,
 ) -> Result<(), SlmpError> {
-    if matches!(
-        plc_profile,
-        SlmpPlcProfile::QCpu | SlmpPlcProfile::QnU | SlmpPlcProfile::QnUDV
-    ) {
+    if matches!(plc_profile, SlmpPlcProfile::QCpu | SlmpPlcProfile::QnU) {
         return Err(SlmpError::new(format!(
             "{command_label} is not supported for plc_profile '{}'. Use direct or random device commands.",
             plc_profile.canonical_name()
@@ -255,14 +296,17 @@ pub(crate) fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), 
     Ok(())
 }
 
-pub(crate) fn validate_direct_bit_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+pub(crate) fn validate_direct_bit_write(
+    device: SlmpDeviceAddress,
+    plc_profile: SlmpPlcProfile,
+) -> Result<(), SlmpError> {
     if is_qualified_only_device(device.code) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    if is_read_only_device(device.code) {
-        return Err(SlmpError::new("S is read-only and cannot be written."));
+    if is_read_only_device(device.code, plc_profile) {
+        return Err(read_only_write_error(device.code, plc_profile));
     }
     // PLCs reject direct bit write (0x1401) for these state bits. The
     // supported write path is write_typed/write_named, which selects 0x1402.
@@ -298,14 +342,17 @@ pub(crate) fn validate_direct_word_read(
     }
 }
 
-pub(crate) fn validate_direct_word_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+pub(crate) fn validate_direct_word_write(
+    device: SlmpDeviceAddress,
+    plc_profile: SlmpPlcProfile,
+) -> Result<(), SlmpError> {
     if is_qualified_only_device(device.code) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    if is_read_only_device(device.code) {
-        return Err(SlmpError::new("S is read-only and cannot be written."));
+    if is_read_only_device(device.code, plc_profile) {
+        return Err(read_only_write_error(device.code, plc_profile));
     }
     if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
         return Err(SlmpError::new(
@@ -329,14 +376,17 @@ pub(crate) fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<()
     Ok(())
 }
 
-pub(crate) fn validate_direct_dword_write(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+pub(crate) fn validate_direct_dword_write(
+    device: SlmpDeviceAddress,
+    plc_profile: SlmpPlcProfile,
+) -> Result<(), SlmpError> {
     if is_qualified_only_device(device.code) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    if is_read_only_device(device.code) {
-        return Err(SlmpError::new("S is read-only and cannot be written."));
+    if is_read_only_device(device.code, plc_profile) {
+        return Err(read_only_write_error(device.code, plc_profile));
     }
     if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
         return Err(SlmpError::new(
@@ -383,12 +433,11 @@ pub(crate) fn validate_random_read_devices(
 pub(crate) fn validate_random_write_word_devices(
     word_entries: &[(SlmpDeviceAddress, u16)],
     dword_entries: &[(SlmpDeviceAddress, u32)],
+    plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
     for (device, _) in word_entries {
-        if is_read_only_device(device.code) {
-            return Err(SlmpError::new(
-                "Write Random (0x1402) does not support read-only devices such as S.",
-            ));
+        if is_read_only_device(device.code, plc_profile) {
+            return Err(read_only_random_write_error(plc_profile));
         }
         if is_qualified_only_device(device.code) {
             return Err(SlmpError::new(
@@ -397,10 +446,8 @@ pub(crate) fn validate_random_write_word_devices(
         }
     }
     for (device, _) in dword_entries {
-        if is_read_only_device(device.code) {
-            return Err(SlmpError::new(
-                "Write Random (0x1402) does not support read-only devices such as S.",
-            ));
+        if is_read_only_device(device.code, plc_profile) {
+            return Err(read_only_random_write_error(plc_profile));
         }
         if is_qualified_only_device(device.code) {
             return Err(SlmpError::new(
@@ -420,12 +467,11 @@ pub(crate) fn validate_random_write_word_devices(
 
 pub(crate) fn validate_random_bit_write_devices(
     bit_entries: &[(SlmpDeviceAddress, bool)],
+    plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
     for (device, _) in bit_entries {
-        if is_read_only_device(device.code) {
-            return Err(SlmpError::new(
-                "Write Random (0x1402) does not support read-only devices such as S.",
-            ));
+        if is_read_only_device(device.code, plc_profile) {
+            return Err(read_only_random_write_error(plc_profile));
         }
         if is_qualified_only_device(device.code) {
             return Err(SlmpError::new(
@@ -447,8 +493,9 @@ pub(crate) fn is_qualified_only_device(code: SlmpDeviceCode) -> bool {
     matches!(code, SlmpDeviceCode::G | SlmpDeviceCode::HG)
 }
 
-pub(crate) fn is_read_only_device(code: SlmpDeviceCode) -> bool {
+pub(crate) fn is_read_only_device(code: SlmpDeviceCode, plc_profile: SlmpPlcProfile) -> bool {
     matches!(code, SlmpDeviceCode::S)
+        || capability_profiles::is_profile_read_only_device(plc_profile, code)
 }
 
 pub(crate) fn requires_random_bit_write(code: SlmpDeviceCode) -> bool {
@@ -515,12 +562,14 @@ pub(crate) fn validate_no_lcs_lcc_block_read(
 pub(crate) fn validate_no_lcs_lcc_block_write(
     word_blocks: &[SlmpBlockWrite],
     bit_blocks: &[SlmpBlockWrite],
+    plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
     for block in word_blocks.iter().chain(bit_blocks.iter()) {
-        if is_read_only_device(block.device.code) {
-            return Err(SlmpError::new(
-                "Write Block (0x1406) does not support read-only devices such as S.",
-            ));
+        if is_read_only_device(block.device.code, plc_profile) {
+            return Err(SlmpError::new(format!(
+                "Write Block (0x1406) does not support read-only devices for plc_profile '{}'.",
+                plc_profile.canonical_name()
+            )));
         }
         if is_qualified_only_device(block.device.code) {
             return Err(SlmpError::new(
@@ -543,6 +592,25 @@ pub(crate) fn validate_no_lcs_lcc_block_write(
         }
     }
     Ok(())
+}
+
+fn read_only_write_error(code: SlmpDeviceCode, plc_profile: SlmpPlcProfile) -> SlmpError {
+    if capability_profiles::is_profile_read_only_device(plc_profile, code) {
+        SlmpError::new(format!(
+            "{} is read-only for plc_profile '{}' and cannot be written.",
+            code.prefix(),
+            plc_profile.canonical_name()
+        ))
+    } else {
+        SlmpError::new("S is read-only and cannot be written.")
+    }
+}
+
+fn read_only_random_write_error(plc_profile: SlmpPlcProfile) -> SlmpError {
+    SlmpError::new(format!(
+        "Write Random (0x1402) does not support read-only devices such as S or profile read-only families for plc_profile '{}'.",
+        plc_profile.canonical_name()
+    ))
 }
 
 pub(crate) fn unpack_bit_values(data: &[u8], points: usize) -> Result<Vec<bool>, SlmpError> {

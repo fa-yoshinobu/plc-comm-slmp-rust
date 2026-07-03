@@ -551,6 +551,7 @@ pub struct SlmpConnectionOptions {
     pub target: SlmpTargetAddress,
     pub transport_mode: SlmpTransportMode,
     pub monitoring_timer: u16,
+    pub strict_profile: bool,
 }
 
 impl SlmpConnectionOptions {
@@ -567,6 +568,7 @@ impl SlmpConnectionOptions {
             target: SlmpTargetAddress::default(),
             transport_mode: SlmpTransportMode::Tcp,
             monitoring_timer: 0x0010,
+            strict_profile: true,
         }
     }
 

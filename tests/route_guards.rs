@@ -1,8 +1,9 @@
 use plc_comm_slmp::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpConnectionOptions,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpPlcProfile,
-    SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue, parse_qualified_device,
-    read_dwords_chunked, read_dwords_single_request, read_named, read_typed, write_typed,
+    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpCommand,
+    SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpExtensionSpec,
+    SlmpPlcProfile, SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue,
+    parse_qualified_device, read_dwords_chunked, read_dwords_single_request, read_named,
+    read_typed, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
@@ -12,10 +13,18 @@ async fn udp_client() -> SlmpClient {
 }
 
 async fn udp_client_with_profile(plc_profile: SlmpPlcProfile) -> SlmpClient {
+    udp_client_with_profile_and_strict(plc_profile, true).await
+}
+
+async fn udp_client_with_profile_and_strict(
+    plc_profile: SlmpPlcProfile,
+    strict_profile: bool,
+) -> SlmpClient {
     let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
     options.set_plc_profile(plc_profile);
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = 9;
+    options.strict_profile = strict_profile;
     SlmpClient::connect(options).await.unwrap()
 }
 
@@ -68,19 +77,11 @@ impl CapturingResponseServer {
             if let Ok((mut stream, _)) = listener.accept().await {
                 let mut pending = std::collections::VecDeque::from(responses);
                 while let Some((end_code, payload)) = pending.pop_front() {
-                    let mut header = [0u8; 13];
-                    if stream.read_exact(&mut header).await.is_err() {
+                    let Some(request) = read_slmp_request_frame(&mut stream).await else {
                         return;
-                    }
-                    let body_len = u16::from_le_bytes([header[11], header[12]]) as usize;
-                    let mut body = vec![0u8; body_len];
-                    if stream.read_exact(&mut body).await.is_err() {
-                        return;
-                    }
-                    let mut request = header.to_vec();
-                    request.extend_from_slice(&body);
+                    };
                     request_clone.lock().await.push(request.clone());
-                    let response = build_4e_response_with_end_code(&request, end_code, &payload);
+                    let response = build_response_with_end_code(&request, end_code, &payload);
                     if stream.write_all(&response).await.is_err() {
                         return;
                     }
@@ -144,8 +145,47 @@ impl SerialSkewResponseServer {
     }
 }
 
+async fn read_slmp_request_frame(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
+    let mut prefix = [0u8; 2];
+    stream.read_exact(&mut prefix).await.ok()?;
+    let (prefix_len, length_index) = match prefix {
+        [0x54, 0x00] => (13usize, 11usize),
+        [0x50, 0x00] => (9usize, 7usize),
+        _ => return None,
+    };
+    let mut request = vec![0u8; prefix_len];
+    request[0..2].copy_from_slice(&prefix);
+    stream.read_exact(&mut request[2..prefix_len]).await.ok()?;
+    let body_len = u16::from_le_bytes([request[length_index], request[length_index + 1]]) as usize;
+    let mut body = vec![0u8; body_len];
+    stream.read_exact(&mut body).await.ok()?;
+    request.extend_from_slice(&body);
+    Some(request)
+}
+
 fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
     build_4e_response_with_end_code(request, 0, response_data)
+}
+
+fn build_response_with_end_code(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
+    if request.starts_with(&[0x50, 0x00]) {
+        return build_3e_response_with_end_code(request, end_code, response_data);
+    }
+    build_4e_response_with_end_code(request, end_code, response_data)
+}
+
+fn build_3e_response_with_end_code(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
+    let mut payload = vec![0u8; 2 + response_data.len()];
+    payload[0..2].copy_from_slice(&end_code.to_le_bytes());
+    payload[2..].copy_from_slice(response_data);
+
+    let mut response = vec![0u8; 9 + payload.len()];
+    response[0] = 0xD0;
+    response[1] = 0x00;
+    response[2..7].copy_from_slice(&request[2..7]);
+    response[7..9].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+    response[9..].copy_from_slice(&payload);
+    response
 }
 
 fn build_4e_response_with_end_code(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
@@ -175,6 +215,14 @@ fn build_4e_response_with_serial(
 
 fn build_dword_payload(values: &[u32]) -> Vec<u8> {
     let mut payload = Vec::with_capacity(values.len() * 4);
+    for value in values {
+        payload.extend_from_slice(&value.to_le_bytes());
+    }
+    payload
+}
+
+fn word_payload(values: &[u16]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(values.len() * 2);
     for value in values {
         payload.extend_from_slice(&value.to_le_bytes());
     }
@@ -482,10 +530,7 @@ async fn direct_extended_bit_write_rejects_long_counter_state_devices() {
         )
         .await
         .unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("Direct bit write is not supported")
-    );
+    assert!(err.to_string().contains("LCS is read-only"));
 }
 
 #[tokio::test]
@@ -883,12 +928,8 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
 }
 
 #[tokio::test]
-async fn q_series_profiles_reject_block_routes_before_transport() {
-    for profile in [
-        SlmpPlcProfile::QCpu,
-        SlmpPlcProfile::QnU,
-        SlmpPlcProfile::QnUDV,
-    ] {
+async fn qcpu_and_qnu_keep_legacy_block_route_guard_before_transport() {
+    for profile in [SlmpPlcProfile::QCpu, SlmpPlcProfile::QnU] {
         let client = udp_client_with_profile(profile).await;
         let profile_name = profile.canonical_name();
         let err = client
@@ -906,6 +947,7 @@ async fn q_series_profiles_reject_block_routes_before_transport() {
             .unwrap_err();
         assert!(err.to_string().contains("Read Block (0x0406)"));
         assert!(err.to_string().contains(profile_name));
+        assert_ne!(err.kind, SlmpErrorKind::ProfileFeature);
 
         let err = client
             .write_block(
@@ -923,7 +965,209 @@ async fn q_series_profiles_reject_block_routes_before_transport() {
             .unwrap_err();
         assert!(err.to_string().contains("Write Block (0x1406)"));
         assert!(err.to_string().contains(profile_name));
+        assert_ne!(err.kind, SlmpErrorKind::ProfileFeature);
     }
+}
+
+#[tokio::test]
+async fn ql_measured_profiles_use_profile_feature_guard_for_type_name_and_block() {
+    for profile in [SlmpPlcProfile::LCpu, SlmpPlcProfile::QnUDV] {
+        let client = udp_client_with_profile(profile).await;
+        let profile_id = profile.canonical_name();
+
+        let err = client.read_type_name().await.unwrap_err();
+        assert_eq!(err.kind, SlmpErrorKind::ProfileFeature);
+        let info = err.profile_feature.as_ref().unwrap();
+        assert_eq!(info.profile_id, profile_id);
+        assert_eq!(info.feature_key, "type_name");
+        assert_eq!(info.state, "blocked");
+        assert!(err.message.contains("C059"));
+        assert!(err.message.contains("strict_profile=false"));
+        assert_eq!(client.traffic_stats().await.request_count, 0);
+
+        let err = client
+            .read_block(
+                &[SlmpBlockRead {
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                    points: 1,
+                }],
+                &[],
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, SlmpErrorKind::ProfileFeature);
+        let info = err.profile_feature.as_ref().unwrap();
+        assert_eq!(info.profile_id, profile_id);
+        assert_eq!(info.feature_key, "block");
+        assert_eq!(info.state, "blocked");
+        assert!(err.message.contains("C059"));
+        assert_eq!(client.traffic_stats().await.request_count, 0);
+    }
+}
+
+#[tokio::test]
+async fn qnudv_strict_profile_false_sends_high_level_block_request() {
+    let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x1234]))])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV);
+    options.port = server.port;
+    options.strict_profile = false;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let result = client
+        .read_block(
+            &[SlmpBlockRead {
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                points: 1,
+            }],
+            &[],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.word_values, vec![0x1234]);
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(&requests[0][0..2], &[0x50, 0x00]);
+    let body = request_body(&requests[0]);
+    assert_eq!(u16::from_le_bytes([body[2], body[3]]), 0x0406);
+    assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0000);
+}
+
+#[tokio::test]
+async fn raw_request_is_not_profile_feature_guarded() {
+    let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x5555]))])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+    let payload = [
+        0x01, 0x00, // one word block, no bit blocks
+        0x64, 0x00, 0x00, 0xA8, // D100 legacy device spec
+        0x01, 0x00, // one point
+    ];
+
+    let data = client
+        .request(SlmpCommand::DeviceReadBlock, 0x0000, &payload, true)
+        .await
+        .unwrap();
+
+    assert_eq!(data, word_payload(&[0x5555]));
+    assert_eq!(server.requests().await.len(), 1);
+}
+
+#[tokio::test]
+async fn profile_extended_feature_guards_match_canonical_states() {
+    let iqf = udp_client_with_profile(SlmpPlcProfile::IqF).await;
+    let err = iqf
+        .read_words_extended(
+            parse_qualified_device(r"J1\W0").unwrap(),
+            1,
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, SlmpErrorKind::ProfileFeature);
+    let info = err.profile_feature.as_ref().unwrap();
+    assert_eq!(info.profile_id, "melsec:iq-f");
+    assert_eq!(info.feature_key, "ext_link_direct");
+    assert_eq!(info.state, "unverified");
+
+    let iql = udp_client_with_profile(SlmpPlcProfile::IqL).await;
+    let err = iql
+        .read_words_extended(
+            parse_qualified_device(r"U3E0\HG0").unwrap(),
+            1,
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, SlmpErrorKind::ProfileFeature);
+    let info = err.profile_feature.as_ref().unwrap();
+    assert_eq!(info.profile_id, "melsec:iq-l");
+    assert_eq!(info.feature_key, "hg_cpu_buffer");
+    assert_eq!(info.state, "blocked");
+
+    let qnudv = udp_client_with_profile(SlmpPlcProfile::QnUDV).await;
+    let err = qnudv
+        .read_words_extended(
+            parse_qualified_device(r"U2\G100").unwrap(),
+            1,
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, SlmpErrorKind::ProfileFeature);
+    let info = err.profile_feature.as_ref().unwrap();
+    assert_eq!(info.profile_id, "melsec:qnudv");
+    assert_eq!(info.feature_key, "ext_module_access");
+    assert_eq!(info.state, "blocked");
+}
+
+#[tokio::test]
+async fn iqf_config_dependent_g_route_is_not_guarded() {
+    let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x0007]))])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let values = client
+        .read_words_extended(
+            parse_qualified_device(r"U1\G0").unwrap(),
+            1,
+            SlmpExtensionSpec::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(values, vec![0x0007]);
+    assert_eq!(server.requests().await.len(), 1);
+}
+
+#[tokio::test]
+async fn profile_write_policy_is_enforced_even_when_strict_profile_is_false() {
+    let iqf = udp_client_with_profile_and_strict(SlmpPlcProfile::IqF, false).await;
+    let err = iqf
+        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::X, 0), &[true])
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, SlmpErrorKind::General);
+    assert!(err.message.contains("X is read-only"));
+    assert!(err.message.contains("melsec:iq-f"));
+    assert_eq!(iqf.traffic_stats().await.request_count, 0);
+
+    let iqr = udp_client_with_profile_and_strict(SlmpPlcProfile::IqR, false).await;
+    let err = iqr
+        .write_random_bits(&[(SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 0), true)])
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, SlmpErrorKind::General);
+    assert!(err.message.contains("read-only devices"));
+    assert!(err.message.contains("melsec:iq-r"));
+    assert_eq!(iqr.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn profile_limits_are_enforced_from_canonical_table() {
+    let iqr = udp_client_with_profile(SlmpPlcProfile::IqR).await;
+    let words: Vec<_> = (0..97)
+        .map(|i| SlmpDeviceAddress::new(SlmpDeviceCode::D, 1000 + i))
+        .collect();
+    let err = iqr.read_random(&words, &[]).await.unwrap_err();
+    assert!(err.message.contains("1..96"));
+    assert_eq!(iqr.traffic_stats().await.request_count, 0);
+
+    let iql = udp_client_with_profile(SlmpPlcProfile::IqL).await;
+    let entries: Vec<_> = (0..81)
+        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 2000 + i), 0))
+        .collect();
+    let err = iql.write_random_words(&entries, &[]).await.unwrap_err();
+    assert!(err.message.contains("1..80"));
+    assert_eq!(iql.traffic_stats().await.request_count, 0);
 }
 
 #[tokio::test]
@@ -1004,4 +1248,12 @@ fn assert_block_write_shape(request: &[u8], word_blocks: u8, bit_blocks: u8) {
     assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0002);
     assert_eq!(body[6], word_blocks);
     assert_eq!(body[7], bit_blocks);
+}
+
+fn request_body(request: &[u8]) -> &[u8] {
+    if request.starts_with(&[0x50, 0x00]) {
+        &request[9..]
+    } else {
+        &request[13..]
+    }
 }

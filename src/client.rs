@@ -1,4 +1,7 @@
 use crate::address::device_spec_size;
+use crate::capability_profiles::{
+    self, SlmpProfileFeature, SlmpProfileFeatureState, SlmpProfileLimit,
+};
 use crate::client_rules as rules;
 use crate::device_ranges::{
     SlmpDeviceRangeCatalog,
@@ -625,6 +628,7 @@ fn configure_tcp_keepalive(
 
 impl ClientInner {
     async fn read_type_name(&mut self) -> Result<SlmpTypeNameInfo, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::TypeName)?;
         let payload = self
             .request(SlmpCommand::ReadTypeName, 0x0000, &[], true)
             .await?;
@@ -672,8 +676,10 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u16>, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             points as usize,
+            false,
             false,
             "read_words",
             self.options.plc_profile,
@@ -698,13 +704,15 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u16],
     ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             values.len(),
             false,
+            true,
             "write_words",
             self.options.plc_profile,
         )?;
-        rules::validate_direct_word_write(device)?;
+        rules::validate_direct_word_write(device, self.options.plc_profile)?;
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(values), false);
         let sub = self.word_subcommand(false);
@@ -719,9 +727,11 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<bool>, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             points as usize,
             true,
+            false,
             "read_bits",
             self.options.plc_profile,
         )?;
@@ -743,13 +753,15 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[bool],
     ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             values.len(),
+            true,
             true,
             "write_bits",
             self.options.plc_profile,
         )?;
-        rules::validate_direct_bit_write(device)?;
+        rules::validate_direct_bit_write(device, self.options.plc_profile)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(&words), true);
@@ -769,10 +781,12 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u32>, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_dword_read(device)?;
         let word_points = (points as usize) * 2;
         rules::validate_direct_access_points(
             word_points,
+            false,
             false,
             "read_dwords",
             self.options.plc_profile,
@@ -789,10 +803,12 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u32],
     ) -> Result<(), SlmpError> {
-        rules::validate_direct_dword_write(device)?;
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
+        rules::validate_direct_dword_write(device, self.options.plc_profile)?;
         rules::validate_direct_access_points(
             values.len() * 2,
             false,
+            true,
             "write_dwords",
             self.options.plc_profile,
         )?;
@@ -832,13 +848,16 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             points as usize,
+            false,
             false,
             "read_words_ext",
             self.options.plc_profile,
         )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_word_read(device.device, points)?;
         }
@@ -871,15 +890,18 @@ impl ClientInner {
         values: &[u16],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             values.len(),
             false,
+            true,
             "write_words_ext",
             self.options.plc_profile,
         )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
-            rules::validate_direct_word_write(device.device)?;
+            rules::validate_direct_word_write(device.device, self.options.plc_profile)?;
         }
         let payload = self.build_read_write_payload_extended(
             device.device,
@@ -909,13 +931,16 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             points as usize,
             true,
+            false,
             "read_bits_ext",
             self.options.plc_profile,
         )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_bit_read(device.device)?;
         }
@@ -942,15 +967,18 @@ impl ClientInner {
         values: &[bool],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             values.len(),
+            true,
             true,
             "write_bits_ext",
             self.options.plc_profile,
         )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
+        self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
-            rules::validate_direct_bit_write(device.device)?;
+            rules::validate_direct_bit_write(device.device, self.options.plc_profile)?;
         }
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload = self.build_read_write_payload_extended(
@@ -980,6 +1008,7 @@ impl ClientInner {
         word_devices: &[SlmpDeviceAddress],
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
         rules::validate_random_read_devices(word_devices, dword_devices)?;
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
@@ -988,6 +1017,8 @@ impl ClientInner {
             word_devices.len(),
             dword_devices.len(),
             self.options.compatibility_mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::RandomReadWord,
             "read_random",
         )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
@@ -1046,7 +1077,12 @@ impl ClientInner {
         word_entries: &[(SlmpDeviceAddress, u16)],
         dword_entries: &[(SlmpDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
-        rules::validate_random_write_word_devices(word_entries, dword_entries)?;
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
+        rules::validate_random_write_word_devices(
+            word_entries,
+            dword_entries,
+            self.options.plc_profile,
+        )?;
         if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -1054,6 +1090,7 @@ impl ClientInner {
             word_entries.len(),
             dword_entries.len(),
             self.options.compatibility_mode,
+            self.options.plc_profile,
             "write_random_words",
         )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
@@ -1091,15 +1128,17 @@ impl ClientInner {
         &mut self,
         bit_entries: &[(SlmpDeviceAddress, bool)],
     ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
         if bit_entries.len() > 0xFF {
             return Err(SlmpError::new("random bit count must be <= 255"));
         }
         rules::validate_random_bit_write_count(
             bit_entries.len(),
             self.options.compatibility_mode,
+            self.options.plc_profile,
             "write_random_bits",
         )?;
-        rules::validate_random_bit_write_devices(bit_entries)?;
+        rules::validate_random_bit_write_devices(bit_entries, self.options.plc_profile)?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let bit_value_size = if matches!(
             self.options.compatibility_mode,
@@ -1145,6 +1184,7 @@ impl ClientInner {
         word_blocks: &[SlmpBlockRead],
         bit_blocks: &[SlmpBlockRead],
     ) -> Result<SlmpBlockReadResult, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Block)?;
         rules::validate_block_route_for_profile(self.options.plc_profile, "Read Block (0x0406)")?;
         rules::validate_no_lcs_lcc_block_read(word_blocks, bit_blocks)?;
         if word_blocks.len() > 0xFF || bit_blocks.len() > 0xFF {
@@ -1213,8 +1253,9 @@ impl ClientInner {
         bit_blocks: &[SlmpBlockWrite],
         options: SlmpBlockWriteOptions,
     ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Block)?;
         rules::validate_block_route_for_profile(self.options.plc_profile, "Write Block (0x1406)")?;
-        rules::validate_no_lcs_lcc_block_write(word_blocks, bit_blocks)?;
+        rules::validate_no_lcs_lcc_block_write(word_blocks, bit_blocks, self.options.plc_profile)?;
         if options.split_mixed_blocks && !word_blocks.is_empty() && !bit_blocks.is_empty() {
             self.write_block_once(word_blocks, &[]).await?;
             self.write_block_once(&[], bit_blocks).await?;
@@ -1743,6 +1784,51 @@ impl ClientInner {
         Ok(rules::parse_long_timer_words(&words, head_no, "LSTN"))
     }
 
+    fn ensure_profile_feature_allowed(&self, feature: SlmpProfileFeature) -> Result<(), SlmpError> {
+        if !self.options.strict_profile {
+            return Ok(());
+        }
+        let Some(capability_feature) =
+            capability_profiles::profile_feature(self.options.plc_profile, feature)
+        else {
+            return Ok(());
+        };
+        if !matches!(
+            capability_feature.state,
+            SlmpProfileFeatureState::Blocked | SlmpProfileFeatureState::Unverified
+        ) {
+            return Ok(());
+        }
+
+        Err(SlmpError::profile_feature(
+            self.options.plc_profile.canonical_name(),
+            capability_profiles::feature_key(feature),
+            capability_profiles::state_name(capability_feature.state),
+            Some(capability_profiles::feature_evidence(*capability_feature)),
+        ))
+    }
+
+    fn ensure_extended_profile_feature_allowed(
+        &self,
+        device: SlmpQualifiedDeviceAddress,
+        extension: SlmpExtensionSpec,
+    ) -> Result<(), SlmpError> {
+        if extension.direct_memory_specification == 0xF9 {
+            return self.ensure_profile_feature_allowed(SlmpProfileFeature::ExtLinkDirect);
+        }
+        if matches!(device.device.code, SlmpDeviceCode::HG)
+            || extension.direct_memory_specification == 0xFA
+        {
+            return self.ensure_profile_feature_allowed(SlmpProfileFeature::HgCpuBuffer);
+        }
+        if matches!(device.device.code, SlmpDeviceCode::G)
+            || extension.direct_memory_specification == 0xF8
+        {
+            return self.ensure_profile_feature_allowed(SlmpProfileFeature::ExtModuleAccess);
+        }
+        Ok(())
+    }
+
     async fn request(
         &mut self,
         command: SlmpCommand,
@@ -1836,10 +1922,7 @@ impl ClientInner {
         Self::request_data_length(command, subcommand, payload.len())?;
         if matches!(command, SlmpCommand::MonitorRegister) && matches!(subcommand, 0x0000 | 0x0002)
         {
-            Self::validate_plain_monitor_register_payload(
-                self.options.compatibility_mode,
-                payload,
-            )?;
+            self.validate_plain_monitor_register_payload(self.options.compatibility_mode, payload)?;
         }
         Ok(())
     }
@@ -1868,6 +1951,7 @@ impl ClientInner {
     }
 
     fn validate_plain_monitor_register_payload(
+        &self,
         mode: SlmpCompatibilityMode,
         payload: &[u8],
     ) -> Result<(), SlmpError> {
@@ -1880,6 +1964,8 @@ impl ClientInner {
             word_count,
             dword_count,
             mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::MonitorRegisterWord,
             "register_monitor_devices",
         )?;
         let spec_size = device_spec_size(mode);

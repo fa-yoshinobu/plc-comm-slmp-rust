@@ -1,6 +1,13 @@
 use crate::error_codes::{end_code_message_en, end_code_name, is_remote_password_end_code};
 use crate::model::SlmpCommand;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlmpErrorKind {
+    General,
+    PlcEndCode,
+    ProfileFeature,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlmpErrorInfo {
     pub network: u8,
@@ -30,24 +37,37 @@ impl SlmpErrorInfo {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlmpProfileFeatureErrorInfo {
+    pub profile_id: String,
+    pub feature_key: String,
+    pub state: String,
+    pub evidence: Option<String>,
+    pub disable_hint: String,
+}
+
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{message}")]
 pub struct SlmpError {
+    pub kind: SlmpErrorKind,
     pub message: String,
     pub end_code: Option<u16>,
     pub command: Option<SlmpCommand>,
     pub subcommand: Option<u16>,
     pub error_info: Option<SlmpErrorInfo>,
+    pub profile_feature: Option<SlmpProfileFeatureErrorInfo>,
 }
 
 impl SlmpError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
+            kind: SlmpErrorKind::General,
             message: message.into(),
             end_code: None,
             command: None,
             subcommand: None,
             error_info: None,
+            profile_feature: None,
         }
     }
 
@@ -58,11 +78,17 @@ impl SlmpError {
         subcommand: Option<u16>,
     ) -> Self {
         Self {
+            kind: if end_code.is_some() {
+                SlmpErrorKind::PlcEndCode
+            } else {
+                SlmpErrorKind::General
+            },
             message: message.into(),
             end_code,
             command,
             subcommand,
             error_info: None,
+            profile_feature: None,
         }
     }
 
@@ -74,12 +100,56 @@ impl SlmpError {
         error_info: Option<SlmpErrorInfo>,
     ) -> Self {
         Self {
+            kind: if end_code.is_some() {
+                SlmpErrorKind::PlcEndCode
+            } else {
+                SlmpErrorKind::General
+            },
             message: message.into(),
             end_code,
             command,
             subcommand,
             error_info,
+            profile_feature: None,
         }
+    }
+
+    pub fn profile_feature(
+        profile_id: impl Into<String>,
+        feature_key: impl Into<String>,
+        state: impl Into<String>,
+        evidence: Option<String>,
+    ) -> Self {
+        let profile_id = profile_id.into();
+        let feature_key = feature_key.into();
+        let state = state.into();
+        let disable_hint = "Set strict_profile=false to send the request anyway.".to_string();
+        let evidence_text = evidence
+            .as_ref()
+            .map(|value| format!(" Evidence: {value}."))
+            .unwrap_or_default();
+        let message = format!(
+            "Feature '{feature_key}' is {state} for plc_profile '{profile_id}'.{evidence_text} {disable_hint}"
+        );
+        Self {
+            kind: SlmpErrorKind::ProfileFeature,
+            message,
+            end_code: None,
+            command: None,
+            subcommand: None,
+            error_info: None,
+            profile_feature: Some(SlmpProfileFeatureErrorInfo {
+                profile_id,
+                feature_key,
+                state,
+                evidence,
+                disable_hint,
+            }),
+        }
+    }
+
+    pub fn is_profile_feature_error(&self) -> bool {
+        matches!(self.kind, SlmpErrorKind::ProfileFeature)
     }
 
     pub fn end_code_name(&self) -> Option<&'static str> {
