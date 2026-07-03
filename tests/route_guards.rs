@@ -1179,6 +1179,28 @@ async fn profile_limits_are_enforced_from_canonical_table() {
 }
 
 #[tokio::test]
+async fn direct_access_does_not_use_device_range_upper_bounds_as_send_guard() {
+    let server = CapturingResponseServer::start(vec![(0, vec![0x34, 0x12]), (0, Vec::new())])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let values = client
+        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999), 1)
+        .await
+        .unwrap();
+    assert_eq!(values, vec![0x1234]);
+
+    client
+        .write_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999), &[0x5678])
+        .await
+        .unwrap();
+    assert_eq!(server.requests().await.len(), 2);
+}
+
+#[tokio::test]
 async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC05B, Vec::new())])
         .await
