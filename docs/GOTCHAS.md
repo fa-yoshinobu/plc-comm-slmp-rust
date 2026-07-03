@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| `LCS0` or `LCC0` does not behave like a normal word value. | Long counter state devices are state bits. Reads use direct bit access, and writes route through random bit write (`0x1402`). | Use `read_named` or `write_typed` with `SlmpValue::Bool`. |
+| `LCS0` or `LCC0` does not behave like a normal word value. | Long counter state devices are state bits. | Use `read_named` or `write_typed` with `SlmpValue::Bool`. |
 
 ```rust
 use plc_comm_slmp::{
@@ -118,13 +118,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| A block write that combines word blocks and bit blocks returns a PLC-side error. | Some PLC paths reject command `0x1406` for mixed word and bit payloads. | Split word and bit writes, or use `SlmpBlockWriteOptions { split_mixed_blocks: true }` intentionally. |
+| A block write that combines word blocks and bit blocks returns a PLC-side error. | Some PLC paths reject mixed word and bit block writes. | Split word and bit writes, or use `SlmpBlockWriteOptions { split_mixed_blocks: true }` intentionally. |
 
 ## Q-series profiles reject block commands
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| `read_block()` or `write_block()` returns an error when the client uses `melsec:qcpu`, `melsec:qnu`, or `melsec:qnudv`. | These Q-series profiles reject SLMP Read Block (`0x0406`) and Write Block (`0x1406`) before transport. | Use direct or random device commands for those profiles. |
+| `read_block()` or `write_block()` returns an error when the client uses `melsec:qcpu`, `melsec:qnu`, or `melsec:qnudv`. | These Q-series profiles do not use block access for normal high-level flows. | Use direct or random device commands for those profiles. |
 
 ```rust
 use plc_comm_slmp::{
