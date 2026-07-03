@@ -175,9 +175,9 @@ so these maximum addresses are representable by the protocol format.
 - `ZR` and `R` on `LCPU`, `QnU`, and `QnUDV` are runtime-limited by probing
   readable `ZR` addresses. `QnU` was live-checked on 2026-05-15 against
   `Q26UDEHCPU` with `ZR655359` accepted, `ZR655360` returning `0x4031`, and
-  `R32767` accepted with `R32768` blocked by the client guard or returned as out
+  `R32767` accepted with `R32768` rejected by the client guard or returned as out
   of range. `QnUDV` was live-checked on 2026-05-15 against `Q06UDVCPU` with
   `ZR393215` accepted, `ZR393216` returning `0x4031`, and `R32767` accepted
-  with `R32768` blocked by the client guard or returned as out of range.
+  with `R32768` rejected by the client guard or returned as out of range.
 - `iQ-F` `X` and `Y` are documented in MELSEC manuals with octal addressing.
   This crate emits `Octal` and formats ranges such as `X0000-X1777`.
