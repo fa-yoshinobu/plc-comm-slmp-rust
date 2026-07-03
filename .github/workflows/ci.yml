@@ -15,6 +15,11 @@ jobs:
         with:
           path: plc-comm-slmp-rust
 
+      - name: Check canonical SLMP profile JSONs
+        working-directory: plc-comm-slmp-rust
+        shell: pwsh
+        run: ./scripts/update_slmp_profile_jsons.ps1 -FailIfChanged
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Cargo fmt
