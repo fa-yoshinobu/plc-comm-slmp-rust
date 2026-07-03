@@ -10,6 +10,12 @@ bounds from the PLC itself after the caller chooses the canonical PLC profile:
 3. read the profile-specific `SD` register window
 4. build a `SlmpDeviceRangeCatalog` with point counts and 0-based address ranges
 
+This catalog is a connected diagnostics and application-layer validation aid.
+Normal read/write APIs do not use it to reject addresses by configured upper
+bound before sending a request. Applications that need PLC-specific range
+validation should read the catalog and apply that policy outside the transport
+operation.
+
 ## Explicit Profile Policy
 
 The library does not infer `SlmpPlcProfile` from `ReadTypeName`, model text, or
