@@ -301,9 +301,9 @@ const IQF_FEATURES: &[SlmpCapabilityFeature] = &[
     ),
     feature(
         SlmpProfileFeature::ExtLinkDirect,
-        SlmpProfileFeatureState::Unverified,
-        "policy",
-        Some("No link unit was available in the iQ-F verification set."),
+        SlmpProfileFeatureState::Blocked,
+        "live",
+        Some("J1 link-direct access returned a PLC error."),
     ),
     feature(
         SlmpProfileFeature::HgCpuBuffer,
@@ -364,9 +364,9 @@ const QL_MEASURED_FEATURES: &[SlmpCapabilityFeature] = &[
     ),
     feature(
         SlmpProfileFeature::ExtLinkDirect,
-        SlmpProfileFeatureState::Unverified,
-        "policy",
-        Some("No link unit was available in the verification set."),
+        SlmpProfileFeatureState::Blocked,
+        "live",
+        Some("Link-direct access is not available on the tested built-in CPU port."),
     ),
     feature(
         SlmpProfileFeature::HgCpuBuffer,
@@ -515,8 +515,8 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::MonitorRegisterWord,
         96,
-        None,
-        "inferred",
+        Some("C054"),
+        "live",
         None,
         None,
     ),
@@ -526,7 +526,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectWordRead,
         960,
-        Some("C052"),
+        Some("C051"),
         "live",
         None,
         None,
@@ -534,7 +534,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectWordWrite,
         960,
-        Some("C052"),
+        Some("C051"),
         "live",
         None,
         None,
@@ -542,7 +542,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectBitRead,
         3584,
-        Some("C051"),
+        Some("C052"),
         "live",
         None,
         None,
@@ -550,7 +550,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectBitWrite,
         3584,
-        Some("C051"),
+        Some("C052"),
         "live",
         None,
         None,
@@ -648,12 +648,10 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
     ),
 ];
 
-const IQR_WRITE_POLICY: &[SlmpWritePolicy] = &[
-    write_policy(SlmpDeviceCode::S),
-    write_policy(SlmpDeviceCode::LCS),
-];
-const IQF_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy(SlmpDeviceCode::X)];
-const EMPTY_WRITE_POLICY: &[SlmpWritePolicy] = &[];
+const IQR_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy(SlmpDeviceCode::S)];
+const IQF_WRITE_POLICY: &[SlmpWritePolicy] =
+    &[write_policy_value(SlmpDeviceCode::S, "read-write")];
+const QL_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy(SlmpDeviceCode::S)];
 
 pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
     profile(
@@ -702,13 +700,31 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         IQF_WRITE_POLICY,
     ),
     profile(
+        SlmpPlcProfile::QCpu,
+        "melsec:qcpu",
+        "3E",
+        "Q/L",
+        QL_MEASURED_FEATURES,
+        QL_LIMITS,
+        QL_WRITE_POLICY,
+    ),
+    profile(
         SlmpPlcProfile::LCpu,
         "melsec:lcpu",
         "3E",
         "Q/L",
         QL_MEASURED_FEATURES,
         QL_LIMITS,
-        EMPTY_WRITE_POLICY,
+        QL_WRITE_POLICY,
+    ),
+    profile(
+        SlmpPlcProfile::QnU,
+        "melsec:qnu",
+        "3E",
+        "Q/L",
+        QL_MEASURED_FEATURES,
+        QL_LIMITS,
+        QL_WRITE_POLICY,
     ),
     profile(
         SlmpPlcProfile::QnUDV,
@@ -717,7 +733,7 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         "Q/L",
         QL_MEASURED_FEATURES,
         QL_LIMITS,
-        EMPTY_WRITE_POLICY,
+        QL_WRITE_POLICY,
     ),
 ];
 
@@ -840,9 +856,13 @@ const fn limit(
 }
 
 const fn write_policy(device: SlmpDeviceCode) -> SlmpWritePolicy {
+    write_policy_value(device, "read-only")
+}
+
+const fn write_policy_value(device: SlmpDeviceCode, policy: &'static str) -> SlmpWritePolicy {
     SlmpWritePolicy {
         device,
-        policy: "read-only",
+        policy,
     }
 }
 

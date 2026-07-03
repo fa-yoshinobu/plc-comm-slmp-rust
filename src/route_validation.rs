@@ -1155,7 +1155,7 @@ fn _is_word_like_category(category: SlmpDeviceRangeCategory) -> bool {
         category,
         SlmpDeviceRangeCategory::Word
             | SlmpDeviceRangeCategory::Index
-            | SlmpDeviceRangeCategory::FileRefresh
+            | SlmpDeviceRangeCategory::FileRegister
             | SlmpDeviceRangeCategory::TimerCounter
     )
 }

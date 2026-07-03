@@ -530,7 +530,10 @@ async fn direct_extended_bit_write_rejects_long_counter_state_devices() {
         )
         .await
         .unwrap_err();
-    assert!(err.to_string().contains("LCS is read-only"));
+    assert!(
+        err.to_string()
+            .contains("Direct bit write is not supported")
+    );
 }
 
 #[tokio::test]
@@ -928,7 +931,7 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
 }
 
 #[tokio::test]
-async fn qcpu_and_qnu_keep_legacy_block_route_guard_before_transport() {
+async fn qcpu_and_qnu_use_profile_feature_guard_before_transport() {
     for profile in [SlmpPlcProfile::QCpu, SlmpPlcProfile::QnU] {
         let client = udp_client_with_profile(profile).await;
         let profile_name = profile.canonical_name();
@@ -945,9 +948,11 @@ async fn qcpu_and_qnu_keep_legacy_block_route_guard_before_transport() {
             )
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("Read Block (0x0406)"));
-        assert!(err.to_string().contains(profile_name));
-        assert_ne!(err.kind, SlmpErrorKind::ProfileFeature);
+        assert_eq!(err.kind, SlmpErrorKind::ProfileFeature);
+        let info = err.profile_feature.as_ref().unwrap();
+        assert_eq!(info.profile_id, profile_name);
+        assert_eq!(info.feature_key, "block");
+        assert_eq!(info.state, "blocked");
 
         let err = client
             .write_block(
@@ -963,9 +968,11 @@ async fn qcpu_and_qnu_keep_legacy_block_route_guard_before_transport() {
             )
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("Write Block (0x1406)"));
-        assert!(err.to_string().contains(profile_name));
-        assert_ne!(err.kind, SlmpErrorKind::ProfileFeature);
+        assert_eq!(err.kind, SlmpErrorKind::ProfileFeature);
+        let info = err.profile_feature.as_ref().unwrap();
+        assert_eq!(info.profile_id, profile_name);
+        assert_eq!(info.feature_key, "block");
+        assert_eq!(info.state, "blocked");
     }
 }
 
@@ -1073,7 +1080,7 @@ async fn profile_extended_feature_guards_match_canonical_states() {
     let info = err.profile_feature.as_ref().unwrap();
     assert_eq!(info.profile_id, "melsec:iq-f");
     assert_eq!(info.feature_key, "ext_link_direct");
-    assert_eq!(info.state, "unverified");
+    assert_eq!(info.state, "blocked");
 
     let iql = udp_client_with_profile(SlmpPlcProfile::IqL).await;
     let err = iql
@@ -1130,23 +1137,13 @@ async fn iqf_config_dependent_g_route_is_not_guarded() {
 
 #[tokio::test]
 async fn profile_write_policy_is_enforced_even_when_strict_profile_is_false() {
-    let iqf = udp_client_with_profile_and_strict(SlmpPlcProfile::IqF, false).await;
-    let err = iqf
-        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::X, 0), &[true])
-        .await
-        .unwrap_err();
-    assert_eq!(err.kind, SlmpErrorKind::General);
-    assert!(err.message.contains("X is read-only"));
-    assert!(err.message.contains("melsec:iq-f"));
-    assert_eq!(iqf.traffic_stats().await.request_count, 0);
-
     let iqr = udp_client_with_profile_and_strict(SlmpPlcProfile::IqR, false).await;
     let err = iqr
-        .write_random_bits(&[(SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 0), true)])
+        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::S, 0), &[true])
         .await
         .unwrap_err();
     assert_eq!(err.kind, SlmpErrorKind::General);
-    assert!(err.message.contains("read-only devices"));
+    assert!(err.message.contains("S is read-only"));
     assert!(err.message.contains("melsec:iq-r"));
     assert_eq!(iqr.traffic_stats().await.request_count, 0);
 }

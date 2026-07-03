@@ -48,7 +48,7 @@ This page lists the device families exposed by the public helper-layer address p
 | --- | --- |
 | Explicit named types | `read_named`, `write_named`, and `poll_named` require suffixes such as `D100:U` or `M100:BIT`; plain named addresses are rejected. |
 | Long 32-bit families | `LTN`, `LSTN`, `LCN`, and `LZ` require `:D` or `:L`; plain low-level word access is rejected. |
-| Step relay | `S` is read-only; direct, random, and block writes are rejected before transport. |
+| Step relay | `S` writes follow the selected profile's write policy; iQ-F allows writes, while iQ-R/iQ-L/MX/Q/L profiles mark `S` read-only. |
 | iQ-F direct I/O | `DX` and `DY` are not valid for `SlmpPlcProfile::IqF`; use `X` and `Y`. |
 | Extended devices | `G` and `HG` are not in the public high-level surface. Use low-level extended-device APIs with qualified addresses such as `U3\G100` or `U3E0\HG0`. |
 | PLC range limits | Use `SlmpClient::read_device_range_catalog()` to read live bounds for your selected profile. |

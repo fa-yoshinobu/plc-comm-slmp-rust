@@ -244,12 +244,7 @@ pub(crate) fn validate_block_route_for_profile(
     plc_profile: SlmpPlcProfile,
     command_label: &str,
 ) -> Result<(), SlmpError> {
-    if matches!(plc_profile, SlmpPlcProfile::QCpu | SlmpPlcProfile::QnU) {
-        return Err(SlmpError::new(format!(
-            "{command_label} is not supported for plc_profile '{}'. Use direct or random device commands.",
-            plc_profile.canonical_name()
-        )));
-    }
+    let _ = (plc_profile, command_label);
     Ok(())
 }
 

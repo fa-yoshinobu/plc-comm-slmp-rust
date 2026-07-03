@@ -21,17 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Library: Added non-breaking SLMP specification-audit updates for manual-conformant request framing, point-limit guards, response correlation, oversized-request rejection, and PLC error diagnostics.
 - Library: Exposed structured PLC error information on `SlmpError.error_info` when a non-zero end-code response carries the 9-byte error information block.
 - Library: Enforced the documented iQ-F direct bit access limit of 3584 points before transport while keeping the existing 7168-point limit for non-iQ-F profiles.
-- Library: Added SLMP `S` step relay device-code support for reads and rejected writes to `S` as read-only.
+- Library: Added SLMP `S` step relay device-code support for reads and profile-specific write policy enforcement.
 - Library: Rejected standalone `G/HG` access on direct, random, block, and monitor-register routes; callers should use U-qualified extended access.
 - Library: Rejected `G/HG` random bit writes and aligned long counter state metadata so `LCS/LCC` remain long-helper entries while using their direct bit-read route internally.
 - Library: Fixed U-qualified `G/HG` extended bit reads and writes so the standalone-device guard does not reject valid `Un\Gn` / `Un\HGn` requests before transport.
 - Library: Added built-in SLMP capability profiles from `plc-comm-slmp-profiles` v1.0.0 and `SlmpConnectionOptions.strict_profile` (default `true`) so high-level APIs reject profile `blocked` / `unverified` features before transport.
 - Library: Added `SlmpErrorKind::ProfileFeature` and `SlmpProfileFeatureErrorInfo` so profile guard failures are distinguishable from PLC end-code errors and include profile ID, feature key, state, evidence, and the `strict_profile=false` bypass hint.
-- Library: Moved direct/random point limits to the capability table for defined profiles while preserving legacy fallback behavior for profiles without capability data such as `melsec:qcpu` and `melsec:qnu`.
-- Library: Enforced capability write policies independently of `strict_profile`, including `X` as read-only for `melsec:iq-f` and `LCS` as read-only for iQ-R-compatible profiles.
+- Library: Moved direct/random point limits to the capability table for all canonical built-in Ethernet profiles, including `melsec:qcpu` and `melsec:qnu`.
+- Library: Enforced capability write policies independently of `strict_profile`; `S` is read-only on iQ-R/iQ-L/MX/Q/L profiles and read-write on iQ-F.
 - Library: Changed `read_named` for `TS/TC/STS/STC/CS/CC/DX/DY:BIT` to use direct bit reads instead of random word-read batching. R120PCPU live verification showed these device families accept direct bit reads but reject `0x0403` random word reads with end code `0x4032`, so batching remains limited to bit families validated on both mock and real PLC paths.
-- Library: Kept the legacy Read Block (`0x0406`) and Write Block (`0x1406`) guard for `melsec:qcpu` and `melsec:qnu`; `melsec:lcpu` and `melsec:qnudv` now use the capability profile guard and can be intentionally sent with `strict_profile=false`.
-- Docs: Documented `S` as a read-only bit device in supported-register, gotcha, latest-verification, and audit-reflection notes.
+- Library: Moved Q/L profile Read Block (`0x0406`) and Write Block (`0x1406`) rejection to the capability profile guard so `strict_profile=false` can intentionally send the request and let the PLC answer.
+- Docs: Documented profile-specific `S` write policy in supported-register, gotcha, latest-verification, and audit-reflection notes.
 - Docs: Recorded the named-bit batching policy difference from Python, .NET, C++ minimal, and Node-RED so `TS/TC/STS/STC/CS/CC/DX/DY` stay off the random word-read path.
 - Docs: Documented the Q-series Read Block (`0x0406`) and Write Block (`0x1406`) profile guard in user profiles and gotchas.
 - Docs: Fixed recent device-range sample snippets.
@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests: Added guard coverage for `S` read-only writes, `S10` parsing, standalone `G/HG` random bit write rejection, and U-qualified `G/HG` extended bit routing.
 - Tests: Added canonical capability fixture comparison plus strict-profile coverage for qnudv/lcpu block/type-name guards, qnudv `strict_profile=false`, raw request bypass, iQ-F link-direct, iQ-F `U\G`, iQ-L HG, profile limits, and profile write policies.
 - Tests: Added `read_named` coverage to keep the live-sensitive bit families above on the direct bit-read path.
-- Tests: Added route-guard coverage for Q-series block read/write rejection before transport.
+- Tests: Added route-guard coverage for Q-series block read/write rejection through the capability profile guard.
 
 ## [1.1.1] - 2026-06-29
 

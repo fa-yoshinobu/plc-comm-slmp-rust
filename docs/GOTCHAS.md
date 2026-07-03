@@ -279,7 +279,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| `S10:BIT` parses and reads, but writes are rejected before transport. | Step relay `S` is exposed as a read-only SLMP bit family in this crate. | Keep `S` out of write lists and use it only for reads. |
+| `S10:BIT` parses and reads, but a write is rejected before transport. | The selected profile marks `S` as read-only. iQ-F profiles allow `S` writes. | Follow the selected profile's write policy. |
 
 ```rust
 use plc_comm_slmp::SlmpAddress;

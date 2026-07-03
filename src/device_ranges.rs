@@ -9,7 +9,7 @@ pub enum SlmpDeviceRangeCategory {
     Word,
     TimerCounter,
     Index,
-    FileRefresh,
+    FileRegister,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -463,12 +463,12 @@ fn row_for(item: &str) -> SlmpDeviceRangeRow {
             notation: SlmpDeviceRangeNotation::Decimal,
         },
         "ZR" => SlmpDeviceRangeRow {
-            category: SlmpDeviceRangeCategory::FileRefresh,
+            category: SlmpDeviceRangeCategory::FileRegister,
             devices: &[("ZR", false)],
             notation: SlmpDeviceRangeNotation::Decimal,
         },
         "RD" => SlmpDeviceRangeRow {
-            category: SlmpDeviceRangeCategory::FileRefresh,
+            category: SlmpDeviceRangeCategory::FileRegister,
             devices: &[("RD", false)],
             notation: SlmpDeviceRangeNotation::Decimal,
         },

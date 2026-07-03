@@ -13,10 +13,10 @@ frame and compatibility mode used by the client.
 | `melsec:iq-l` | MELSEC iQ-L | `SlmpPlcProfile::IqL` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R-equivalent address parsing while remaining separately selectable. |
 | `melsec:mx-f` | MELSEC MX-F | `SlmpPlcProfile::MxF` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
 | `melsec:mx-r` | MELSEC MX-R | `SlmpPlcProfile::MxR` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
-| `melsec:qcpu` | MELSEC QCPU | `SlmpPlcProfile::QCpu` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. Read Block (`0x0406`) and Write Block (`0x1406`) are rejected; use direct or random device commands. |
+| `melsec:qcpu` | MELSEC QCPU | `SlmpPlcProfile::QCpu` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Q CPU profile. Strict profile rejects unavailable block routes; use direct or random device commands. |
 | `melsec:lcpu` | MELSEC LCPU | `SlmpPlcProfile::LCpu` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
-| `melsec:qnu` | MELSEC QnU | `SlmpPlcProfile::QnU` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. Read Block (`0x0406`) and Write Block (`0x1406`) are rejected; use direct or random device commands. |
-| `melsec:qnudv` | MELSEC QnUDV | `SlmpPlcProfile::QnUDV` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. Read Block (`0x0406`) and Write Block (`0x1406`) are rejected; use direct or random device commands. |
+| `melsec:qnu` | MELSEC QnU | `SlmpPlcProfile::QnU` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | QnU profile. Strict profile rejects unavailable block routes; use direct or random device commands. |
+| `melsec:qnudv` | MELSEC QnUDV | `SlmpPlcProfile::QnUDV` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | QnUDV profile. Strict profile rejects unavailable type-name and block routes. |
 
 ## How to select
 
@@ -55,7 +55,7 @@ assert_eq!(profile, SlmpPlcProfile::IqR);
 | `melsec:iq-l` | MELSEC iQ-L | Frame 4E, iQR mode. |
 | `melsec:mx-f` | MELSEC MX-F | Frame 4E, iQR mode. |
 | `melsec:mx-r` | MELSEC MX-R | Frame 4E, iQR mode. |
-| `melsec:qcpu` | MELSEC QCPU | Frame 3E, Legacy mode. Block commands `0x0406` / `0x1406` are rejected. |
+| `melsec:qcpu` | MELSEC QCPU | Frame 3E, Legacy mode. Strict profile rejects block commands `0x0406` / `0x1406`. |
 | `melsec:lcpu` | MELSEC LCPU | Frame 3E, Legacy mode. |
-| `melsec:qnu` | MELSEC QnU | Frame 3E, Legacy mode. Block commands `0x0406` / `0x1406` are rejected. |
-| `melsec:qnudv` | MELSEC QnUDV | Frame 3E, Legacy mode. Block commands `0x0406` / `0x1406` are rejected. |
+| `melsec:qnu` | MELSEC QnU | Frame 3E, Legacy mode. Strict profile rejects block commands `0x0406` / `0x1406`. |
+| `melsec:qnudv` | MELSEC QnUDV | Frame 3E, Legacy mode. Strict profile rejects Read Type Name (`0x0101`) and block commands `0x0406` / `0x1406`; disabling strict profile sends them and lets the PLC respond. |
