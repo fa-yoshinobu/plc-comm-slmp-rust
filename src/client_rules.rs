@@ -6,6 +6,7 @@ use crate::model::{
 
 const DIRECT_WORD_POINT_LIMIT: usize = 960;
 const DIRECT_BIT_POINT_LIMIT: usize = 7168;
+const DIRECT_IQF_BIT_POINT_LIMIT: usize = 3584;
 const MEMORY_WORD_LIMIT: usize = 480;
 const EXTEND_UNIT_BYTE_LIMIT: usize = 1920;
 
@@ -27,9 +28,14 @@ pub(crate) fn validate_direct_access_points(
     points: usize,
     bit_unit: bool,
     name: &str,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
     let limit = if bit_unit {
-        DIRECT_BIT_POINT_LIMIT
+        if matches!(plc_profile, SlmpPlcProfile::IqF) {
+            DIRECT_IQF_BIT_POINT_LIMIT
+        } else {
+            DIRECT_BIT_POINT_LIMIT
+        }
     } else {
         DIRECT_WORD_POINT_LIMIT
     };

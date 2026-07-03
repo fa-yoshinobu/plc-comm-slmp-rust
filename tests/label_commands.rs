@@ -1,6 +1,6 @@
 use plc_comm_slmp::{
     SlmpClient, SlmpConnectionOptions, SlmpLabelArrayWritePoint, SlmpLabelRandomWritePoint,
-    SlmpPlcProfile,
+    SlmpPlcProfile, SlmpTransportMode,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -66,6 +66,30 @@ async fn label_writes_build_expected_payloads() {
         hex_upper(&requests[1][19..]),
         "0100000006004C006100620065006C00570001000200AABB"
     );
+}
+
+#[tokio::test]
+async fn oversized_label_payload_is_rejected_before_request_length_wraps() {
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    options.transport_mode = SlmpTransportMode::Udp;
+    options.port = 9;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let err = client
+        .write_random_labels(
+            &[SlmpLabelRandomWritePoint {
+                label: "L".into(),
+                data: vec![0; 65_520],
+            }],
+            &[],
+        )
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("request data length"));
+    assert!(err.to_string().contains("65535"));
+    assert!(client.last_request_frame().await.is_empty());
+    assert_eq!(client.traffic_stats().await.request_count, 0);
 }
 
 async fn connect(port: u16) -> SlmpClient {

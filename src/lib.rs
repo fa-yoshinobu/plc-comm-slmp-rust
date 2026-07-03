@@ -120,7 +120,7 @@ pub use device_range_sample::{
 pub use device_ranges::{
     SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeNotation,
 };
-pub use error::SlmpError;
+pub use error::{SlmpError, SlmpErrorInfo};
 pub use error_codes::{
     SlmpEndCodeLanguage, end_code_key, end_code_message, end_code_message_en, end_code_message_ja,
     end_code_name, is_remote_password_end_code,

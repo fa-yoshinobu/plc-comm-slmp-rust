@@ -95,11 +95,70 @@ impl CapturingResponseServer {
     }
 }
 
+struct SerialSkewResponseServer {
+    port: u16,
+    requests: std::sync::Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
+}
+
+impl SerialSkewResponseServer {
+    async fn start(stale_payload: Vec<u8>, matching_payload: Vec<u8>) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let requests = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let request_clone = requests.clone();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut header = [0u8; 13];
+                if stream.read_exact(&mut header).await.is_err() {
+                    return;
+                }
+                let body_len = u16::from_le_bytes([header[11], header[12]]) as usize;
+                let mut body = vec![0u8; body_len];
+                if stream.read_exact(&mut body).await.is_err() {
+                    return;
+                }
+                let mut request = header.to_vec();
+                request.extend_from_slice(&body);
+                request_clone.lock().await.push(request.clone());
+
+                let request_serial = u16::from_le_bytes([request[2], request[3]]);
+                let stale = build_4e_response_with_serial(
+                    &request,
+                    request_serial.wrapping_add(1),
+                    0,
+                    &stale_payload,
+                );
+                let matching =
+                    build_4e_response_with_serial(&request, request_serial, 0, &matching_payload);
+                if stream.write_all(&stale).await.is_err() {
+                    return;
+                }
+                let _ = stream.write_all(&matching).await;
+            }
+        });
+        Ok(Self { port, requests })
+    }
+
+    async fn requests(&self) -> Vec<Vec<u8>> {
+        self.requests.lock().await.clone()
+    }
+}
+
 fn build_4e_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
     build_4e_response_with_end_code(request, 0, response_data)
 }
 
 fn build_4e_response_with_end_code(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
+    let serial = u16::from_le_bytes([request[2], request[3]]);
+    build_4e_response_with_serial(request, serial, end_code, response_data)
+}
+
+fn build_4e_response_with_serial(
+    request: &[u8],
+    serial: u16,
+    end_code: u16,
+    response_data: &[u8],
+) -> Vec<u8> {
     let mut payload = vec![0u8; 2 + response_data.len()];
     payload[0..2].copy_from_slice(&end_code.to_le_bytes());
     payload[2..].copy_from_slice(response_data);
@@ -107,8 +166,7 @@ fn build_4e_response_with_end_code(request: &[u8], end_code: u16, response_data:
     let mut response = vec![0u8; 13 + payload.len()];
     response[0] = 0xD4;
     response[1] = 0x00;
-    response[2] = request[2];
-    response[3] = request[3];
+    response[2..4].copy_from_slice(&serial.to_le_bytes());
     response[6..11].copy_from_slice(&request[6..11]);
     response[11..13].copy_from_slice(&(payload.len() as u16).to_le_bytes());
     response[13..].copy_from_slice(&payload);
@@ -121,6 +179,25 @@ fn build_dword_payload(values: &[u32]) -> Vec<u8> {
         payload.extend_from_slice(&value.to_le_bytes());
     }
     payload
+}
+
+#[tokio::test]
+async fn frame_4e_ignores_mismatched_serial_response() {
+    let server = SerialSkewResponseServer::start(vec![0x11, 0x11], vec![0x22, 0x22])
+        .await
+        .unwrap();
+
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let words = client
+        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 1)
+        .await
+        .unwrap();
+
+    assert_eq!(words, vec![0x2222]);
+    assert_eq!(server.requests().await.len(), 1);
 }
 
 #[tokio::test]
@@ -653,6 +730,27 @@ async fn manual_point_limits_reject_overruns_before_transport() {
             .unwrap_err()
             .to_string()
             .contains("1..7168")
+    );
+
+    let iqf_client = udp_client_with_profile(SlmpPlcProfile::IqF).await;
+    assert!(
+        iqf_client
+            .read_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 0), 3585)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..3584")
+    );
+    assert!(
+        iqf_client
+            .write_bits(
+                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0),
+                &vec![false; 3585]
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..3584")
     );
 
     let random_words: Vec<_> = (0..81)

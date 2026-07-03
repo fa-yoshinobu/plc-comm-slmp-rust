@@ -6,7 +6,7 @@ use crate::device_ranges::{
     read_registers as read_device_range_registers,
     resolve_profile_for_plc_profile as resolve_device_range_profile_for_plc_profile,
 };
-use crate::error::SlmpError;
+use crate::error::{SlmpError, SlmpErrorInfo};
 use crate::model::{
     SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpDeviceAddress,
@@ -672,7 +672,12 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u16>, SlmpError> {
-        rules::validate_direct_access_points(points as usize, false, "read_words")?;
+        rules::validate_direct_access_points(
+            points as usize,
+            false,
+            "read_words",
+            self.options.plc_profile,
+        )?;
         rules::validate_direct_word_read(device, points)?;
         let payload = self.build_read_write_payload(device, points, None, false);
         let sub = self.word_subcommand(false);
@@ -693,7 +698,12 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[u16],
     ) -> Result<(), SlmpError> {
-        rules::validate_direct_access_points(values.len(), false, "write_words")?;
+        rules::validate_direct_access_points(
+            values.len(),
+            false,
+            "write_words",
+            self.options.plc_profile,
+        )?;
         rules::validate_direct_word_write(device)?;
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(values), false);
@@ -709,7 +719,12 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<bool>, SlmpError> {
-        rules::validate_direct_access_points(points as usize, true, "read_bits")?;
+        rules::validate_direct_access_points(
+            points as usize,
+            true,
+            "read_bits",
+            self.options.plc_profile,
+        )?;
         rules::validate_direct_bit_read(device)?;
         let payload = self.build_read_write_payload(device, points, None, true);
         let data = self
@@ -728,7 +743,12 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[bool],
     ) -> Result<(), SlmpError> {
-        rules::validate_direct_access_points(values.len(), true, "write_bits")?;
+        rules::validate_direct_access_points(
+            values.len(),
+            true,
+            "write_bits",
+            self.options.plc_profile,
+        )?;
         rules::validate_direct_bit_write(device)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload =
@@ -751,7 +771,12 @@ impl ClientInner {
     ) -> Result<Vec<u32>, SlmpError> {
         rules::validate_direct_dword_read(device)?;
         let word_points = (points as usize) * 2;
-        rules::validate_direct_access_points(word_points, false, "read_dwords")?;
+        rules::validate_direct_access_points(
+            word_points,
+            false,
+            "read_dwords",
+            self.options.plc_profile,
+        )?;
         let words = self.read_words_raw(device, word_points as u16).await?;
         Ok(words
             .chunks_exact(2)
@@ -765,7 +790,12 @@ impl ClientInner {
         values: &[u32],
     ) -> Result<(), SlmpError> {
         rules::validate_direct_dword_write(device)?;
-        rules::validate_direct_access_points(values.len() * 2, false, "write_dwords")?;
+        rules::validate_direct_access_points(
+            values.len() * 2,
+            false,
+            "write_dwords",
+            self.options.plc_profile,
+        )?;
         let mut words = Vec::with_capacity(values.len() * 2);
         for value in values {
             words.push((value & 0xFFFF) as u16);
@@ -802,7 +832,12 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
-        rules::validate_direct_access_points(points as usize, false, "read_words_ext")?;
+        rules::validate_direct_access_points(
+            points as usize,
+            false,
+            "read_words_ext",
+            self.options.plc_profile,
+        )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_word_read(device.device, points)?;
@@ -836,7 +871,12 @@ impl ClientInner {
         values: &[u16],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
-        rules::validate_direct_access_points(values.len(), false, "write_words_ext")?;
+        rules::validate_direct_access_points(
+            values.len(),
+            false,
+            "write_words_ext",
+            self.options.plc_profile,
+        )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_word_write(device.device)?;
@@ -869,7 +909,12 @@ impl ClientInner {
         points: u16,
         extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
-        rules::validate_direct_access_points(points as usize, true, "read_bits_ext")?;
+        rules::validate_direct_access_points(
+            points as usize,
+            true,
+            "read_bits_ext",
+            self.options.plc_profile,
+        )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_bit_read(device.device)?;
@@ -897,7 +942,12 @@ impl ClientInner {
         values: &[bool],
         extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
-        rules::validate_direct_access_points(values.len(), true, "write_bits_ext")?;
+        rules::validate_direct_access_points(
+            values.len(),
+            true,
+            "write_bits_ext",
+            self.options.plc_profile,
+        )?;
         let extension = Self::resolve_effective_extension(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_bit_write(device.device)?;
@@ -1701,7 +1751,15 @@ impl ClientInner {
         expect_response: bool,
     ) -> Result<Vec<u8>, SlmpError> {
         self.validate_request_payload(command, subcommand, payload)?;
-        self.build_request_frame(command, subcommand, payload);
+        self.build_request_frame(command, subcommand, payload)?;
+        let expected_serial = if matches!(self.options.frame_type, SlmpFrameType::Frame4E) {
+            Some(u16::from_le_bytes([
+                self.last_request_frame[2],
+                self.last_request_frame[3],
+            ]))
+        } else {
+            None
+        };
         let tx_len = self.last_request_frame.len() as u64;
 
         match &mut self.transport {
@@ -1718,13 +1776,21 @@ impl ClientInner {
                     self.last_response_frame.clear();
                     return Ok(Vec::new());
                 }
-                Self::receive_tcp_frame(
-                    stream,
-                    self.options.timeout,
-                    &mut self.last_response_frame,
-                )
-                .await?;
-                self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                loop {
+                    Self::receive_tcp_frame(
+                        stream,
+                        self.options.timeout,
+                        &mut self.last_response_frame,
+                    )
+                    .await?;
+                    self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                    if Self::has_expected_response_serial(
+                        &self.last_response_frame,
+                        expected_serial,
+                    ) {
+                        break;
+                    }
+                }
                 Self::parse_response(command, subcommand, &self.last_response_frame)
             }
             Transport::Udp(socket) => {
@@ -1739,15 +1805,23 @@ impl ClientInner {
                 }
                 // UDP datagrams cannot be continued by another recv call.
                 // Keep the buffer large enough for a full datagram to avoid truncating PLC responses.
-                self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
-                let received = timeout(
-                    self.options.timeout,
-                    socket.recv(&mut self.last_response_frame),
-                )
-                .await
-                .map_err(|_| SlmpError::new("udp receive timed out"))??;
-                self.last_response_frame.truncate(received);
-                self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                loop {
+                    self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
+                    let received = timeout(
+                        self.options.timeout,
+                        socket.recv(&mut self.last_response_frame),
+                    )
+                    .await
+                    .map_err(|_| SlmpError::new("udp receive timed out"))??;
+                    self.last_response_frame.truncate(received);
+                    self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                    if Self::has_expected_response_serial(
+                        &self.last_response_frame,
+                        expected_serial,
+                    ) {
+                        break;
+                    }
+                }
                 Self::parse_response(command, subcommand, &self.last_response_frame)
             }
         }
@@ -1759,6 +1833,7 @@ impl ClientInner {
         subcommand: u16,
         payload: &[u8],
     ) -> Result<(), SlmpError> {
+        Self::request_data_length(command, subcommand, payload.len())?;
         if matches!(command, SlmpCommand::MonitorRegister) && matches!(subcommand, 0x0000 | 0x0002)
         {
             Self::validate_plain_monitor_register_payload(
@@ -1767,6 +1842,29 @@ impl ClientInner {
             )?;
         }
         Ok(())
+    }
+
+    fn request_data_length(
+        command: SlmpCommand,
+        subcommand: u16,
+        payload_len: usize,
+    ) -> Result<u16, SlmpError> {
+        let total = payload_len.checked_add(6).ok_or_else(|| {
+            SlmpError::with_context(
+                format!("request data length overflow: payload={payload_len}"),
+                None,
+                Some(command),
+                Some(subcommand),
+            )
+        })?;
+        u16::try_from(total).map_err(|_| {
+            SlmpError::with_context(
+                format!("request data length must be <= 65535 bytes: payload={payload_len}, total={total}"),
+                None,
+                Some(command),
+                Some(subcommand),
+            )
+        })
     }
 
     fn validate_plain_monitor_register_payload(
@@ -1815,7 +1913,13 @@ impl ClientInner {
         Ok(())
     }
 
-    fn build_request_frame(&mut self, command: SlmpCommand, subcommand: u16, payload: &[u8]) {
+    fn build_request_frame(
+        &mut self,
+        command: SlmpCommand,
+        subcommand: u16,
+        payload: &[u8],
+    ) -> Result<(), SlmpError> {
+        let request_data_length = Self::request_data_length(command, subcommand, payload.len())?;
         let header_size = match self.options.frame_type {
             SlmpFrameType::Frame4E => 19,
             SlmpFrameType::Frame3E => 15,
@@ -1830,7 +1934,7 @@ impl ClientInner {
                 frame[2..4].copy_from_slice(&self.serial.to_le_bytes());
                 self.serial = self.serial.wrapping_add(1);
                 Self::write_target(&mut frame[6..11], self.options.target);
-                frame[11..13].copy_from_slice(&(6u16 + payload.len() as u16).to_le_bytes());
+                frame[11..13].copy_from_slice(&request_data_length.to_le_bytes());
                 frame[13..15].copy_from_slice(&self.options.monitoring_timer.to_le_bytes());
                 frame[15..17].copy_from_slice(&command.as_u16().to_le_bytes());
                 frame[17..19].copy_from_slice(&subcommand.to_le_bytes());
@@ -1839,13 +1943,14 @@ impl ClientInner {
                 frame[0] = 0x50;
                 frame[1] = 0x00;
                 Self::write_target(&mut frame[2..7], self.options.target);
-                frame[7..9].copy_from_slice(&(6u16 + payload.len() as u16).to_le_bytes());
+                frame[7..9].copy_from_slice(&request_data_length.to_le_bytes());
                 frame[9..11].copy_from_slice(&self.options.monitoring_timer.to_le_bytes());
                 frame[11..13].copy_from_slice(&command.as_u16().to_le_bytes());
                 frame[13..15].copy_from_slice(&subcommand.to_le_bytes());
             }
         }
         frame[header_size..].copy_from_slice(payload);
+        Ok(())
     }
 
     fn write_target(buffer: &mut [u8], target: SlmpTargetAddress) {
@@ -1924,7 +2029,9 @@ impl ClientInner {
         let end_index = header_size;
         let end_code = u16::from_le_bytes([response[end_index], response[end_index + 1]]);
         if end_code != 0 {
-            return Err(SlmpError::with_context(
+            let error_info =
+                SlmpErrorInfo::parse(&response[header_size + 2..header_size + data_length]);
+            return Err(SlmpError::with_error_info(
                 format!(
                     "SLMP error end_code=0x{end_code:04X} command=0x{:04X} subcommand=0x{subcommand:04X}",
                     command.as_u16()
@@ -1932,12 +2039,23 @@ impl ClientInner {
                 Some(end_code),
                 Some(command),
                 Some(subcommand),
+                error_info,
             ));
         }
         if data_length == 2 {
             return Ok(Vec::new());
         }
         Ok(response[header_size + 2..header_size + data_length].to_vec())
+    }
+
+    fn has_expected_response_serial(response: &[u8], expected_serial: Option<u16>) -> bool {
+        let Some(expected_serial) = expected_serial else {
+            return true;
+        };
+        if response.len() < 4 || response[0] != 0xD4 || response[1] != 0x00 {
+            return true;
+        }
+        u16::from_le_bytes([response[2], response[3]]) == expected_serial
     }
 
     fn word_subcommand(&self, bit_unit: bool) -> u16 {
@@ -2122,29 +2240,16 @@ impl ClientInner {
             ];
         }
 
-        let capture_aligned = matches!(device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG)
-            && matches!(extension.direct_memory_specification, 0xF8 | 0xFA);
         let mut device_spec = vec![0u8; device_spec_size(self.options.compatibility_mode)];
         let _ = self.encode_device_spec(device, &mut device_spec);
 
-        if capture_aligned {
-            let mut payload = Vec::with_capacity(2 + device_spec.len() + 1 + 1 + 2 + 1);
-            payload.push(extension.extension_specification_modification);
-            payload.push(extension.device_modification_index);
-            payload.extend_from_slice(&device_spec);
-            payload.push(extension.device_modification_flags);
-            payload.push(0x00);
-            payload.extend_from_slice(&extension.extension_specification.to_le_bytes());
-            payload.push(extension.direct_memory_specification);
-            return payload;
-        }
-
-        let mut payload = Vec::with_capacity(2 + 1 + 1 + 1 + device_spec.len() + 1);
-        payload.extend_from_slice(&extension.extension_specification.to_le_bytes());
-        payload.push(extension.extension_specification_modification);
+        let mut payload = Vec::with_capacity(2 + device_spec.len() + 2 + 2 + 1);
         payload.push(extension.device_modification_index);
         payload.push(extension.device_modification_flags);
         payload.extend_from_slice(&device_spec);
+        payload.push(extension.extension_specification_modification);
+        payload.push(0x00);
+        payload.extend_from_slice(&extension.extension_specification.to_le_bytes());
         payload.push(extension.direct_memory_specification);
         payload
     }
@@ -2188,4 +2293,76 @@ pub fn encode_device_spec(mode: SlmpCompatibilityMode, device: SlmpDeviceAddress
         }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn udp_inner(plc_profile: SlmpPlcProfile) -> ClientInner {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        socket.connect("127.0.0.1:9").await.unwrap();
+        ClientInner {
+            options: SlmpConnectionOptions::new("127.0.0.1", plc_profile),
+            transport: Transport::Udp(socket),
+            serial: 0,
+            last_request_frame: Vec::new(),
+            last_response_frame: Vec::new(),
+            traffic_stats: SlmpTrafficStats::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn encode_extended_device_spec_uses_manual_ql_layout() {
+        let inner = udp_inner(SlmpPlcProfile::QCpu).await;
+        let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100);
+
+        assert_eq!(
+            inner.encode_extended_device_spec(device, SlmpExtensionSpec::default()),
+            vec![
+                0x00, 0x00, 0x64, 0x00, 0x00, 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00
+            ]
+        );
+
+        assert_eq!(
+            inner.encode_extended_device_spec(
+                device,
+                SlmpExtensionSpec {
+                    device_modification_index: 0x04,
+                    device_modification_flags: 0x40,
+                    ..SlmpExtensionSpec::default()
+                },
+            ),
+            vec![
+                0x04, 0x40, 0x64, 0x00, 0x00, 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00
+            ]
+        );
+    }
+
+    #[test]
+    fn plc_error_exposes_structured_error_information() {
+        let error_data = [0x00, 0xFF, 0xFF, 0x03, 0x00, 0x01, 0x04, 0x01, 0x00];
+        let mut response = vec![
+            0xD4, 0x00, // subheader
+            0x34, 0x12, // serial
+            0x00, 0x00, // reserved
+            0x00, 0xFF, 0xFF, 0x03, 0x00, // target
+            0x0B, 0x00, // response data length: end_code + 9-byte error info
+            0x51, 0xC0, // end_code
+        ];
+        response.extend_from_slice(&error_data);
+
+        let error =
+            ClientInner::parse_response(SlmpCommand::DeviceRead, 0x0001, &response).unwrap_err();
+
+        assert_eq!(error.end_code, Some(0xC051));
+        let info = error.error_info.as_ref().expect("error info");
+        assert_eq!(info.network, 0x00);
+        assert_eq!(info.station, 0xFF);
+        assert_eq!(info.module_io, 0x03FF);
+        assert_eq!(info.multidrop, 0x00);
+        assert_eq!(info.command, 0x0401);
+        assert_eq!(info.subcommand, 0x0001);
+        assert_eq!(info.raw.as_slice(), error_data);
+    }
 }
