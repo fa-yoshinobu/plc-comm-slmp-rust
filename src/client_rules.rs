@@ -489,8 +489,7 @@ pub(crate) fn is_qualified_only_device(code: SlmpDeviceCode) -> bool {
 }
 
 pub(crate) fn is_read_only_device(code: SlmpDeviceCode, plc_profile: SlmpPlcProfile) -> bool {
-    matches!(code, SlmpDeviceCode::S)
-        || capability_profiles::is_profile_read_only_device(plc_profile, code)
+    capability_profiles::is_profile_read_only_device(plc_profile, code)
 }
 
 pub(crate) fn requires_random_bit_write(code: SlmpDeviceCode) -> bool {
@@ -590,20 +589,16 @@ pub(crate) fn validate_no_lcs_lcc_block_write(
 }
 
 fn read_only_write_error(code: SlmpDeviceCode, plc_profile: SlmpPlcProfile) -> SlmpError {
-    if capability_profiles::is_profile_read_only_device(plc_profile, code) {
-        SlmpError::new(format!(
-            "{} is read-only for plc_profile '{}' and cannot be written.",
-            code.prefix(),
-            plc_profile.canonical_name()
-        ))
-    } else {
-        SlmpError::new("S is read-only and cannot be written.")
-    }
+    SlmpError::new(format!(
+        "{} is read-only for plc_profile '{}' and cannot be written.",
+        code.prefix(),
+        plc_profile.canonical_name()
+    ))
 }
 
 fn read_only_random_write_error(plc_profile: SlmpPlcProfile) -> SlmpError {
     SlmpError::new(format!(
-        "Write Random (0x1402) does not support read-only devices such as S or profile read-only families for plc_profile '{}'.",
+        "Write Random (0x1402) does not support profile read-only devices for plc_profile '{}'.",
         plc_profile.canonical_name()
     ))
 }

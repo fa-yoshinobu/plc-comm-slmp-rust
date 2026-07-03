@@ -357,7 +357,7 @@ async fn s_device_writes_are_rejected_before_transport() {
         .write_random_bits(&[(SlmpDeviceAddress::new(SlmpDeviceCode::S, 10), true)])
         .await
         .unwrap_err();
-    assert!(err.to_string().contains("read-only devices such as S"));
+    assert!(err.to_string().contains("profile read-only devices"));
 }
 
 #[tokio::test]
@@ -1146,6 +1146,17 @@ async fn profile_write_policy_is_enforced_even_when_strict_profile_is_false() {
     assert!(err.message.contains("S is read-only"));
     assert!(err.message.contains("melsec:iq-r"));
     assert_eq!(iqr.traffic_stats().await.request_count, 0);
+
+    let server = CapturingResponseServer::start(vec![(0, Vec::new())])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
+    options.port = server.port;
+    let iqf = SlmpClient::connect(options).await.unwrap();
+    iqf.write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::S, 0), &[true])
+        .await
+        .unwrap();
+    assert_eq!(server.requests().await.len(), 1);
 }
 
 #[tokio::test]

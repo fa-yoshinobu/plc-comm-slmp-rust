@@ -755,7 +755,7 @@ fn create_iqf_profile() -> SlmpDeviceRangeProfile {
             ("F", dword_register(270, "SD270-SD271 (32-bit)", None)),
             ("V", unsupported("Not supported on iQ-F.")),
             ("L", dword_register(274, "SD274-SD275 (32-bit)", None)),
-            ("S", unsupported("Not supported on iQ-F.")),
+            ("S", dword_register(276, "SD276-SD277 (32-bit)", None)),
             ("D", dword_register(280, "SD280-SD281 (32-bit)", None)),
             ("W", dword_register(282, "SD282-SD283 (32-bit)", None)),
             ("SW", dword_register(284, "SD284-SD285 (32-bit)", None)),
