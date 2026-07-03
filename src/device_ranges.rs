@@ -868,15 +868,7 @@ fn create_lcpu_like_profile(
             ("D", dword_register(308, "SD308-SD309 (32-bit)", None)),
             ("W", dword_register(310, "SD310-SD311 (32-bit)", None)),
             ("SW", word_register(304, "SD304", None)),
-            (
-                "R",
-                dword_register_clipped(
-                    306,
-                    32768,
-                    "SD306-SD307 (32-bit)",
-                    Some("Upper bound is clipped to 32768."),
-                ),
-            ),
+            ("R", dword_register(306, "SD306-SD307 (32-bit)", None)),
             ("T", word_register(299, "SD299", None)),
             ("ST", word_register(300, "SD300", None)),
             ("C", word_register(301, "SD301", None)),
@@ -928,6 +920,111 @@ mod tests {
     fn insert_dword(snapshot: &mut BTreeMap<u16, u16>, register: u16, value: u32) {
         snapshot.insert(register, value as u16);
         snapshot.insert(register + 1, (value >> 16) as u16);
+    }
+
+    fn canonical_device_range_rules() -> serde_json::Value {
+        serde_json::from_str(include_str!("../tests/fixtures/slmp_device_range_rules.json")).unwrap()
+    }
+
+    fn canonical_rule_value(rule: &serde_json::Value) -> u32 {
+        let kind = rule["kind"].as_str().unwrap();
+        if kind.ends_with("clipped") {
+            return rule["clip_value"].as_u64().unwrap() as u32 + 5;
+        }
+        123
+    }
+
+    fn canonical_register_snapshot(
+        profile: &serde_json::Value,
+        only_item: Option<&str>,
+    ) -> BTreeMap<u16, u16> {
+        let start = profile["register_start"].as_u64().unwrap() as u16;
+        let count = profile["register_count"].as_u64().unwrap() as u16;
+        let mut snapshot = BTreeMap::new();
+        for offset in 0..count {
+            snapshot.insert(start + offset, 0);
+        }
+
+        let rules = profile["rules"].as_object().unwrap();
+        let selected_rules: Vec<&serde_json::Value> = match only_item {
+            Some(item) => vec![rules.get(item).unwrap()],
+            None => rules.values().collect(),
+        };
+        for rule in selected_rules {
+            let Some(register) = rule.get("register").and_then(serde_json::Value::as_u64) else {
+                continue;
+            };
+            let register = register as u16;
+            let value = canonical_rule_value(rule);
+            let kind = rule["kind"].as_str().unwrap();
+            if kind.starts_with("dword-register") {
+                insert_dword(&mut snapshot, register, value);
+            } else if kind.starts_with("word-register") {
+                snapshot.insert(register, value as u16);
+            }
+        }
+        snapshot
+    }
+
+    fn canonical_expected_point_count(rule: &serde_json::Value) -> Option<u32> {
+        let kind = rule["kind"].as_str().unwrap();
+        match kind {
+            "unsupported" | "undefined" => None,
+            "fixed" => Some(rule["fixed_value"].as_u64().unwrap() as u32),
+            _ if kind.ends_with("clipped") => Some(
+                canonical_rule_value(rule).min(rule["clip_value"].as_u64().unwrap() as u32),
+            ),
+            _ => Some(canonical_rule_value(rule)),
+        }
+    }
+
+    fn canonical_notation(value: &str) -> SlmpDeviceRangeNotation {
+        match value {
+            "base10" => SlmpDeviceRangeNotation::Decimal,
+            "base8" => SlmpDeviceRangeNotation::Octal,
+            "base16" => SlmpDeviceRangeNotation::Hexadecimal,
+            other => panic!("unsupported notation {other}"),
+        }
+    }
+
+    #[test]
+    fn build_catalog_matches_canonical_device_range_rules_fixture() {
+        let payload = canonical_device_range_rules();
+        let rows = payload["rows"].as_object().unwrap();
+        let profiles = payload["profiles"].as_object().unwrap();
+        let notation_overrides = payload["notation_overrides"].as_object().unwrap();
+
+        for (profile_name, profile_payload) in profiles {
+            let plc_profile = SlmpPlcProfile::parse_label(profile_name).unwrap();
+
+            for (item, rule) in profile_payload["rules"].as_object().unwrap() {
+                let snapshot = canonical_register_snapshot(profile_payload, Some(item));
+                let catalog = build_catalog_for_plc_profile(plc_profile, &snapshot).unwrap();
+                let row = rows.get(item).unwrap();
+                let expected_supported = rule["kind"].as_str().unwrap() != "unsupported";
+                let expected_point_count = canonical_expected_point_count(rule);
+                let expected_notation = notation_overrides
+                    .get(profile_name)
+                    .and_then(|profile| profile.get(item))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_else(|| row["notation"].as_str().unwrap());
+
+                for device in row["devices"].as_array().unwrap() {
+                    let device_name = device["device"].as_str().unwrap();
+                    let entry = entry(&catalog, device_name);
+                    assert_eq!(entry.supported, expected_supported, "{profile_name} {device_name}");
+                    assert_eq!(
+                        entry.point_count, expected_point_count,
+                        "{profile_name} {device_name}"
+                    );
+                    assert_eq!(
+                        entry.notation,
+                        canonical_notation(expected_notation),
+                        "{profile_name} {device_name}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

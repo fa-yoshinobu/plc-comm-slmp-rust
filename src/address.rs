@@ -448,6 +448,35 @@ mod tests {
     }
 
     #[test]
+    fn profile_unsupported_device_codes_match_canonical_fixture() {
+        let payload: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/slmp_device_range_rules.json"))
+                .unwrap();
+        let rows = payload["rows"].as_object().unwrap();
+        let profiles = payload["profiles"].as_object().unwrap();
+
+        for (profile_name, profile_payload) in profiles {
+            let plc_profile = SlmpPlcProfile::parse_label(profile_name).unwrap();
+            for (item, rule) in profile_payload["rules"].as_object().unwrap() {
+                let expected_supported = rule["kind"].as_str().unwrap() != "unsupported";
+                for device in rows[item]["devices"].as_array().unwrap() {
+                    let device_name = device["device"].as_str().unwrap();
+                    let address = format!("{device_name}10");
+                    let parsed = parse_device_for_plc_profile(&address, plc_profile);
+                    assert_eq!(
+                        parsed.is_ok(),
+                        expected_supported,
+                        "{profile_name} {device_name}"
+                    );
+                }
+            }
+        }
+
+        assert!(parse_device_for_plc_profile("DX10", SlmpPlcProfile::IqF).is_err());
+        assert!(parse_device_for_plc_profile("DY10", SlmpPlcProfile::IqF).is_err());
+    }
+
+    #[test]
     fn hex_number_can_be_all_letters() {
         assert_eq!(
             parse_device("XFF").unwrap(),
