@@ -28,6 +28,7 @@ async fn main() {
     let address = args.get(4).cloned().unwrap_or_default();
     let mut extras = Vec::new();
     let mut plc_profile = None;
+    let mut strict_profile = true;
     let mut transport = SlmpTransportMode::Tcp;
     let mut target = None;
     let mut mode = "word".to_string();
@@ -55,6 +56,10 @@ async fn main() {
                         return;
                     }
                 }
+            }
+            "--strict-profile" => {
+                index += 1;
+                strict_profile = args.get(index).map(String::as_str) != Some("false");
             }
             "--transport" => {
                 index += 1;
@@ -148,6 +153,7 @@ async fn main() {
     let mut options = SlmpConnectionOptions::new(host, plc_profile);
     options.port = port;
     options.transport_mode = transport;
+    options.strict_profile = strict_profile;
     let has_network_station_target = target_network.is_some()
         || target_station.is_some()
         || target_module_io.is_some()
