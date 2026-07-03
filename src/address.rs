@@ -190,14 +190,49 @@ fn ensure_device_supported_for_family(
     code: SlmpDeviceCode,
     family: Option<SlmpPlcProfile>,
 ) -> Result<(), SlmpError> {
-    if family.is_some_and(|family| family == SlmpPlcProfile::IqF)
-        && matches!(code, SlmpDeviceCode::DX | SlmpDeviceCode::DY)
-    {
-        return Err(SlmpError::new(format!(
-            "SLMP device code '{prefix}' is not supported for plc_profile 'melsec:iq-f'."
-        )));
+    if let Some(family) = family {
+        if device_is_unsupported_for_family(code, family) {
+            let profile = family.canonical_name();
+            return Err(SlmpError::new(format!(
+                "SLMP device code '{prefix}' is not supported for plc_profile '{profile}'."
+            )));
+        }
     }
     Ok(())
+}
+
+fn device_is_unsupported_for_family(code: SlmpDeviceCode, family: SlmpPlcProfile) -> bool {
+    match family {
+        SlmpPlcProfile::IqF => matches!(
+            code,
+            SlmpDeviceCode::DX
+                | SlmpDeviceCode::DY
+                | SlmpDeviceCode::V
+                | SlmpDeviceCode::LTS
+                | SlmpDeviceCode::LTC
+                | SlmpDeviceCode::LTN
+                | SlmpDeviceCode::LSTS
+                | SlmpDeviceCode::LSTC
+                | SlmpDeviceCode::LSTN
+                | SlmpDeviceCode::ZR
+                | SlmpDeviceCode::RD
+        ),
+        SlmpPlcProfile::QCpu | SlmpPlcProfile::LCpu | SlmpPlcProfile::QnU | SlmpPlcProfile::QnUDV => matches!(
+            code,
+            SlmpDeviceCode::LTS
+                | SlmpDeviceCode::LTC
+                | SlmpDeviceCode::LTN
+                | SlmpDeviceCode::LSTS
+                | SlmpDeviceCode::LSTC
+                | SlmpDeviceCode::LSTN
+                | SlmpDeviceCode::LCS
+                | SlmpDeviceCode::LCC
+                | SlmpDeviceCode::LCN
+                | SlmpDeviceCode::LZ
+                | SlmpDeviceCode::RD
+        ),
+        SlmpPlcProfile::IqR | SlmpPlcProfile::IqL | SlmpPlcProfile::MxR | SlmpPlcProfile::MxF => false,
+    }
 }
 
 fn device_radix(code: SlmpDeviceCode, family: Option<SlmpPlcProfile>) -> u32 {
@@ -385,11 +420,28 @@ mod tests {
 
     #[test]
     fn iq_f_direct_io_devices_are_rejected() {
-        for address in ["DX10", "DY10"] {
+        for address in ["DX10", "DY10", "V10", "LTS10", "ZR10", "RD10"] {
             let error = parse_device_for_plc_profile(address, SlmpPlcProfile::IqF).unwrap_err();
             assert!(
                 error.message.contains("not supported"),
                 "unexpected error: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn measured_legacy_profiles_reject_unsupported_device_families() {
+        for (address, profile) in [
+            ("LCS10", SlmpPlcProfile::QnUDV),
+            ("LZ0", SlmpPlcProfile::QnU),
+            ("RD0", SlmpPlcProfile::LCpu),
+            ("LTN0", SlmpPlcProfile::QCpu),
+        ] {
+            let error = parse_device_for_plc_profile(address, profile).unwrap_err();
+            assert!(
+                error.message.contains("not supported"),
+                "unexpected error for {address}: {}",
                 error.message
             );
         }
