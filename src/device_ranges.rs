@@ -702,9 +702,6 @@ fn create_mxf_profile() -> SlmpDeviceRangeProfile {
     profile.plc_profile = SlmpPlcProfile::MxF;
     profile
         .rules
-        .insert("S", unsupported("Not supported on MX-F."));
-    profile
-        .rules
         .insert("SM", fixed(10000, "Fixed family limit"));
     profile
         .rules
@@ -715,9 +712,6 @@ fn create_mxf_profile() -> SlmpDeviceRangeProfile {
 fn create_mxr_profile() -> SlmpDeviceRangeProfile {
     let mut profile = create_iqr_profile();
     profile.plc_profile = SlmpPlcProfile::MxR;
-    profile
-        .rules
-        .insert("S", unsupported("Not supported on MX-R."));
     profile
         .rules
         .insert("SM", fixed(4496, "Fixed family limit"));
@@ -1058,6 +1052,25 @@ mod tests {
             entry(&catalog, "Y").address_range.as_deref(),
             Some("Y0000-Y1777")
         );
+    }
+
+    #[test]
+    fn build_catalog_mx_profiles_keep_s_supported_from_sd276() {
+        for plc_profile in [SlmpPlcProfile::MxF, SlmpPlcProfile::MxR] {
+            let profile = resolve_profile_for_plc_profile(plc_profile);
+            let mut snapshot = create_snapshot(&profile);
+            insert_dword(&mut snapshot, 276, 123);
+
+            let catalog = build_catalog_for_plc_profile(plc_profile, &snapshot).unwrap();
+
+            assert!(entry(&catalog, "S").supported);
+            assert_eq!(entry(&catalog, "S").source, "SD276-SD277 (32-bit)");
+            assert_eq!(entry(&catalog, "S").point_count, Some(123));
+            assert_eq!(
+                entry(&catalog, "S").address_range.as_deref(),
+                Some("S0-S122")
+            );
+        }
     }
 
     #[test]
