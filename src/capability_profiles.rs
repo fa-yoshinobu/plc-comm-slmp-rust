@@ -501,7 +501,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         80,
         Some("C054"),
         "live",
-        None,
+        Some(960),
         None,
     ),
     limit(
@@ -568,7 +568,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         160,
         Some("C054"),
         "live",
-        None,
+        Some(1920),
         None,
     ),
     limit(
@@ -649,8 +649,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
 ];
 
 const IQR_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy(SlmpDeviceCode::S)];
-const IQF_WRITE_POLICY: &[SlmpWritePolicy] =
-    &[write_policy_value(SlmpDeviceCode::S, "read-write")];
+const IQF_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy_value(SlmpDeviceCode::S, "read-write")];
 const QL_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy(SlmpDeviceCode::S)];
 
 pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
@@ -860,10 +859,7 @@ const fn write_policy(device: SlmpDeviceCode) -> SlmpWritePolicy {
 }
 
 const fn write_policy_value(device: SlmpDeviceCode, policy: &'static str) -> SlmpWritePolicy {
-    SlmpWritePolicy {
-        device,
-        policy,
-    }
+    SlmpWritePolicy { device, policy }
 }
 
 const fn profile(

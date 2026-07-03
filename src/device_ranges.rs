@@ -923,7 +923,10 @@ mod tests {
     }
 
     fn canonical_device_range_rules() -> serde_json::Value {
-        serde_json::from_str(include_str!("../tests/fixtures/slmp_device_range_rules.json")).unwrap()
+        serde_json::from_str(include_str!(
+            "../tests/fixtures/slmp_device_range_rules.json"
+        ))
+        .unwrap()
     }
 
     fn canonical_rule_value(rule: &serde_json::Value) -> u32 {
@@ -971,9 +974,9 @@ mod tests {
         match kind {
             "unsupported" | "undefined" => None,
             "fixed" => Some(rule["fixed_value"].as_u64().unwrap() as u32),
-            _ if kind.ends_with("clipped") => Some(
-                canonical_rule_value(rule).min(rule["clip_value"].as_u64().unwrap() as u32),
-            ),
+            _ if kind.ends_with("clipped") => {
+                Some(canonical_rule_value(rule).min(rule["clip_value"].as_u64().unwrap() as u32))
+            }
             _ => Some(canonical_rule_value(rule)),
         }
     }
@@ -1012,7 +1015,10 @@ mod tests {
                 for device in row["devices"].as_array().unwrap() {
                     let device_name = device["device"].as_str().unwrap();
                     let entry = entry(&catalog, device_name);
-                    assert_eq!(entry.supported, expected_supported, "{profile_name} {device_name}");
+                    assert_eq!(
+                        entry.supported, expected_supported,
+                        "{profile_name} {device_name}"
+                    );
                     assert_eq!(
                         entry.point_count, expected_point_count,
                         "{profile_name} {device_name}"

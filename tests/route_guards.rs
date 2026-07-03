@@ -1176,6 +1176,30 @@ async fn profile_limits_are_enforced_from_canonical_table() {
     let err = iql.write_random_words(&entries, &[]).await.unwrap_err();
     assert!(err.message.contains("1..80"));
     assert_eq!(iql.traffic_stats().await.request_count, 0);
+
+    let word_entries: Vec<_> = (0..40)
+        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8100 + i), 0))
+        .collect();
+    let dword_entries: Vec<_> = (0..40)
+        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8200 + (i * 2)), 0))
+        .collect();
+    let err = iql
+        .write_random_words(&word_entries, &dword_entries)
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("limit=960"));
+    assert_eq!(iql.traffic_stats().await.request_count, 0);
+
+    let iqf = udp_client_with_profile(SlmpPlcProfile::IqF).await;
+    let iqf_dword_entries: Vec<_> = (0..138)
+        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 9000 + (i * 2)), 0))
+        .collect();
+    let err = iqf
+        .write_random_words(&[], &iqf_dword_entries)
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("limit=1920"));
+    assert_eq!(iqf.traffic_stats().await.request_count, 0);
 }
 
 #[tokio::test]
@@ -1194,7 +1218,10 @@ async fn direct_access_does_not_use_device_range_upper_bounds_as_send_guard() {
     assert_eq!(values, vec![0x1234]);
 
     client
-        .write_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999), &[0x5678])
+        .write_words(
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999),
+            &[0x5678],
+        )
         .await
         .unwrap();
     assert_eq!(server.requests().await.len(), 2);

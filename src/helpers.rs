@@ -1,4 +1,5 @@
 use crate::address::{parse_device_for_family_hint, parse_named_address};
+use crate::capability_profiles::{self, SlmpProfileLimit};
 use crate::client::SlmpClient;
 use crate::error::SlmpError;
 use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile};
@@ -620,13 +621,14 @@ async fn read_random_maps(
     let mut dwords = HashMap::with_capacity(dword_devices.len());
     let mut word_index = 0usize;
     let mut dword_index = 0usize;
+    let batch_limit = random_read_batch_limit(client.plc_profile().await);
 
     while word_index < word_devices.len() || dword_index < dword_devices.len() {
         let word_take = word_devices
             .len()
             .saturating_sub(word_index)
-            .min(RANDOM_READ_BATCH_LIMIT);
-        let dword_limit = RANDOM_READ_BATCH_LIMIT.saturating_sub(word_take);
+            .min(batch_limit);
+        let dword_limit = batch_limit.saturating_sub(word_take);
         let dword_take = dword_devices
             .len()
             .saturating_sub(dword_index)
@@ -658,6 +660,13 @@ async fn read_random_maps(
     }
 
     Ok((words, dwords))
+}
+
+fn random_read_batch_limit(plc_profile: SlmpPlcProfile) -> usize {
+    capability_profiles::profile_limit(plc_profile, SlmpProfileLimit::RandomReadWord)
+        .map(|limit| limit.max)
+        .filter(|max| *max > 0)
+        .unwrap_or(RANDOM_READ_BATCH_LIMIT)
 }
 
 async fn read_random_dword_scalar(

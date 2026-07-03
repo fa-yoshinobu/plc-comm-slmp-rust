@@ -227,6 +227,33 @@ async fn read_named_chunks_more_than_96_batched_bit_words() {
 }
 
 #[tokio::test]
+async fn read_named_uses_profile_random_read_limit_for_ql_profiles() {
+    let word_count = 160usize;
+    let server = CapturingServer::start(vec![
+        word_payload(&vec![0x0001; word_count]),
+        word_payload(&vec![0x0001; word_count - 96]),
+    ])
+    .await
+    .unwrap();
+    let client = connect_client(server.port, SlmpPlcProfile::QnUDV).await;
+    let addresses: Vec<String> = (0..word_count)
+        .map(|index| format!("M{}:BIT", index * 16))
+        .collect();
+
+    let values = read_named(&client, &addresses).await.unwrap();
+
+    assert!(
+        addresses
+            .iter()
+            .all(|address| values[address] == SlmpValue::Bool(true))
+    );
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_random_counts(&requests[0], word_count as u8, 0);
+}
+
+#[tokio::test]
 async fn read_named_keeps_long_counter_state_bits_on_direct_bit_fallback() {
     let server = CapturingServer::start(vec![vec![0x10]]).await.unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;

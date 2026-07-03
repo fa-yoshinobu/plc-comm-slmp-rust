@@ -217,7 +217,10 @@ fn device_is_unsupported_for_family(code: SlmpDeviceCode, family: SlmpPlcProfile
                 | SlmpDeviceCode::ZR
                 | SlmpDeviceCode::RD
         ),
-        SlmpPlcProfile::QCpu | SlmpPlcProfile::LCpu | SlmpPlcProfile::QnU | SlmpPlcProfile::QnUDV => matches!(
+        SlmpPlcProfile::QCpu
+        | SlmpPlcProfile::LCpu
+        | SlmpPlcProfile::QnU
+        | SlmpPlcProfile::QnUDV => matches!(
             code,
             SlmpDeviceCode::LTS
                 | SlmpDeviceCode::LTC
@@ -231,7 +234,9 @@ fn device_is_unsupported_for_family(code: SlmpDeviceCode, family: SlmpPlcProfile
                 | SlmpDeviceCode::LZ
                 | SlmpDeviceCode::RD
         ),
-        SlmpPlcProfile::IqR | SlmpPlcProfile::IqL | SlmpPlcProfile::MxR | SlmpPlcProfile::MxF => false,
+        SlmpPlcProfile::IqR | SlmpPlcProfile::IqL | SlmpPlcProfile::MxR | SlmpPlcProfile::MxF => {
+            false
+        }
     }
 }
 
@@ -449,9 +454,10 @@ mod tests {
 
     #[test]
     fn profile_unsupported_device_codes_match_canonical_fixture() {
-        let payload: serde_json::Value =
-            serde_json::from_str(include_str!("../tests/fixtures/slmp_device_range_rules.json"))
-                .unwrap();
+        let payload: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/slmp_device_range_rules.json"
+        ))
+        .unwrap();
         let rows = payload["rows"].as_object().unwrap();
         let profiles = payload["profiles"].as_object().unwrap();
 
