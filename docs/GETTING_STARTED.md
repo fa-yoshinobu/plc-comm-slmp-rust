@@ -121,4 +121,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Page | Link |
 | --- | --- |
 | Usage guide | [USAGE_GUIDE.md](USAGE_GUIDE.md) |
-| Supported registers | [SUPPORTED_REGISTERS.md](SUPPORTED_REGISTERS.md) |
+| SLMP profile reference | [https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/) |

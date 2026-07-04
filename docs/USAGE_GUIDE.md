@@ -64,7 +64,7 @@ client.remote_password_lock("secret").await?;
 ```
 
 For `C200`-series password end codes, see the shared
-[SLMP Troubleshooting & End Codes](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/troubleshooting-end-codes/)
+[SLMP Troubleshooting & End Codes](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/troubleshooting-end-codes/)
 page.
 
 ## Routing / target station
@@ -114,6 +114,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.close().await?;
 
     Ok(())
+}
+```
+
+## SLMP response end codes
+
+When the PLC returns a non-zero SLMP end code, high-level calls return `SlmpError`.
+Read `end_code` for the PLC response code and `error_info` when the PLC returned the structured error-information block.
+
+```rust
+match read_typed(&client, "D100", "U").await {
+    Ok(value) => println!("D100 = {value:?}"),
+    Err(error) => {
+        if let Some(end_code) = error.end_code {
+            println!("SLMP end_code=0x{end_code:04X}");
+        }
+        if let Some(info) = error.error_info.as_ref() {
+            println!("command=0x{:04X}", info.command);
+            println!("subcommand=0x{:04X}", info.subcommand);
+        }
+    }
 }
 ```
 
@@ -286,9 +306,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Runnable examples
+
+The repository examples are designed to run from environment variables.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SLMP_HOST` | `127.0.0.1` | PLC or mock server host. |
+| `SLMP_PORT` | `1025` | TCP/UDP port. |
+| `SLMP_PLC_PROFILE` | required | Canonical profile such as `melsec:iq-r` or `melsec:iq-f`. |
+| `SLMP_TRANSPORT` | `tcp` | `tcp` or `udp`. |
+| `SLMP_TARGET` | unset | `SELF`, `SELF-CPU1`, or `NAME,NET,ST,IO,MD`. |
+| `SLMP_NETWORK` / `SLMP_STATION` | unset | Other-station target, for example `SLMP_NETWORK=1 SLMP_STATION=2`. |
+| `SLMP_MODULE_IO` / `SLMP_MULTIDROP` | `0x03FF` / `0x00` | Optional fields used with `SLMP_NETWORK` / `SLMP_STATION`. |
+| `SLMP_TIMEOUT_MS` | `3000` | Socket timeout. |
+| `SLMP_MONITORING_TIMER` | `16` | SLMP monitoring timer. |
+| `SLMP_ENABLE_WRITES` | `0` | Set `1` to enable write examples. |
+
+Raw read/write:
+
+```bash
+cd plc-comm-slmp-rust
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_PLC_PROFILE=melsec:iq-r \
+cargo run --example raw_read_write
+```
+
+Named helpers:
+
+```bash
+cd plc-comm-slmp-rust
+SLMP_HOST=192.168.250.100 \
+SLMP_PLC_PROFILE=melsec:iq-f \
+SLMP_NAMED_ADDRESSES='D100:U,D200:F,D50.3,LTN10:D,LTS10:BIT' \
+cargo run --example named_helpers
+```
+
+Advanced operations:
+
+```bash
+cd plc-comm-slmp-rust
+SLMP_HOST=192.168.250.100 \
+SLMP_PLC_PROFILE=melsec:iq-r \
+SLMP_RANDOM_WORDS='D100,R10' \
+SLMP_RANDOM_DWORDS='D200,LTN10' \
+SLMP_EXT_DEVICE='J1\W10' \
+cargo run --example advanced_operations
+```
+
+Device matrix compare:
+
+```bash
+cd plc-comm-slmp-rust
+SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_PLC_PROFILE=melsec:iq-r \
+cargo run --example device_matrix_compare
+```
+
+Cross-library verification lives in the separate `plc-comm-slmp-cross-verify`
+repository:
+
+```bash
+cd ../plc-comm-slmp-cross-verify
+python verify.py --clients rust
+```
+
 ## Device range catalog
 
 `read_device_range_catalog` reads live device range bounds after you connect. It requires an explicit profile through `SlmpConnectionOptions`; it does not auto-discover your intended profile.
+The source rules for this catalog are maintained in the shared [SLMP device ranges](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/device-ranges/) reference.
 
 ```rust
 use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};

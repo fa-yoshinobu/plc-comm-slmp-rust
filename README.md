@@ -12,7 +12,7 @@ The maintained profile table is in [PLC profiles](docs/PROFILES.md). Choose one 
 
 ## Supported device types
 
-The maintained device and range tables are in [Supported registers](docs/SUPPORTED_REGISTERS.md). Use that page for supported device families, address syntax, and profile-specific notes.
+The maintained device and range tables are in the [SLMP Profile Reference](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/). Use that page for supported device families, address syntax, and profile-specific notes.
 
 ## Installation
 
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [Full documentation site](https://fa-yoshinobu.github.io/plc-comm-docs-site/) | Unified docs for all PLC communication libraries. |
 | [Getting started](docs/GETTING_STARTED.md) | Install the crate, connect to your PLC, and run your first SLMP read/write. |
 | [Usage guide](docs/USAGE_GUIDE.md) | Use the high-level API and common SLMP workflows. |
-| [Supported registers](docs/SUPPORTED_REGISTERS.md) | Check supported device families, address syntax, and numbering rules. |
+| [SLMP profile reference](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/) | Check profile parameters, device families, address syntax, and numbering rules. |
 | [PLC profiles](docs/PROFILES.md) | Choose the canonical MELSEC profile and frame behavior. |
 | [Examples](examples/README.md) | Run maintained Rust examples. |
 
