@@ -118,5 +118,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Next steps
 
+- Open the API reference: [docs.rs/plc-comm-slmp-rust](https://docs.rs/plc-comm-slmp-rust/).
 - Open the runnable samples: [examples README](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/tree/main/examples).
 - Continue with the [Usage guide](USAGE_GUIDE.md) and [Gotchas](GOTCHAS.md).
