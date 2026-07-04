@@ -351,6 +351,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Operational recipes
+
+The `multi_plc_monitor` example is a read-only multi-PLC monitor. It polls each
+PLC in an independent reconnect loop, logs `connected`, `lost`, `reconnecting`,
+and `recovered` transitions, and uses the same 1 second to 30 second backoff as
+the reconnect polling sample.
+
+The `config_polling` example is read-only JSON-driven polling. Its CSV output
+uses the shared long form `timestamp,plc,tag,value`. YAML config is only
+available in the Python recipes; the Rust recipe intentionally accepts JSON.
+
 ## Runnable examples
 
 The repository examples are designed to run from environment variables.
