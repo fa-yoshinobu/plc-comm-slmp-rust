@@ -1,290 +1,94 @@
 # Gotchas
 
-Each entry starts with the symptom, then gives the root cause and a complete Rust fix. The examples use TCP `192.168.250.100:1025` and `SlmpPlcProfile::IqR` unless the profile itself is the point.
+Use this page as a short symptom index. For PLC response codes, use the shared
+[SLMP Troubleshooting & End Codes](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/troubleshooting-end-codes/)
+page. For profile limits and device availability, use the shared
+[SLMP Profile Parameters](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/parameters/)
+page.
 
-## LTN/LSTN/LCN/LZ reads return wrong values
-
-| Symptom | Root cause | Fix |
-| --- | --- | --- |
-| `LTN0`, `LSTN0`, `LCN0`, or `LZ0` looks truncated or is rejected. | These current-value families are 32-bit values, not normal 16-bit word values. | Use named addresses with `:D` or `:L`, or call `read_typed` with a 32-bit dtype. |
-
-```rust
-use plc_comm_slmp::{
-    read_named, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    let addresses = vec![
-        "LTN0:D".to_string(),
-        "LSTN0:D".to_string(),
-        "LCN0:L".to_string(),
-        "LZ0:D".to_string(),
-    ];
-    let values = read_named(&client, &addresses).await?;
-    println!("{values:?}");
-    client.close().await?;
-
-    Ok(())
-}
-```
-
-## LCS/LCC reads look incorrect
+## Connection fails or times out
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| `LCS0` or `LCC0` does not behave like a normal word value. | Long counter state devices are state bits. | Use `read_named` or `write_typed` with `SlmpValue::Bool`. |
+| `SlmpClient::connect` cannot open the PLC connection. | Host, port, transport, PLC Ethernet setting, or network route is wrong. | Check the PLC setup first. Built-in Ethernet examples use TCP `192.168.250.100:1025`; use UDP only when the PLC port is configured for UDP. |
 
-```rust
-use plc_comm_slmp::{
-    read_named, write_typed, SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
-    SlmpValue,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    let addresses = vec!["LCS0:BIT".to_string(), "LCC0:BIT".to_string()];
-    let state = read_named(&client, &addresses).await?;
-    write_typed(&client, SlmpAddress::parse("LCC0")?, "BIT", &SlmpValue::Bool(true)).await?;
-    println!("{state:?}");
-    client.close().await?;
-
-    Ok(())
-}
-```
-
-## LTS/LTC/LSTS/LSTC write rejected
+## Connection opens but every request returns an end code
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| Direct bit writes to long timer state devices are rejected. | These families need the helper route that selects supported random bit write behavior. | Use `write_named` or `write_typed` for the state device. |
+| Simple reads such as `D100:U` connect but fail with an SLMP end code. | The selected `SlmpPlcProfile` does not match the PLC, or the PLC port data code does not match the library request format. | Select the canonical profile for the PLC and confirm the PLC Ethernet port is configured for binary SLMP. Use the shared end-code page for codes such as `C050`, `C059`, and `4031`. |
 
-```rust
-use plc_comm_slmp::{
-    write_named, NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpValue,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    let mut updates = NamedAddress::new();
-    updates.insert("LTS0:BIT".to_string(), SlmpValue::Bool(true));
-    updates.insert("LTC0:BIT".to_string(), SlmpValue::Bool(false));
-    write_named(&client, &updates).await?;
-    client.close().await?;
-
-    Ok(())
-}
-```
-
-## G/HG fails
+## Reads work but writes fail
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| `G100` or `HG1000` fails through the high-level helpers. | Module buffer access is outside the public typed helper surface. | Use extended-device methods with qualified addresses such as `U3\G100` or `U3E0\HG0`. |
+| Reads work, but writes are rejected. | PLC-side write permission during RUN, remote password state, or profile write policy blocks the write. | Check the PLC setup guide and the selected profile's write policy. `S` is read-only except on iQ-F profiles. |
+
+## Large requests fail with point-limit end codes
+
+| Symptom | Root cause | Fix |
+| --- | --- | --- |
+| A large read, write, random request, or monitor request fails with `C051`, `C052`, `C053`, or `C054`. | The request exceeds the selected profile's per-request point limit. | Split the request or use the chunked helper. Check the shared profile parameter table for the limit. |
 
 ```rust
-use plc_comm_slmp::{
-    parse_qualified_device, SlmpClient, SlmpConnectionOptions, SlmpExtensionSpec, SlmpPlcProfile,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    let device = parse_qualified_device("U3\\G100")?;
-    let values = client.read_words_extended(device, 4, SlmpExtensionSpec::default()).await?;
-    println!("{values:?}");
-    client.close().await?;
-
-    Ok(())
-}
+let words = read_words_chunked(&client, SlmpAddress::parse("D1000")?, 2000, 480).await?;
 ```
+
+## Block commands are rejected on Q/L profiles
+
+| Symptom | Root cause | Fix |
+| --- | --- | --- |
+| `read_block()` or `write_block()` fails for `melsec:qcpu`, `melsec:qnu`, `melsec:qnudv`, or `melsec:lcpu`. | These profiles do not use block commands for normal high-level access. | Use normal direct/random read and write helpers. Disable strict profile only for deliberate compatibility investigation. |
 
 ## Mixed word and bit write fails
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| A block write that combines word blocks and bit blocks returns a PLC-side error. | Some PLC paths reject mixed word and bit block writes. | Split word and bit writes, or use `SlmpBlockWriteOptions { split_mixed_blocks: true }` intentionally. |
+| One write containing word values and bit values fails. | Some PLC paths reject mixed word and bit block writes. | Send word writes and bit writes as separate calls, or use an explicit split option where available. |
 
-## Q-series profiles reject block commands
-
-| Symptom | Root cause | Fix |
-| --- | --- | --- |
-| `read_block()` or `write_block()` returns an error when the client uses `melsec:qcpu`, `melsec:qnu`, or `melsec:qnudv`. | These Q-series profiles do not use block access for normal high-level flows. | Use direct or random device commands for those profiles. |
-
-```rust
-use plc_comm_slmp::{
-    SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpValue, write_typed,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    write_typed(&client, SlmpAddress::parse("D100")?, "U", &SlmpValue::U16(42)).await?;
-    write_typed(&client, SlmpAddress::parse("M100")?, "BIT", &SlmpValue::Bool(true)).await?;
-    client.close().await?;
-
-    Ok(())
-}
-```
-
-## DX/DY fails on SlmpPlcProfile::IqF
+## iQ-F X/Y or DX/DY addresses fail
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| `DX` or `DY` is rejected with `SlmpPlcProfile::IqF`. | iQ-F does not support `DX` and `DY` in this profile. | Use `X` and `Y`; iQ-F string notation is octal. |
+| `X`/`Y` points look shifted, or `DX`/`DY` is rejected on iQ-F. | iQ-F uses octal text for `X`/`Y`, and the iQ-F profile does not support `DX`/`DY`. | Parse string addresses with `SlmpPlcProfile::IqF`; use `X` and `Y` on iQ-F. |
 
 ```rust
-use plc_comm_slmp::{
-    parse_device_for_plc_profile, read_typed, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    let x100 = parse_device_for_plc_profile("X100", SlmpPlcProfile::IqF)?;
-    let value = read_typed(&client, x100, "BIT").await?;
-    println!("{value:?}");
-    client.close().await?;
-
-    Ok(())
-}
+let device = parse_device_for_plc_profile("X100", SlmpPlcProfile::IqF)?;
 ```
 
-## All reads return an end code
+## Long timer/counter/index values look wrong
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| Simple reads such as `D100` connect but return an SLMP end code. | `SlmpPlcProfile` selects the frame type, compatibility mode, and address parsing rules. The wrong profile can make every request invalid for your PLC. | Choose the concrete profile from [PROFILES.md](PROFILES.md) in your configuration or UI. |
-
-The crate reports the raw numeric `end_code` and a deterministic resource key
-such as `slmp_end_code_c810`. Localized end-code message text is not embedded in
-the public communication crate; resolve the key in an application-owned catalog
-when user-facing text is required.
+| `LTN`, `LSTN`, `LCN`, or `LZ` looks truncated or shifted. | These current-value families are 32-bit values. | Use `:D` or `:L` in named addresses, or a 32-bit dtype. |
+| `LCS` or `LCC` behaves unlike a word value. | Long counter state devices are bits. | Read or write them as `BIT`. |
 
 ```rust
-use plc_comm_slmp::{
-    read_typed, SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    match read_typed(&client, SlmpAddress::parse("D100")?, "U").await {
-        Ok(value) => println!("{value:?}"),
-        Err(error) if error.end_code.is_some() => {
-            println!("PLC rejected the request: {:?}", error.end_code);
-        }
-        Err(error) => return Err(error.into()),
-    }
-    client.close().await?;
-
-    Ok(())
-}
+let addresses = vec!["LTN0:D".into(), "LSTN0:L".into(), "LCN0:D".into(), "LZ0:L".into(), "LCS0:BIT".into()];
+let values = read_named(&client, &addresses).await?;
 ```
+
+## G/HG fails as a normal address
+
+| Symptom | Root cause | Fix |
+| --- | --- | --- |
+| `G` or `HG` fails in high-level typed or named access. | Module buffer memory is not a standalone normal device route. | Use qualified routed forms such as `U3\G100` through the extended-device APIs. `HG` CPU-buffer access is profile-specific. |
 
 ## Missing or non-canonical profile is rejected
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| Text configuration such as `iq-r` or `MELSEC:IQ-R` cannot be converted to a profile. | `SlmpPlcProfile::parse_label` accepts only exact canonical profile values, and `SlmpConnectionOptions::new` requires a concrete Rust selector. There is no `Unspecified` fallback in this crate. | Store only canonical profiles such as `melsec:iq-r`, or let your UI store the selector directly. |
-
-```rust
-use plc_comm_slmp::{SlmpConnectionOptions, SlmpPlcProfile};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let profile = SlmpPlcProfile::parse_label("melsec:iq-r").ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "unsupported PLC profile")
-    })?;
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", profile);
-    options.port = 1025;
-    println!("{}", options.plc_profile().canonical_name());
-
-    Ok(())
-}
-```
+| Text configuration such as `iq-r` or an unknown value cannot be converted to a profile. | The crate requires exact canonical profiles and has no safe default profile. | Store canonical profile labels such as `melsec:iq-r`, or use the Rust enum selector directly. |
 
 ## Concurrent callers are serialized on one connection
 
 | Symptom | Root cause | Fix |
 | --- | --- | --- |
-| Two async tasks sharing one PLC connection appear to run one request at a time. | A single SLMP connection is one ordered frame stream. The public `SlmpClient` is cloneable and internally serialized to keep responses matched to requests. | Share `SlmpClient` clones for safety, or open separate connections only when your PLC and network design allow it. |
+| Two async tasks sharing one PLC connection appear to run one request at a time. | A single SLMP connection is one ordered frame stream. | Share `SlmpClient` clones for safety, or open separate connections only when your PLC and network design allow it. |
 
 ```rust
-use plc_comm_slmp::{
-    read_typed, SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
-    options.port = 1025;
-
-    let client = SlmpClient::connect(options).await?;
-    let left_address = SlmpAddress::parse("D100")?;
-    let right_address = SlmpAddress::parse("D101")?;
-    let (left, right) = tokio::join!(
-        read_typed(&client, left_address, "U"),
-        read_typed(&client, right_address, "U"),
-    );
-    println!("{:?} {:?}", left?, right?);
-    client.close().await?;
-
-    Ok(())
-}
-```
-
-## X/Y addresses look shifted on iQ-F
-
-| Symptom | Root cause | Fix |
-| --- | --- | --- |
-| `X100` or `Y100` points to a different I/O address than expected after a profile change. | iQ-F uses octal `X`/`Y` text; non-iQ-F profiles use hexadecimal text. | Parse string addresses with the same `SlmpPlcProfile` you use for the connection. |
-
-```rust
-use plc_comm_slmp::{parse_device_for_plc_profile, SlmpPlcProfile};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let iqf_x = parse_device_for_plc_profile("X100", SlmpPlcProfile::IqF)?;
-    let iqr_x = parse_device_for_plc_profile("X20", SlmpPlcProfile::IqR)?;
-    println!("{iqf_x:?} {iqr_x:?}");
-
-    Ok(())
-}
-```
-
-## S write is rejected
-
-| Symptom | Root cause | Fix |
-| --- | --- | --- |
-| `S10:BIT` parses and reads, but a write is rejected before transport. | The selected profile marks `S` as read-only. iQ-F profiles allow `S` writes. | Follow the selected profile's write policy. |
-
-```rust
-use plc_comm_slmp::SlmpAddress;
-
-fn main() {
-    assert!(SlmpAddress::try_parse("S10").is_some());
-}
+let (left, right) = tokio::join!(
+    read_typed(&client, SlmpAddress::parse("D100")?, "U"),
+    read_typed(&client, SlmpAddress::parse("D101")?, "U"),
+);
 ```

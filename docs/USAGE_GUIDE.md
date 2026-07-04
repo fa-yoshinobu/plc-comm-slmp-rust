@@ -51,6 +51,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Routing / target station
+
+Most applications keep the default target, which means the directly connected
+own station/control CPU. Change the target only when your PLC network is
+configured for another station, multi-CPU module I/O, or multidrop access.
+
+`SlmpTargetAddress` controls the SLMP destination header. It is not a device
+family selector; routed devices such as `Un\Gn` and `Jn\...` still need their
+own address syntax.
+
+```rust
+use plc_comm_slmp::{SlmpConnectionOptions, SlmpPlcProfile, SlmpTargetAddress};
+
+let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+options.port = 1025;
+options.target = SlmpTargetAddress {
+    network: 0x01,
+    station: 0x02,
+    module_io: 0x03FF,
+    multidrop: 0x00,
+};
+```
+
+Use the default target unless the PLC routing setup gives you specific values.
+
 ## PLC diagnostics
 
 `SlmpClient::read_latest_self_diagnosis_error_code` reads `SD0`, the latest PLC self-diagnosis error code, and returns the raw 16-bit value. Format it as hexadecimal when displaying it.
