@@ -1,7 +1,7 @@
 use crate::model::{SlmpDeviceCode, SlmpPlcProfile};
 
 pub(crate) const CANONICAL_SOURCE: &str =
-    "plc-comm-slmp-profiles v1.0.0 capability/slmp_builtin_ethernet_profiles.json";
+    "plc-comm-slmp-profiles v1.1.0 capability/slmp_builtin_ethernet_profiles.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SlmpProfileFeatureState {
@@ -37,6 +37,10 @@ pub(crate) enum SlmpProfileLimit {
     RandomWriteWord,
     RandomWriteBit,
     MonitorRegisterWord,
+    RandomReadWordExt,
+    RandomWriteWordExt,
+    RandomWriteBitExt,
+    MonitorRegisterWordExt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -454,6 +458,38 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
         None,
     ),
+    limit(
+        SlmpProfileLimit::RandomReadWordExt,
+        96,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWordExt,
+        80,
+        Some("C054"),
+        "live",
+        Some(960),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBitExt,
+        94,
+        Some("C053"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWordExt,
+        96,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
 ];
 
 const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
@@ -521,6 +557,38 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
         None,
     ),
+    limit(
+        SlmpProfileLimit::RandomReadWordExt,
+        96,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWordExt,
+        80,
+        Some("C054"),
+        "live",
+        Some(960),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBitExt,
+        94,
+        Some("C053"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWordExt,
+        96,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
 ];
 
 const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
@@ -575,6 +643,30 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::RandomWriteBit,
         188,
+        Some("C053"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWordExt,
+        96,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWordExt,
+        80,
+        Some("C054"),
+        "live",
+        Some(960),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBitExt,
+        94,
         Some("C053"),
         "live",
         None,
@@ -644,6 +736,38 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         192,
         Some("C054"),
         "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWordExt,
+        96,
+        Some("C054"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWordExt,
+        80,
+        Some("C054"),
+        "inferred",
+        Some(960),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBitExt,
+        94,
+        Some("C053"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWordExt,
+        96,
+        Some("C054"),
+        "inferred",
         None,
         None,
     ),
@@ -803,6 +927,10 @@ pub(crate) fn limit_key(key: SlmpProfileLimit) -> &'static str {
         SlmpProfileLimit::RandomWriteWord => "random_write_word",
         SlmpProfileLimit::RandomWriteBit => "random_write_bit",
         SlmpProfileLimit::MonitorRegisterWord => "monitor_register_word",
+        SlmpProfileLimit::RandomReadWordExt => "random_read_word_ext",
+        SlmpProfileLimit::RandomWriteWordExt => "random_write_word_ext",
+        SlmpProfileLimit::RandomWriteBitExt => "random_write_bit_ext",
+        SlmpProfileLimit::MonitorRegisterWordExt => "monitor_register_word_ext",
     }
 }
 
