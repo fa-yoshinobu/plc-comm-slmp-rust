@@ -54,11 +54,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [PLC profiles](docs/PROFILES.md) | Choose the canonical MELSEC profile and frame behavior. |
 | [Examples](examples/README.md) | Run maintained Rust examples. |
 
-## Hardware verified
-
-Live-device verification is maintained in [Latest communication verification](docs/LATEST_COMMUNICATION_VERIFICATION.md).
-See that page for verified PLC models, transports, dates, limitations, and retained validation notes.
-
 ## License and registry
 
 | Item | Value |
