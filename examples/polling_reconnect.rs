@@ -34,25 +34,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .parse::<f64>()?,
     );
 
+    let config = PollConfig {
+        device,
+        dtype,
+        interval,
+    };
     let initial_backoff = Duration::from_secs(1);
     let max_backoff = Duration::from_secs(30);
-    let mut backoff = initial_backoff;
-    let mut client: Option<SlmpClient> = None;
-    let mut connected_once = false;
+    let mut state = PollState {
+        client: None,
+        backoff: initial_backoff,
+        connected_once: false,
+    };
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                if let Some(client) = client.take() {
+                if let Some(client) = state.client.take() {
                     let _ = client.close().await;
                 }
                 log_state("closed", "interrupted by Ctrl+C");
                 break;
             }
-            result = poll_step(&mut client, &device, &dtype, &mut backoff, initial_backoff, max_backoff, &mut connected_once, interval) => {
-                if let Err(error) = result {
-                    return Err(error);
-                }
+            result = poll_step(&config, &mut state, initial_backoff, max_backoff) => {
+                result?;
             }
         }
     }
@@ -60,65 +65,76 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+struct PollConfig {
+    device: String,
+    dtype: String,
+    interval: Duration,
+}
+
+struct PollState {
+    client: Option<SlmpClient>,
+    backoff: Duration,
+    connected_once: bool,
+}
+
 async fn poll_step(
-    client: &mut Option<SlmpClient>,
-    device: &str,
-    dtype: &str,
-    backoff: &mut Duration,
+    config: &PollConfig,
+    state: &mut PollState,
     initial_backoff: Duration,
     max_backoff: Duration,
-    connected_once: &mut bool,
-    interval: Duration,
 ) -> Result<(), Box<dyn Error>> {
-    if client.is_none() {
+    if state.client.is_none() {
         log_state("reconnecting", "opening SLMP session");
         match SlmpClient::connect(options_from_env()?).await {
             Ok(new_client) => {
-                *client = Some(new_client);
+                state.client = Some(new_client);
                 log_state(
-                    if *connected_once {
+                    if state.connected_once {
                         "recovered"
                     } else {
                         "connected"
                     },
-                    &format!("{device}:{dtype}"),
+                    &format!("{}:{}", config.device, config.dtype),
                 );
-                *connected_once = true;
-                *backoff = initial_backoff;
+                state.connected_once = true;
+                state.backoff = initial_backoff;
             }
             Err(error) if is_retryable_slmp(&error) => {
                 log_state(
                     "reconnecting",
                     &format!(
                         "connect failed: {error}; retry in {:.1}s",
-                        backoff.as_secs_f64()
+                        state.backoff.as_secs_f64()
                     ),
                 );
-                sleep(*backoff).await;
-                *backoff = next_backoff(*backoff, max_backoff);
+                sleep(state.backoff).await;
+                state.backoff = next_backoff(state.backoff, max_backoff);
                 return Ok(());
             }
             Err(error) => return Err(Box::new(error)),
         }
     }
 
-    let active = client.as_ref().expect("client was just connected");
-    match read_typed(active, SlmpAddress::parse(device)?, dtype).await {
+    let active = state.client.as_ref().expect("client was just connected");
+    match read_typed(active, SlmpAddress::parse(&config.device)?, &config.dtype).await {
         Ok(value) => {
-            log_state("read", &format!("{device}:{dtype}={value:?}"));
-            sleep(interval).await;
+            log_state(
+                "read",
+                &format!("{}:{}={value:?}", config.device, config.dtype),
+            );
+            sleep(config.interval).await;
         }
         Err(error) if is_retryable_slmp(&error) => {
             log_state("lost", &error.to_string());
-            if let Some(client) = client.take() {
+            if let Some(client) = state.client.take() {
                 let _ = client.close().await;
             }
             log_state(
                 "reconnecting",
-                &format!("retry in {:.1}s", backoff.as_secs_f64()),
+                &format!("retry in {:.1}s", state.backoff.as_secs_f64()),
             );
-            sleep(*backoff).await;
-            *backoff = next_backoff(*backoff, max_backoff);
+            sleep(state.backoff).await;
+            state.backoff = next_backoff(state.backoff, max_backoff);
         }
         Err(error) => return Err(Box::new(error)),
     }
