@@ -115,10 +115,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | You are tempted to set the frame manually | Do not override frame type manually; it is derived from the profile. |
 | A special device family fails | Start with `D` reads, not `G`, `HG`, `LTN`, or `LCN`. |
 | `X` or `Y` addresses look different on iQ-F | `SlmpPlcProfile::IqF` parses `X` and `Y` string addresses as octal. |
-
-## Next pages
-
-| Page | Link |
-| --- | --- |
-| Usage guide | [USAGE_GUIDE.md](USAGE_GUIDE.md) |
-| SLMP profile reference | [https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/) |
