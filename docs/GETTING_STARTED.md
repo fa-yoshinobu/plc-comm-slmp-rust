@@ -99,15 +99,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 1. The PLC IP address is reachable from your computer.
 2. TCP port `1025` is open on your PLC Ethernet module or built-in Ethernet port.
-3. `SlmpPlcProfile::IqR` matches your real hardware, or you selected the correct variant from [profiles](PROFILES.md).
-4. A read from `D100` returns a `SlmpValue` without an SLMP end code error.
-5. Any write test uses a register reserved for testing and restores the original value.
+3. The PLC-side communication data code is Binary and the port/open setting matches your transport; see the [MELSEC SLMP PLC Setup Guide](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/).
+4. PLC-side RUN-time write permission is enabled before you run a write example where the PLC exposes that setting.
+5. `SlmpPlcProfile::IqR` matches your real hardware, or you selected the correct variant from [profiles](PROFILES.md).
+6. A read from `D100` returns a `SlmpValue` without an SLMP end code error.
+7. Any write test uses a register reserved for testing and restores the original value.
 
 ## If it does not work
 
 | Symptom | Check |
 | --- | --- |
 | You get SLMP end code errors | `SlmpPlcProfile` must match the actual hardware. |
+| Connection opens but all requests fail | Confirm Binary communication data code in the PLC setup guide. |
+| Reads work but writes fail | Confirm RUN-time write permission in the PLC setup guide and the selected profile write policy. |
 | You are tempted to set the frame manually | Do not override frame type manually; it is derived from the profile. |
 | A special device family fails | Start with `D` reads, not `G`, `HG`, `LTN`, or `LCN`. |
 | `X` or `Y` addresses look different on iQ-F | `SlmpPlcProfile::IqF` parses `X` and `Y` string addresses as octal. |

@@ -51,6 +51,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Remote password
+
+Remote password lock/unlock commands are available on `SlmpClient`.
+The Rust high-level connection does not automatically unlock or lock a remote password.
+If your PLC route uses remote password protection, unlock after connecting and lock before closing.
+
+```rust
+client.remote_password_unlock("secret").await?;
+let value = read_typed(&client, SlmpAddress::parse("D100")?, "U").await?;
+client.remote_password_lock("secret").await?;
+```
+
+For `C200`-series password end codes, see the shared
+[SLMP Troubleshooting & End Codes](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/troubleshooting-end-codes/)
+page.
+
 ## Routing / target station
 
 Most applications keep the default target, which means the directly connected
