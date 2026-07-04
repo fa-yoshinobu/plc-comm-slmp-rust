@@ -76,7 +76,11 @@ async fn poll_step(
             Ok(new_client) => {
                 *client = Some(new_client);
                 log_state(
-                    if *connected_once { "recovered" } else { "connected" },
+                    if *connected_once {
+                        "recovered"
+                    } else {
+                        "connected"
+                    },
                     &format!("{device}:{dtype}"),
                 );
                 *connected_once = true;
@@ -85,7 +89,10 @@ async fn poll_step(
             Err(error) if is_retryable_slmp(&error) => {
                 log_state(
                     "reconnecting",
-                    &format!("connect failed: {error}; retry in {:.1}s", backoff.as_secs_f64()),
+                    &format!(
+                        "connect failed: {error}; retry in {:.1}s",
+                        backoff.as_secs_f64()
+                    ),
                 );
                 sleep(*backoff).await;
                 *backoff = next_backoff(*backoff, max_backoff);
