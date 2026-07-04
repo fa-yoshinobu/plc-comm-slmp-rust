@@ -1,3 +1,4 @@
+#[path = "../common/mod.rs"]
 mod common;
 
 use common::{env_csv, options_from_env, print_connection_banner};

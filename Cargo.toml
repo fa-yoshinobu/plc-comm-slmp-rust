@@ -25,7 +25,7 @@ name = "plc_comm_slmp"
 
 [features]
 default = []
-cli = ["dep:futures-util", "dep:serde_json", "tokio/macros", "tokio/rt-multi-thread"]
+cli = ["dep:futures-util", "dep:serde_json", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 
 [[bin]]
 name = "slmp_verify_client"
@@ -52,6 +52,11 @@ path = "examples/named_helpers.rs"
 required-features = ["cli"]
 
 [[example]]
+name = "polling_reconnect"
+path = "examples/polling_reconnect.rs"
+required-features = ["cli"]
+
+[[example]]
 name = "advanced_operations"
 path = "examples/advanced_operations.rs"
 required-features = ["cli"]
@@ -63,27 +68,27 @@ required-features = ["cli"]
 
 [[example]]
 name = "device_matrix_compare"
-path = "examples/device_matrix_compare.rs"
+path = "examples/validation/device_matrix_compare.rs"
 required-features = ["cli"]
 
 [[example]]
 name = "extended_device_coverage"
-path = "examples/extended_device_coverage.rs"
+path = "examples/validation/extended_device_coverage.rs"
 required-features = ["cli"]
 
 [[example]]
 name = "device_range_sample_compare"
-path = "examples/device_range_sample_compare.rs"
+path = "examples/validation/device_range_sample_compare.rs"
 required-features = ["cli"]
 
 [[example]]
 name = "route_validation_compare"
-path = "examples/route_validation_compare.rs"
+path = "examples/validation/route_validation_compare.rs"
 required-features = ["cli"]
 
 [[example]]
 name = "iql_live_stress"
-path = "examples/iql_live_stress.rs"
+path = "examples/validation/iql_live_stress.rs"
 required-features = ["cli"]
 
 [workspace]
