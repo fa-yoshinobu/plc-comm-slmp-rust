@@ -14,6 +14,9 @@
 | `read_dwords_single_request` and `read_dwords_chunked` | Reading contiguous 32-bit ranges. |
 | `write_bit_in_word` | Updating one bit inside a word register. |
 | `poll_named` | Repeating a named snapshot on an interval. |
+| `parse_qualified_device` | Parsing extended device text such as `U3\G100`, `U3E0\HG0`, and `J2\SW10`. |
+| `read_words_extended` / `write_words_extended` | Reading or writing routed `U...` / `J...` word devices. |
+| `read_bits_extended` / `write_bits_extended` | Reading or writing routed `U...` / `J...` bit devices. |
 
 ## Connection
 
@@ -91,6 +94,48 @@ options.target = SlmpTargetAddress {
 ```
 
 Use the default target unless the PLC routing setup gives you specific values.
+
+## Extended device access
+
+`G`, `HG`, and `J` devices are not normal standalone addresses. Use the
+extended device APIs with a qualified address:
+
+| Address form | Meaning |
+| --- | --- |
+| `U3\G100` | Module access buffer memory `G100` on unit `U3`. |
+| `U3E0\HG0` | CPU buffer memory `HG0` on `U3E0`, when the selected profile supports it. |
+| `J2\SW10` | Link direct `SW10` on J network `2`. |
+| `J1\X10` | Link direct `X10` on J network `1`. |
+
+The selected PLC profile and the actual PLC configuration still decide whether
+the route is accepted.
+
+```rust
+use plc_comm_slmp::{
+    parse_qualified_device, SlmpClient, SlmpConnectionOptions, SlmpExtensionSpec,
+    SlmpPlcProfile,
+};
+
+let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+options.port = 1025;
+
+let client = SlmpClient::connect(options).await?;
+let ext = SlmpExtensionSpec::default();
+
+let module = parse_qualified_device(r"U3\G100")?;
+let module_words = client.read_words_extended(module.clone(), 4, ext).await?;
+client.write_words_extended(module, &[1, 2, 3, 4], ext).await?;
+
+let cpu_buffer = parse_qualified_device(r"U3E0\HG0")?;
+let cpu_buffer_words = client.read_words_extended(cpu_buffer, 2, ext).await?;
+
+let link_word = parse_qualified_device(r"J2\SW10")?;
+let link_words = client.read_words_extended(link_word, 1, ext).await?;
+
+let link_bits = parse_qualified_device(r"J1\X10")?;
+let bits = client.read_bits_extended(link_bits, 16, ext).await?;
+client.close().await?;
+```
 
 ## PLC diagnostics
 
