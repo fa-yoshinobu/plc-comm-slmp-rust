@@ -8,6 +8,7 @@ pub(crate) enum SlmpProfileFeatureState {
     Supported,
     Blocked,
     ConfigDependent,
+    #[allow(dead_code)]
     Unverified,
     Delegated,
 }

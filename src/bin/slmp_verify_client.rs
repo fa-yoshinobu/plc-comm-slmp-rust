@@ -1,3 +1,6 @@
+// SlmpError is shared with the public library API; keep CLI parsing on that error type.
+#![allow(clippy::result_large_err)]
+
 use futures_util::StreamExt;
 use plc_comm_slmp::{
     NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpConnectionOptions,

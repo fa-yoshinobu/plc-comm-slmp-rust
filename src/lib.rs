@@ -1,3 +1,6 @@
+// SlmpError is the public concrete error type; boxing it would be a breaking API change.
+#![allow(clippy::result_large_err)]
+
 //! Async Rust client for MELSEC SLMP Binary 3E and 4E.
 //!
 //! This crate follows the same operation semantics as the sibling
