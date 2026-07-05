@@ -1,7 +1,7 @@
 use crate::model::{SlmpDeviceCode, SlmpPlcProfile};
 
 pub(crate) const CANONICAL_SOURCE: &str =
-    "plc-comm-slmp-profiles v1.2.0 capability/slmp_builtin_ethernet_profiles.json";
+    "plc-comm-slmp-profiles v1.2.1 capability/slmp_builtin_ethernet_profiles.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SlmpProfileFeatureState {
@@ -1404,6 +1404,10 @@ mod tests {
 
         for (profile_id, expected_profile) in expected_profiles {
             let actual_profile = actual[profile_id.as_str()];
+            assert_eq!(
+                actual_profile.plc_profile.display_name(),
+                expected_profile["display_name"].as_str().unwrap()
+            );
             assert_eq!(
                 actual_profile.frame,
                 expected_profile["frame"].as_str().unwrap()

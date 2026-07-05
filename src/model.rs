@@ -63,6 +63,25 @@ impl SlmpPlcProfile {
         }
     }
 
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::IqF => "MELSEC iQ-F (built-in)",
+            Self::IqR => "MELSEC iQ-R (built-in)",
+            Self::IqRRj71En71 => "MELSEC iQ-R (RJ71EN71)",
+            Self::IqL => "MELSEC iQ-L (built-in)",
+            Self::MxF => "MELSEC MX-F (built-in)",
+            Self::MxR => "MELSEC MX-R (built-in)",
+            Self::QCpu => "MELSEC-Q (base profile)",
+            Self::QCpuQj71E71100 => "MELSEC-Q (QJ71E71-100)",
+            Self::LCpu => "MELSEC-L (built-in)",
+            Self::LCpuLj71E71100 => "MELSEC-L (LJ71E71-100)",
+            Self::QnU => "MELSEC QnU (built-in)",
+            Self::QnUQj71E71100 => "MELSEC QnU (QJ71E71-100)",
+            Self::QnUDV => "MELSEC QnUDV (built-in)",
+            Self::QnUDVQj71E71100 => "MELSEC QnUDV (QJ71E71-100)",
+        }
+    }
+
     pub fn parse_label(value: &str) -> Option<Self> {
         let normalized = value.trim();
         match normalized {
