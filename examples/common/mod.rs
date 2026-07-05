@@ -7,7 +7,7 @@ use plc_comm_slmp::{
 use std::env;
 use std::error::Error;
 
-const PLC_PROFILE_REQUIRED_MESSAGE: &str = "SLMP_PLC_PROFILE is required. Use melsec:iq-f, melsec:iq-r, melsec:iq-l, melsec:mx-f, melsec:mx-r, melsec:qcpu, melsec:lcpu, melsec:qnu, or melsec:qnudv.";
+const PLC_PROFILE_REQUIRED_MESSAGE: &str = "SLMP_PLC_PROFILE is required. Use melsec:iq-f, melsec:iq-r, melsec:iq-r:rj71en71, melsec:iq-l, melsec:mx-f, melsec:mx-r, melsec:qcpu:qj71e71-100, melsec:lcpu, melsec:lcpu:lj71e71-100, melsec:qnu, melsec:qnu:qj71e71-100, melsec:qnudv, or melsec:qnudv:qj71e71-100.";
 
 pub fn env_string(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
@@ -136,13 +136,20 @@ fn format_env_target() -> String {
 }
 
 fn parse_plc_profile(value: &str) -> Result<SlmpPlcProfile, Box<dyn Error>> {
-    SlmpPlcProfile::parse_label(value).ok_or_else(|| {
+    let profile = SlmpPlcProfile::parse_label(value).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             PLC_PROFILE_REQUIRED_MESSAGE.to_string(),
         )
-        .into()
-    })
+    })?;
+    if profile.is_base_profile() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.",
+        )
+        .into());
+    }
+    Ok(profile)
 }
 
 fn default_port_for_transport(transport: &str) -> &'static str {

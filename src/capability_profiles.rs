@@ -1,7 +1,7 @@
 use crate::model::{SlmpDeviceCode, SlmpPlcProfile};
 
 pub(crate) const CANONICAL_SOURCE: &str =
-    "plc-comm-slmp-profiles v1.1.2 capability/slmp_builtin_ethernet_profiles.json";
+    "plc-comm-slmp-profiles v1.2.0 capability/slmp_builtin_ethernet_profiles.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SlmpProfileFeatureState {
@@ -393,6 +393,69 @@ const QL_MEASURED_FEATURES: &[SlmpCapabilityFeature] = &[
     ),
 ];
 
+const QL_UNIT_FEATURES: &[SlmpCapabilityFeature] = &[
+    feature(
+        SlmpProfileFeature::TypeName,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Direct,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Random,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Block,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Monitor,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::ExtModuleAccess,
+        SlmpProfileFeatureState::ConfigDependent,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::ExtLinkDirect,
+        SlmpProfileFeatureState::ConfigDependent,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::HgCpuBuffer,
+        SlmpProfileFeatureState::Blocked,
+        "spec",
+        Some("CPU-buffer HG is an iQ-R-only path."),
+    ),
+    feature(
+        SlmpProfileFeature::LongDevicePath,
+        SlmpProfileFeatureState::Blocked,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Lz32BitPath,
+        SlmpProfileFeatureState::Blocked,
+        "live",
+        None,
+    ),
+];
+
 const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectWordRead,
@@ -739,35 +802,292 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
         None,
     ),
+];
+
+const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
+    limit(
+        SlmpProfileLimit::DirectWordRead,
+        960,
+        Some("C051"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectWordWrite,
+        960,
+        Some("C051"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitRead,
+        7168,
+        Some("C052"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitWrite,
+        7168,
+        Some("C052"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWord,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWord,
+        160,
+        Some("4080"),
+        "live",
+        Some(1920),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBit,
+        188,
+        Some("C053"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWord,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
     limit(
         SlmpProfileLimit::RandomReadWordExt,
-        96,
-        Some("C054"),
-        "inferred",
+        185,
+        Some("4080"),
+        "live",
         None,
         None,
     ),
     limit(
         SlmpProfileLimit::RandomWriteWordExt,
-        80,
-        Some("C054"),
-        "inferred",
-        Some(960),
+        160,
+        Some("4080"),
+        "live",
+        Some(1920),
         None,
     ),
     limit(
         SlmpProfileLimit::RandomWriteBitExt,
-        94,
+        188,
         Some("C053"),
-        "inferred",
+        "live",
         None,
         None,
     ),
     limit(
         SlmpProfileLimit::MonitorRegisterWordExt,
-        96,
+        192,
         Some("C054"),
-        "inferred",
+        "live",
+        None,
+        None,
+    ),
+];
+
+const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
+    limit(
+        SlmpProfileLimit::DirectWordRead,
+        960,
+        Some("C051"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectWordWrite,
+        960,
+        Some("C051"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitRead,
+        7168,
+        Some("C052"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitWrite,
+        7168,
+        Some("C052"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWord,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWord,
+        160,
+        Some("4080"),
+        "live",
+        Some(1920),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBit,
+        188,
+        Some("C053"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWord,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWordExt,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWordExt,
+        160,
+        Some("4080"),
+        "live",
+        Some(1920),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBitExt,
+        188,
+        Some("C053"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWordExt,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+];
+
+const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
+    limit(
+        SlmpProfileLimit::DirectWordRead,
+        960,
+        Some("C051"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectWordWrite,
+        960,
+        Some("C051"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitRead,
+        7168,
+        Some("C052"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitWrite,
+        7168,
+        Some("C052"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWord,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWord,
+        160,
+        Some("4080"),
+        "live",
+        Some(1920),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBit,
+        188,
+        Some("C053"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWord,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWordExt,
+        192,
+        Some("C054"),
+        "live",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWordExt,
+        160,
+        Some("4080"),
+        "live",
+        Some(1920),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWordExt,
+        192,
+        Some("C054"),
+        "live",
         None,
         None,
     ),
@@ -776,11 +1096,22 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
 const IQR_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy(SlmpDeviceCode::S)];
 const IQF_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy_value(SlmpDeviceCode::S, "read-write")];
 const QL_WRITE_POLICY: &[SlmpWritePolicy] = &[write_policy(SlmpDeviceCode::S)];
+const QL_UNIT_WRITE_POLICY: &[SlmpWritePolicy] =
+    &[write_policy_value(SlmpDeviceCode::S, "read-write")];
 
 pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
     profile(
         SlmpPlcProfile::IqR,
         "melsec:iq-r",
+        "4E",
+        "iQ-R",
+        IQR_FEATURES,
+        IQR_LIMITS,
+        IQR_WRITE_POLICY,
+    ),
+    profile(
+        SlmpPlcProfile::IqRRj71En71,
+        "melsec:iq-r:rj71en71",
         "4E",
         "iQ-R",
         IQR_FEATURES,
@@ -833,6 +1164,15 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         QL_WRITE_POLICY,
     ),
     profile(
+        SlmpPlcProfile::QCpuQj71E71100,
+        "melsec:qcpu:qj71e71-100",
+        "4E",
+        "Q/L",
+        QL_UNIT_FEATURES,
+        QL_UNIT_QCPU_LIMITS,
+        QL_UNIT_WRITE_POLICY,
+    ),
+    profile(
         SlmpPlcProfile::LCpu,
         "melsec:lcpu",
         "3E",
@@ -840,6 +1180,15 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         QL_MEASURED_FEATURES,
         QL_LIMITS,
         QL_WRITE_POLICY,
+    ),
+    profile(
+        SlmpPlcProfile::LCpuLj71E71100,
+        "melsec:lcpu:lj71e71-100",
+        "4E",
+        "Q/L",
+        QL_UNIT_FEATURES,
+        QL_UNIT_LCPU_LIMITS,
+        QL_UNIT_WRITE_POLICY,
     ),
     profile(
         SlmpPlcProfile::QnU,
@@ -851,6 +1200,15 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         QL_WRITE_POLICY,
     ),
     profile(
+        SlmpPlcProfile::QnUQj71E71100,
+        "melsec:qnu:qj71e71-100",
+        "4E",
+        "Q/L",
+        QL_UNIT_FEATURES,
+        QL_UNIT_LIMITS,
+        QL_UNIT_WRITE_POLICY,
+    ),
+    profile(
         SlmpPlcProfile::QnUDV,
         "melsec:qnudv",
         "3E",
@@ -858,6 +1216,15 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         QL_MEASURED_FEATURES,
         QL_LIMITS,
         QL_WRITE_POLICY,
+    ),
+    profile(
+        SlmpPlcProfile::QnUDVQj71E71100,
+        "melsec:qnudv:qj71e71-100",
+        "4E",
+        "Q/L",
+        QL_UNIT_FEATURES,
+        QL_UNIT_LIMITS,
+        QL_UNIT_WRITE_POLICY,
     ),
 ];
 

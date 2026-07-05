@@ -140,8 +140,9 @@ impl SlmpClient {
         &self,
         mut catalog: SlmpDeviceRangeCatalog,
     ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
+        let address_profile = catalog.plc_profile.address_profile();
         if !matches!(
-            catalog.plc_profile,
+            address_profile,
             SlmpPlcProfile::QCpu
                 | SlmpPlcProfile::LCpu
                 | SlmpPlcProfile::QnU
@@ -150,7 +151,7 @@ impl SlmpClient {
             return Ok(catalog);
         }
 
-        if catalog.plc_profile == SlmpPlcProfile::QCpu {
+        if address_profile == SlmpPlcProfile::QCpu {
             let z_count = if self.can_read_one_word(SlmpDeviceCode::Z, 15).await {
                 16
             } else {
@@ -2400,7 +2401,7 @@ mod tests {
 
     #[tokio::test]
     async fn encode_extended_device_spec_uses_manual_ql_layout() {
-        let inner = udp_inner(SlmpPlcProfile::QCpu).await;
+        let inner = udp_inner(SlmpPlcProfile::QCpuQj71E71100).await;
         let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100);
 
         assert_eq!(

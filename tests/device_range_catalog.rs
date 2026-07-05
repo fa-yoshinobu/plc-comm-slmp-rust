@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 #[tokio::test]
-async fn read_device_range_catalog_uses_configured_family_sd_window() {
+async fn read_device_range_catalog_uses_configured_unit_family_sd_window() {
     let sd_values = [
         123u16, 456, 50000, 789, 50000, 50, 60, 70, 80, 90, 100, 110, 50000, 60000, 120,
     ];
@@ -12,14 +12,14 @@ async fn read_device_range_catalog_uses_configured_family_sd_window() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpu);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpuQj71E71100);
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let catalog = client.read_device_range_catalog().await.unwrap();
 
     assert_eq!(server.request_count().await, 1);
-    assert_eq!(catalog.plc_profile, SlmpPlcProfile::QCpu);
+    assert_eq!(catalog.plc_profile, SlmpPlcProfile::QCpuQj71E71100);
     assert_eq!(entry(&catalog, "X").point_count, Some(123));
     assert_eq!(entry(&catalog, "X").upper_bound, Some(122));
     assert_eq!(
@@ -183,6 +183,34 @@ async fn read_device_range_catalog_for_plc_profile_caps_iqr_sd_point_counts() {
     assert_eq!(entry(&catalog, "D").point_count, Some(5_917_184));
     assert_eq!(entry(&catalog, "LTN").point_count, Some(1_479_296));
     assert_eq!(entry(&catalog, "LCN").point_count, Some(2_784_544));
+}
+
+#[tokio::test]
+async fn read_device_range_catalog_for_iqr_unit_reports_unit_profile() {
+    let mut sd_values = vec![0u16; 50];
+    set_dword(&mut sd_values, 20, 0x0001_0034);
+
+    let server = MultiResponseServer::start(vec![build_word_payload(&sd_values)])
+        .await
+        .unwrap();
+
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqRRj71En71);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let catalog = client
+        .read_device_range_catalog_for_plc_profile(SlmpPlcProfile::IqRRj71En71)
+        .await
+        .unwrap();
+
+    assert_eq!(server.request_count().await, 1);
+    assert_eq!(catalog.model, "iQ-R via RJ71EN71");
+    assert_eq!(catalog.plc_profile, SlmpPlcProfile::IqRRj71En71);
+    assert_eq!(entry(&catalog, "D").point_count, Some(0x0001_0034));
+    assert_eq!(
+        entry(&catalog, "D").address_range.as_deref(),
+        Some("D0-D65587")
+    );
 }
 
 fn entry<'a>(

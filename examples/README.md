@@ -23,8 +23,14 @@ Common profile values:
 | --- | --- |
 | `SlmpPlcProfile::IqF` | `SLMP_PLC_PROFILE=melsec:iq-f` |
 | `SlmpPlcProfile::IqR` | `SLMP_PLC_PROFILE=melsec:iq-r` |
+| `SlmpPlcProfile::IqRRj71En71` | `SLMP_PLC_PROFILE=melsec:iq-r:rj71en71` |
 | `SlmpPlcProfile::IqL` | `SLMP_PLC_PROFILE=melsec:iq-l` |
-| `SlmpPlcProfile::QCpu` | `SLMP_PLC_PROFILE=melsec:qcpu` |
 | `SlmpPlcProfile::LCpu` | `SLMP_PLC_PROFILE=melsec:lcpu` |
+| `SlmpPlcProfile::LCpuLj71E71100` | `SLMP_PLC_PROFILE=melsec:lcpu:lj71e71-100` |
+| `SlmpPlcProfile::QCpuQj71E71100` | `SLMP_PLC_PROFILE=melsec:qcpu:qj71e71-100` |
 | `SlmpPlcProfile::QnU` | `SLMP_PLC_PROFILE=melsec:qnu` |
+| `SlmpPlcProfile::QnUQj71E71100` | `SLMP_PLC_PROFILE=melsec:qnu:qj71e71-100` |
 | `SlmpPlcProfile::QnUDV` | `SLMP_PLC_PROFILE=melsec:qnudv` |
+| `SlmpPlcProfile::QnUDVQj71E71100` | `SLMP_PLC_PROFILE=melsec:qnudv:qj71e71-100` |
+
+`melsec:qcpu` is base-only; use `melsec:qcpu:qj71e71-100` for QCPU Ethernet unit connections.

@@ -931,8 +931,8 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
 }
 
 #[tokio::test]
-async fn qcpu_and_qnu_use_profile_feature_guard_before_transport() {
-    for profile in [SlmpPlcProfile::QCpu, SlmpPlcProfile::QnU] {
+async fn ql_builtin_profiles_use_profile_feature_guard_before_transport() {
+    for profile in [SlmpPlcProfile::LCpu, SlmpPlcProfile::QnU] {
         let client = udp_client_with_profile(profile).await;
         let profile_name = profile.canonical_name();
         let err = client

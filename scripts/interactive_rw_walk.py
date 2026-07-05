@@ -143,7 +143,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--family",
         default="iq-r",
-        choices=["iq-f", "iq-r", "iq-l", "mx-f", "mx-r", "qcpu", "lcpu", "qnu", "qnudv"],
+        choices=["iq-f", "iq-r", "iq-l", "mx-f", "mx-r", "lcpu", "qnu", "qnudv"],
     )
     parser.add_argument("--seed", type=int, default=20260413)
     parser.add_argument("--start-at", default="")

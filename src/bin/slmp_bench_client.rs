@@ -401,6 +401,9 @@ impl BenchConfig {
                 .ok_or_else(|| "--plc-profile is required".to_string())?,
         )
         .ok_or_else(|| "unsupported --plc-profile".to_string())?;
+        if plc_profile.is_base_profile() {
+            return Err("melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.".to_string());
+        }
         let operation_timeout_ms: u64 = parse_option(&args, "--operation-timeout-ms", "2000")?;
 
         Ok(Self {

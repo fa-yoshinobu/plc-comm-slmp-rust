@@ -202,7 +202,7 @@ fn ensure_device_supported_for_family(
 }
 
 fn device_is_unsupported_for_family(code: SlmpDeviceCode, family: SlmpPlcProfile) -> bool {
-    match family {
+    match family.address_profile() {
         SlmpPlcProfile::IqF => matches!(
             code,
             SlmpDeviceCode::DX
@@ -234,8 +234,16 @@ fn device_is_unsupported_for_family(code: SlmpDeviceCode, family: SlmpPlcProfile
                 | SlmpDeviceCode::LZ
                 | SlmpDeviceCode::RD
         ),
-        SlmpPlcProfile::IqR | SlmpPlcProfile::IqL | SlmpPlcProfile::MxR | SlmpPlcProfile::MxF => {
-            false
+        SlmpPlcProfile::IqR
+        | SlmpPlcProfile::IqRRj71En71
+        | SlmpPlcProfile::IqL
+        | SlmpPlcProfile::MxR
+        | SlmpPlcProfile::MxF => false,
+        SlmpPlcProfile::QCpuQj71E71100
+        | SlmpPlcProfile::LCpuLj71E71100
+        | SlmpPlcProfile::QnUQj71E71100
+        | SlmpPlcProfile::QnUDVQj71E71100 => {
+            unreachable!("unit profiles are mapped to their address profile")
         }
     }
 }

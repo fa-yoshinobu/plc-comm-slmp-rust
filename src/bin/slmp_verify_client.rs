@@ -215,9 +215,13 @@ async fn main() {
 fn parse_plc_profile(value: Option<&str>) -> Result<SlmpPlcProfile, String> {
     let value =
         value.ok_or_else(|| "--plc-profile requires a canonical PLC profile.".to_string())?;
-    SlmpPlcProfile::parse_label(value).ok_or_else(|| {
+    let profile = SlmpPlcProfile::parse_label(value).ok_or_else(|| {
         format!("Unsupported PLC profile '{value}'. Use a canonical value such as melsec:iq-r.")
-    })
+    })?;
+    if profile.is_base_profile() {
+        return Err("melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.".to_string());
+    }
+    Ok(profile)
 }
 
 fn target_from_network_station(

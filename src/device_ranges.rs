@@ -97,8 +97,9 @@ const LC_DEVICES: &[(&str, bool)] = &[("LCS", true), ("LCC", true), ("LCN", fals
 pub(crate) fn resolve_profile_for_plc_profile(
     plc_profile: SlmpPlcProfile,
 ) -> SlmpDeviceRangeProfile {
-    match plc_profile {
+    match plc_profile.address_profile() {
         SlmpPlcProfile::IqR => create_iqr_profile(),
+        SlmpPlcProfile::IqRRj71En71 => create_iqr_profile(),
         SlmpPlcProfile::IqL => create_iql_profile(),
         SlmpPlcProfile::MxF => create_mxf_profile(),
         SlmpPlcProfile::MxR => create_mxr_profile(),
@@ -107,6 +108,12 @@ pub(crate) fn resolve_profile_for_plc_profile(
         SlmpPlcProfile::LCpu => create_lcpu_profile(),
         SlmpPlcProfile::QnU => create_qnu_profile(),
         SlmpPlcProfile::QnUDV => create_qnudv_profile(),
+        SlmpPlcProfile::QCpuQj71E71100
+        | SlmpPlcProfile::LCpuLj71E71100
+        | SlmpPlcProfile::QnUQj71E71100
+        | SlmpPlcProfile::QnUDVQj71E71100 => {
+            unreachable!("unit profiles are mapped to their address profile")
+        }
     }
 }
 
@@ -180,7 +187,10 @@ pub(crate) fn build_catalog_for_plc_profile(
     registers: &BTreeMap<u16, u16>,
 ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
     let profile = resolve_profile_for_plc_profile(plc_profile);
-    build_catalog(&profile, registers)
+    let mut catalog = build_catalog(&profile, registers)?;
+    catalog.model = profile_label(plc_profile).to_string();
+    catalog.plc_profile = plc_profile;
+    Ok(catalog)
 }
 
 pub(crate) fn replace_fixed_point_count(
@@ -209,14 +219,19 @@ pub(crate) fn replace_fixed_point_count(
 pub(crate) fn profile_label(plc_profile: SlmpPlcProfile) -> &'static str {
     match plc_profile {
         SlmpPlcProfile::IqR => "IQ-R",
+        SlmpPlcProfile::IqRRj71En71 => "iQ-R via RJ71EN71",
         SlmpPlcProfile::IqL => "iQ-L",
         SlmpPlcProfile::MxF => "MX-F",
         SlmpPlcProfile::MxR => "MX-R",
         SlmpPlcProfile::IqF => "IQ-F",
         SlmpPlcProfile::QCpu => "QCPU",
+        SlmpPlcProfile::QCpuQj71E71100 => "QCPU via QJ71E71-100",
         SlmpPlcProfile::LCpu => "LCPU",
+        SlmpPlcProfile::LCpuLj71E71100 => "LCPU via LJ71E71-100",
         SlmpPlcProfile::QnU => "QnU",
+        SlmpPlcProfile::QnUQj71E71100 => "QnU via QJ71E71-100",
         SlmpPlcProfile::QnUDV => "QnUDV",
+        SlmpPlcProfile::QnUDVQj71E71100 => "QnUDV via QJ71E71-100",
     }
 }
 
@@ -260,7 +275,7 @@ fn apply_profile_point_count_cap(
 }
 
 fn profile_point_count_cap(plc_profile: SlmpPlcProfile, item: &str) -> Option<u32> {
-    if plc_profile != SlmpPlcProfile::IqR {
+    if !matches!(plc_profile, SlmpPlcProfile::IqR | SlmpPlcProfile::IqRRj71En71) {
         return None;
     }
 
@@ -1068,6 +1083,25 @@ mod tests {
         assert_eq!(entry(&catalog, "Z").point_count, Some(10));
         assert_eq!(entry(&catalog, "Z").upper_bound, Some(9));
         assert_eq!(entry(&catalog, "Z").address_range.as_deref(), Some("Z0-Z9"));
+    }
+
+    #[test]
+    fn unit_profile_uses_base_range_rules_but_keeps_selected_identity() {
+        let plc_profile = SlmpPlcProfile::QCpuQj71E71100;
+        let profile = resolve_profile_for_plc_profile(plc_profile);
+        let mut snapshot = create_snapshot(&profile);
+        snapshot.insert(290, 123);
+
+        let catalog = build_catalog_for_plc_profile(plc_profile, &snapshot).unwrap();
+
+        assert_eq!(catalog.model, "QCPU via QJ71E71-100");
+        assert_eq!(catalog.plc_profile, SlmpPlcProfile::QCpuQj71E71100);
+        assert_eq!(entry(&catalog, "X").point_count, Some(123));
+        assert_eq!(
+            entry(&catalog, "X").address_range.as_deref(),
+            Some("X000-X07A")
+        );
+        assert_eq!(entry(&catalog, "Z").point_count, Some(10));
     }
 
     #[test]
