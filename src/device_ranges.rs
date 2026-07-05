@@ -275,7 +275,10 @@ fn apply_profile_point_count_cap(
 }
 
 fn profile_point_count_cap(plc_profile: SlmpPlcProfile, item: &str) -> Option<u32> {
-    if !matches!(plc_profile, SlmpPlcProfile::IqR | SlmpPlcProfile::IqRRj71En71) {
+    if !matches!(
+        plc_profile,
+        SlmpPlcProfile::IqR | SlmpPlcProfile::IqRRj71En71
+    ) {
         return None;
     }
 

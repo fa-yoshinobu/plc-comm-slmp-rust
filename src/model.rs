@@ -90,10 +90,12 @@ impl SlmpPlcProfile {
                 frame_type: SlmpFrameType::Frame3E,
                 compatibility_mode: SlmpCompatibilityMode::Legacy,
             },
-            Self::IqR | Self::IqRRj71En71 | Self::IqL | Self::MxF | Self::MxR => SlmpPlcProfileDefaults {
-                frame_type: SlmpFrameType::Frame4E,
-                compatibility_mode: SlmpCompatibilityMode::Iqr,
-            },
+            Self::IqR | Self::IqRRj71En71 | Self::IqL | Self::MxF | Self::MxR => {
+                SlmpPlcProfileDefaults {
+                    frame_type: SlmpFrameType::Frame4E,
+                    compatibility_mode: SlmpCompatibilityMode::Iqr,
+                }
+            }
             Self::QCpu | Self::LCpu | Self::QnU | Self::QnUDV => SlmpPlcProfileDefaults {
                 frame_type: SlmpFrameType::Frame3E,
                 compatibility_mode: SlmpCompatibilityMode::Legacy,
