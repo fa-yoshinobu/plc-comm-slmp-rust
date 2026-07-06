@@ -81,14 +81,14 @@ family selector; routed devices such as `Un\Gn` and `Jn\...` still need their
 own address syntax.
 
 ```rust
-use plc_comm_slmp::{SlmpConnectionOptions, SlmpPlcProfile, SlmpTargetAddress};
+use plc_comm_slmp::{SlmpConnectionOptions, SlmpModuleIo, SlmpPlcProfile, SlmpTargetAddress};
 
 let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
 options.port = 1025;
 options.target = SlmpTargetAddress {
     network: 0x01,
     station: 0x02,
-    module_io: 0x03FF,
+    module_io: SlmpModuleIo::CONNECTED_CPU,
     multidrop: 0x00,
 };
 ```

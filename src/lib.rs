@@ -141,7 +141,7 @@ pub use model::{
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
     SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
     SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
-    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpNamedTarget, SlmpPlcProfile,
+    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpModuleIo, SlmpNamedTarget, SlmpPlcProfile,
     SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
     SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };

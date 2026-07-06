@@ -2612,6 +2612,7 @@ pub fn encode_device_spec(mode: SlmpCompatibilityMode, device: SlmpDeviceAddress
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::SlmpModuleIo;
 
     async fn udp_inner(plc_profile: SlmpPlcProfile) -> ClientInner {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -2650,6 +2651,35 @@ mod tests {
             vec![
                 0x04, 0x40, 0x64, 0x00, 0x00, 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn target_address_accepts_module_io_constants_in_request_header() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        inner.options.target.module_io = SlmpModuleIo::CPU2;
+
+        inner
+            .build_request_frame(SlmpCommand::ReadTypeName, 0x0000, &[])
+            .unwrap();
+
+        assert_eq!(SlmpModuleIo::CONTROL_CPU, 0x03D0);
+        assert_eq!(SlmpModuleIo::ACTIVE_CPU, SlmpModuleIo::CONTROL_CPU);
+        assert_eq!(SlmpModuleIo::STANDBY_CPU, 0x03D1);
+        assert_eq!(SlmpModuleIo::TYPE_A_CPU, 0x03D2);
+        assert_eq!(SlmpModuleIo::TYPE_B_CPU, 0x03D3);
+        assert_eq!(SlmpModuleIo::CPU1, 0x03E0);
+        assert_eq!(SlmpModuleIo::CPU2, 0x03E1);
+        assert_eq!(SlmpModuleIo::CPU3, 0x03E2);
+        assert_eq!(SlmpModuleIo::CPU4, 0x03E3);
+        assert_eq!(SlmpModuleIo::CONNECTED_CPU, 0x03FF);
+        assert_eq!(
+            SlmpTargetAddress::default().module_io,
+            SlmpModuleIo::CONNECTED_CPU
+        );
+        assert_eq!(
+            u16::from_le_bytes([inner.last_request_frame[8], inner.last_request_frame[9]]),
+            SlmpModuleIo::CPU2
         );
     }
 

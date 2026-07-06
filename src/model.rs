@@ -453,6 +453,28 @@ impl fmt::Display for SlmpDeviceCode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlmpModuleIo;
+
+impl SlmpModuleIo {
+    pub const CONTROL_CPU: u16 = 0x03D0;
+    pub const ACTIVE_CPU: u16 = Self::CONTROL_CPU;
+    pub const STANDBY_CPU: u16 = 0x03D1;
+    pub const TYPE_A_CPU: u16 = 0x03D2;
+    pub const TYPE_B_CPU: u16 = 0x03D3;
+    pub const CPU1: u16 = 0x03E0;
+    pub const CPU2: u16 = 0x03E1;
+    pub const CPU3: u16 = 0x03E2;
+    pub const CPU4: u16 = 0x03E3;
+    pub const CPU_1: u16 = Self::CPU1;
+    pub const CPU_2: u16 = Self::CPU2;
+    pub const CPU_3: u16 = Self::CPU3;
+    pub const CPU_4: u16 = Self::CPU4;
+    pub const CONNECTED_CPU: u16 = 0x03FF;
+    pub const DEFAULT: u16 = Self::CONNECTED_CPU;
+    pub const OWN_STATION: u16 = Self::CONNECTED_CPU;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SlmpTargetAddress {
     pub network: u8,
@@ -466,7 +488,7 @@ impl Default for SlmpTargetAddress {
         Self {
             network: 0x00,
             station: 0xFF,
-            module_io: 0x03FF,
+            module_io: SlmpModuleIo::CONNECTED_CPU,
             multidrop: 0x00,
         }
     }

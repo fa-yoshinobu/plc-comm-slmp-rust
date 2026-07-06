@@ -364,7 +364,7 @@ pub fn parse_named_target(text: &str) -> Result<SlmpNamedTarget, SlmpError> {
         return Ok(SlmpNamedTarget {
             name: format!("SELF-CPU{index}"),
             target: SlmpTargetAddress {
-                module_io: 0x03E0 + (index - 1),
+                module_io: crate::model::SlmpModuleIo::CPU1 + (index - 1),
                 ..SlmpTargetAddress::default()
             },
         });

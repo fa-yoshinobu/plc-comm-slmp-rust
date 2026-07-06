@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Release: Bumped package metadata to `1.3.0`.
 - CI: Added a tag-driven release workflow that re-runs checks and attaches the packaged crate to the GitHub release.
+- Library: Added `SlmpModuleIo` named constants for multi-CPU target routing while keeping the default connected-CPU target unchanged.
+- Docs: Documented `SlmpModuleIo` in the API reference and routing guide.
+- Tests: Added request-frame coverage showing named module I/O constants are encoded into the target header.
+- Tests: Updated frame-level mock responses to include structured error data on non-zero end-code responses and assert command/subcommand parsing.
 - Library: Synced the embedded SLMP capability fixture to `plc-comm-slmp-profiles` `v1.2.2`, including inferred Q/L 008x extended random/monitor limit keys and iQ-F `not-adopted` monitor limit placeholders.
 - Library: Added `read_random_ext`, `write_random_words_ext`, and `write_random_bits_ext` for 008x extended random routes, including profile-key validation for `RandomReadWordExt`, `RandomWriteWordExt`, and `RandomWriteBitExt`.
 - Tooling: Changed the canonical profile update script default ref to `v1.2.2`.
