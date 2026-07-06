@@ -1,10 +1,14 @@
 [![CI](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/plc-comm-slmp-rust.svg)](https://crates.io/crates/plc-comm-slmp-rust)
+[![crates.io](https://img.shields.io/crates/v/plc-comm-slmp.svg)](https://crates.io/crates/plc-comm-slmp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 # MELSEC SLMP for Rust
 
 Rust library for MELSEC SLMP (Binary 3E/4E) PLC communication.
+
+## PLC Comm Family
+
+This library is part of the plc-comm family. See the [package matrix](https://fa-yoshinobu.github.io/plc-comm-docs-site/package-matrix/) for protocol, language, registry, and install-command mapping.
 
 ## Supported PLC profiles
 
@@ -17,10 +21,10 @@ The maintained device and range tables are in the [SLMP Profile Reference](https
 ## Installation
 
 ```bash
-cargo add plc-comm-slmp-rust
+cargo add plc-comm-slmp
 ```
 
-The package name is `plc-comm-slmp-rust`; the Rust import path is `plc_comm_slmp`.
+The package name is `plc-comm-slmp`; the Rust import path is `plc_comm_slmp`.
 
 ## Quick example
 
@@ -59,8 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Item | Value |
 | --- | --- |
 | License | [MIT](LICENSE) |
-| Registry | [crates.io](https://crates.io/crates/plc-comm-slmp-rust) |
-| Package | `plc-comm-slmp-rust` |
+| Registry | [crates.io](https://crates.io/crates/plc-comm-slmp) |
+| Package | `plc-comm-slmp` |
 
 ## Commercial support
 
