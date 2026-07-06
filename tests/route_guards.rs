@@ -200,9 +200,10 @@ fn build_response_with_end_code(request: &[u8], end_code: u16, response_data: &[
 }
 
 fn build_3e_response_with_end_code(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
+    let response_data = response_data_with_error_info(request, end_code, response_data);
     let mut payload = vec![0u8; 2 + response_data.len()];
     payload[0..2].copy_from_slice(&end_code.to_le_bytes());
-    payload[2..].copy_from_slice(response_data);
+    payload[2..].copy_from_slice(&response_data);
 
     let mut response = vec![0u8; 9 + payload.len()];
     response[0] = 0xD0;
@@ -224,9 +225,10 @@ fn build_4e_response_with_serial(
     end_code: u16,
     response_data: &[u8],
 ) -> Vec<u8> {
+    let response_data = response_data_with_error_info(request, end_code, response_data);
     let mut payload = vec![0u8; 2 + response_data.len()];
     payload[0..2].copy_from_slice(&end_code.to_le_bytes());
-    payload[2..].copy_from_slice(response_data);
+    payload[2..].copy_from_slice(&response_data);
 
     let mut response = vec![0u8; 13 + payload.len()];
     response[0] = 0xD4;
@@ -236,6 +238,27 @@ fn build_4e_response_with_serial(
     response[11..13].copy_from_slice(&(payload.len() as u16).to_le_bytes());
     response[13..].copy_from_slice(&payload);
     response
+}
+
+fn response_data_with_error_info(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
+    if end_code == 0 {
+        return response_data.to_vec();
+    }
+    let target_offset = if request.starts_with(&[0x50, 0x00]) {
+        2
+    } else {
+        6
+    };
+    let command_offset = if request.starts_with(&[0x50, 0x00]) {
+        11
+    } else {
+        15
+    };
+    let mut data = Vec::with_capacity(9 + response_data.len());
+    data.extend_from_slice(&request[target_offset..target_offset + 5]);
+    data.extend_from_slice(&request[command_offset..command_offset + 4]);
+    data.extend_from_slice(response_data);
+    data
 }
 
 fn build_dword_payload(values: &[u32]) -> Vec<u8> {
@@ -1595,6 +1618,9 @@ async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
         .await
         .unwrap_err();
     assert_eq!(error.end_code, Some(0xC05B));
+    let info = error.error_info.as_ref().expect("mock error info");
+    assert_eq!(info.command, 0x1406);
+    assert_eq!(info.subcommand, 0x0002);
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
@@ -1635,10 +1661,36 @@ async fn mixed_block_write_does_not_retry_c056_as_split_requests() {
         .await
         .unwrap_err();
     assert_eq!(error.end_code, Some(0xC056));
+    let info = error.error_info.as_ref().expect("mock error info");
+    assert_eq!(info.command, 0x1406);
+    assert_eq!(info.subcommand, 0x0002);
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 1);
     assert_block_write_shape(&requests[0], 1, 1);
+}
+
+#[tokio::test]
+async fn frame_3e_mock_nonzero_end_code_includes_error_info() {
+    let server = CapturingResponseServer::start(vec![(0xC056, Vec::new())])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error = client
+        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 1)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.end_code, Some(0xC056));
+    let info = error.error_info.as_ref().expect("mock error info");
+    assert_eq!(info.network, 0x00);
+    assert_eq!(info.station, 0xFF);
+    assert_eq!(info.module_io, 0x03FF);
+    assert_eq!(info.command, 0x0401);
+    assert_eq!(info.subcommand, 0x0000);
 }
 
 fn assert_block_write_shape(request: &[u8], word_blocks: u8, bit_blocks: u8) {

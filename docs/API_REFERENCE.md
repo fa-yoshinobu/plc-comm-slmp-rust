@@ -60,3 +60,20 @@ CPU-buffer access.
 | Chunked word/dword reads | `read_words_single_request`, `read_words_chunked`, `read_dwords_single_request`, `read_dwords_chunked` |
 | Bit-in-word write | `write_bit_in_word` |
 | Trace and diagnostics | `last_request_frame`, `last_response_frame`, `traffic_stats` |
+
+## Target Module I/O Constants
+
+`SlmpModuleIo` provides named request-header module I/O numbers for multi-CPU
+and routed CPU targets. Use these values in `SlmpTargetAddress.module_io`;
+`SlmpTargetAddress::default()` remains the own-station route `0x03FF`.
+
+| Constant | Value |
+| --- | --- |
+| `SlmpModuleIo::CONTROL_SYSTEM_CPU` | `0x03D0` |
+| `SlmpModuleIo::STANDBY_SYSTEM_CPU` | `0x03D1` |
+| `SlmpModuleIo::SYSTEM_A_CPU` | `0x03D2` |
+| `SlmpModuleIo::SYSTEM_B_CPU` | `0x03D3` |
+| `SlmpModuleIo::MULTIPLE_CPU_1` .. `SlmpModuleIo::MULTIPLE_CPU_4` | `0x03E0` .. `0x03E3` |
+| `SlmpModuleIo::REMOTE_HEAD_1` / `SlmpModuleIo::REMOTE_HEAD_2` | `0x03E0` / `0x03E1` |
+| `SlmpModuleIo::CONTROL_SYSTEM_REMOTE_HEAD` / `SlmpModuleIo::STANDBY_SYSTEM_REMOTE_HEAD` | `0x03D0` / `0x03D1` |
+| `SlmpModuleIo::OWN_STATION` | `0x03FF` |
