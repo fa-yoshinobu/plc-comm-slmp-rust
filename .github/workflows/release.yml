@@ -52,14 +52,14 @@ jobs:
         run: cargo test
 
       - name: Package crate
-        run: cargo package -p plc-comm-slmp-rust
+        run: cargo package -p plc-comm-slmp
 
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ steps.version.outputs.tag }}"
-          asset="target/package/plc-comm-slmp-rust-${{ steps.version.outputs.version }}.crate"
+          asset="target/package/plc-comm-slmp-${{ steps.version.outputs.version }}.crate"
           test -f "${asset}"
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
             gh release upload "${tag}" "${asset}" --clobber --repo "${GITHUB_REPOSITORY}"
