@@ -73,7 +73,7 @@ page.
 ## Routing / target station
 
 Most applications keep the default target, which means the directly connected
-own station/control CPU. Change the target only when your PLC network is
+own station. Change the target only when your PLC network is
 configured for another station, multi-CPU module I/O, or multidrop access.
 
 `SlmpTargetAddress` controls the SLMP destination header. It is not a device
@@ -372,7 +372,7 @@ The repository examples are designed to run from environment variables.
 | `SLMP_PORT` | `1025` | TCP/UDP port. |
 | `SLMP_PLC_PROFILE` | required | Canonical profile such as `melsec:iq-r` or `melsec:iq-f`. |
 | `SLMP_TRANSPORT` | `tcp` | `tcp` or `udp`. |
-| `SLMP_TARGET` | unset | `SELF`, `SELF-CPU1`, or `NAME,NET,ST,IO,MD`. |
+| `SLMP_TARGET` | unset | `SELF`, `SELF-MULTIPLE-CPU-1`, or `NAME,NET,ST,IO,MD`. |
 | `SLMP_NETWORK` / `SLMP_STATION` | unset | Other-station target, for example `SLMP_NETWORK=1 SLMP_STATION=2`. |
 | `SLMP_MODULE_IO` / `SLMP_MULTIDROP` | `0x03FF` / `0x00` | Optional fields used with `SLMP_NETWORK` / `SLMP_STATION`. |
 | `SLMP_TIMEOUT_MS` | `3000` | Socket timeout. |

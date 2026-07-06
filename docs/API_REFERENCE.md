@@ -70,9 +70,11 @@ and routed CPU targets. Use these values in `SlmpTargetAddress.module_io`;
 
 | Constant | Value |
 | --- | --- |
-| `SlmpModuleIo::CONTROL_CPU` / `SlmpModuleIo::ACTIVE_CPU` | `0x03D0` |
-| `SlmpModuleIo::STANDBY_CPU` | `0x03D1` |
-| `SlmpModuleIo::TYPE_A_CPU` | `0x03D2` |
-| `SlmpModuleIo::TYPE_B_CPU` | `0x03D3` |
-| `SlmpModuleIo::CPU1` .. `SlmpModuleIo::CPU4` | `0x03E0` .. `0x03E3` |
+| `SlmpModuleIo::CONTROL_CPU` / `SlmpModuleIo::CONTROL_SYSTEM_CPU` | `0x03D0` |
+| `SlmpModuleIo::STANDBY_SYSTEM_CPU` | `0x03D1` |
+| `SlmpModuleIo::SYSTEM_A_CPU` | `0x03D2` |
+| `SlmpModuleIo::SYSTEM_B_CPU` | `0x03D3` |
+| `SlmpModuleIo::MULTIPLE_CPU_1` .. `SlmpModuleIo::MULTIPLE_CPU_4` | `0x03E0` .. `0x03E3` |
+| `SlmpModuleIo::REMOTE_HEAD_1` / `SlmpModuleIo::REMOTE_HEAD_2` | `0x03E0` / `0x03E1` |
+| `SlmpModuleIo::CONTROL_SYSTEM_REMOTE_HEAD` / `SlmpModuleIo::STANDBY_SYSTEM_REMOTE_HEAD` | `0x03D0` / `0x03D1` |
 | `SlmpModuleIo::CONNECTED_CPU` / `SlmpModuleIo::DEFAULT` / `SlmpModuleIo::OWN_STATION` | `0x03FF` |

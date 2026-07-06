@@ -354,17 +354,17 @@ pub fn parse_named_target(text: &str) -> Result<SlmpNamedTarget, SlmpError> {
             target: SlmpTargetAddress::default(),
         });
     }
-    if let Some(cpu) = token.strip_prefix("SELF-CPU") {
+    if let Some(cpu) = token.strip_prefix("SELF-MULTIPLE-CPU-") {
         let index: u16 = cpu
             .parse()
-            .map_err(|_| SlmpError::new("Invalid SELF-CPU target."))?;
+            .map_err(|_| SlmpError::new("Invalid SELF-MULTIPLE-CPU target."))?;
         if !(1..=4).contains(&index) {
-            return Err(SlmpError::new("SELF-CPU must be 1..4."));
+            return Err(SlmpError::new("SELF-MULTIPLE-CPU must be 1..4."));
         }
         return Ok(SlmpNamedTarget {
-            name: format!("SELF-CPU{index}"),
+            name: format!("SELF-MULTIPLE-CPU-{index}"),
             target: SlmpTargetAddress {
-                module_io: crate::model::SlmpModuleIo::CPU1 + (index - 1),
+                module_io: crate::model::SlmpModuleIo::MULTIPLE_CPU_1 + (index - 1),
                 ..SlmpTargetAddress::default()
             },
         });
@@ -382,7 +382,7 @@ pub fn parse_named_target(text: &str) -> Result<SlmpNamedTarget, SlmpError> {
         });
     }
     Err(SlmpError::new(
-        "target must be SELF, SELF-CPU1..4, or NAME,NETWORK,STATION,MODULE_IO,MULTIDROP",
+        "target must be SELF, SELF-MULTIPLE-CPU-1..4, or NAME,NETWORK,STATION,MODULE_IO,MULTIDROP",
     ))
 }
 
@@ -535,6 +535,20 @@ mod tests {
         assert_eq!(parsed.target.station, 255);
         assert_eq!(parsed.target.module_io, 0xFFFF);
         assert_eq!(parsed.target.multidrop, 0);
+    }
+
+    #[test]
+    fn named_target_accepts_multiple_cpu_self_shortcut() {
+        let parsed = parse_named_target("SELF-MULTIPLE-CPU-2").unwrap();
+
+        assert_eq!(parsed.name, "SELF-MULTIPLE-CPU-2");
+        assert_eq!(parsed.target.network, 0x00);
+        assert_eq!(parsed.target.station, 0xFF);
+        assert_eq!(
+            parsed.target.module_io,
+            crate::model::SlmpModuleIo::MULTIPLE_CPU_2
+        );
+        assert_eq!(parsed.target.multidrop, 0x00);
     }
 
     #[test]
