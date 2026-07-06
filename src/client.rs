@@ -2663,8 +2663,7 @@ mod tests {
             .build_request_frame(SlmpCommand::ReadTypeName, 0x0000, &[])
             .unwrap();
 
-        assert_eq!(SlmpModuleIo::CONTROL_CPU, 0x03D0);
-        assert_eq!(SlmpModuleIo::CONTROL_SYSTEM_CPU, SlmpModuleIo::CONTROL_CPU);
+        assert_eq!(SlmpModuleIo::CONTROL_SYSTEM_CPU, 0x03D0);
         assert_eq!(SlmpModuleIo::STANDBY_SYSTEM_CPU, 0x03D1);
         assert_eq!(SlmpModuleIo::SYSTEM_A_CPU, 0x03D2);
         assert_eq!(SlmpModuleIo::SYSTEM_B_CPU, 0x03D3);
@@ -2676,16 +2675,16 @@ mod tests {
         assert_eq!(SlmpModuleIo::REMOTE_HEAD_2, SlmpModuleIo::MULTIPLE_CPU_2);
         assert_eq!(
             SlmpModuleIo::CONTROL_SYSTEM_REMOTE_HEAD,
-            SlmpModuleIo::CONTROL_CPU
+            SlmpModuleIo::CONTROL_SYSTEM_CPU
         );
         assert_eq!(
             SlmpModuleIo::STANDBY_SYSTEM_REMOTE_HEAD,
             SlmpModuleIo::STANDBY_SYSTEM_CPU
         );
-        assert_eq!(SlmpModuleIo::CONNECTED_CPU, 0x03FF);
+        assert_eq!(SlmpModuleIo::OWN_STATION, 0x03FF);
         assert_eq!(
             SlmpTargetAddress::default().module_io,
-            SlmpModuleIo::CONNECTED_CPU
+            SlmpModuleIo::OWN_STATION
         );
         assert_eq!(
             u16::from_le_bytes([inner.last_request_frame[8], inner.last_request_frame[9]]),

@@ -458,8 +458,7 @@ pub struct SlmpModuleIo;
 
 impl SlmpModuleIo {
     /// SLMP request destination module I/O numbers from specification SH080956.
-    pub const CONTROL_CPU: u16 = 0x03D0;
-    pub const CONTROL_SYSTEM_CPU: u16 = Self::CONTROL_CPU;
+    pub const CONTROL_SYSTEM_CPU: u16 = 0x03D0;
     pub const STANDBY_SYSTEM_CPU: u16 = 0x03D1;
     pub const SYSTEM_A_CPU: u16 = 0x03D2;
     pub const SYSTEM_B_CPU: u16 = 0x03D3;
@@ -469,11 +468,9 @@ impl SlmpModuleIo {
     pub const MULTIPLE_CPU_4: u16 = 0x03E3;
     pub const REMOTE_HEAD_1: u16 = Self::MULTIPLE_CPU_1;
     pub const REMOTE_HEAD_2: u16 = Self::MULTIPLE_CPU_2;
-    pub const CONTROL_SYSTEM_REMOTE_HEAD: u16 = Self::CONTROL_CPU;
+    pub const CONTROL_SYSTEM_REMOTE_HEAD: u16 = Self::CONTROL_SYSTEM_CPU;
     pub const STANDBY_SYSTEM_REMOTE_HEAD: u16 = Self::STANDBY_SYSTEM_CPU;
-    pub const CONNECTED_CPU: u16 = 0x03FF;
-    pub const DEFAULT: u16 = Self::CONNECTED_CPU;
-    pub const OWN_STATION: u16 = Self::CONNECTED_CPU;
+    pub const OWN_STATION: u16 = 0x03FF;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -489,7 +486,7 @@ impl Default for SlmpTargetAddress {
         Self {
             network: 0x00,
             station: 0xFF,
-            module_io: SlmpModuleIo::CONNECTED_CPU,
+            module_io: SlmpModuleIo::OWN_STATION,
             multidrop: 0x00,
         }
     }

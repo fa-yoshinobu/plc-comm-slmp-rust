@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Release: Bumped package metadata to `1.3.0`.
 - CI: Added a tag-driven release workflow that re-runs checks and attaches the packaged crate to the GitHub release.
-- Library: Added `SlmpModuleIo` named constants for multi-CPU target routing while keeping the default connected-CPU target unchanged.
-- Library: Removed short module I/O aliases as a breaking terminology cleanup; use `ACTIVE_CPU` -> `CONTROL_SYSTEM_CPU`, `STANDBY_CPU` -> `STANDBY_SYSTEM_CPU`, `TYPE_A_CPU` -> `SYSTEM_A_CPU`, `TYPE_B_CPU` -> `SYSTEM_B_CPU`, and `CPU1`/`CPU_1` through `CPU4`/`CPU_4` -> `MULTIPLE_CPU_1` through `MULTIPLE_CPU_4`. The self target shortcut moved from `SELF-CPU1`-`SELF-CPU4` to `SELF-MULTIPLE-CPU-1`-`SELF-MULTIPLE-CPU-4`.
+- Library: Added `SlmpModuleIo` named constants for multi-CPU target routing while keeping the default own-station target unchanged.
+- Library: Removed short module I/O aliases as a breaking terminology cleanup; use `CONTROL_CPU` -> `OWN_STATION` for the previous connected-CPU behavior or `CONTROL_SYSTEM_CPU` for the redundant control-system route, `CONNECTED_CPU` / `DEFAULT` -> `OWN_STATION`, `ACTIVE_CPU` -> `CONTROL_SYSTEM_CPU`, `STANDBY_CPU` -> `STANDBY_SYSTEM_CPU`, `TYPE_A_CPU` -> `SYSTEM_A_CPU`, `TYPE_B_CPU` -> `SYSTEM_B_CPU`, and `CPU1`/`CPU_1` through `CPU4`/`CPU_4` -> `MULTIPLE_CPU_1` through `MULTIPLE_CPU_4`. The self target shortcut moved from `SELF-CPU1`-`SELF-CPU4` to `SELF-MULTIPLE-CPU-1`-`SELF-MULTIPLE-CPU-4`.
 - Docs: Documented `SlmpModuleIo` in the API reference and routing guide.
 - Tests: Added request-frame coverage showing named module I/O constants are encoded into the target header.
 - Tests: Updated frame-level mock responses to include structured error data on non-zero end-code responses and assert command/subcommand parsing.

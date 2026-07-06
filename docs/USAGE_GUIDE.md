@@ -88,7 +88,7 @@ options.port = 1025;
 options.target = SlmpTargetAddress {
     network: 0x01,
     station: 0x02,
-    module_io: SlmpModuleIo::CONNECTED_CPU,
+    module_io: SlmpModuleIo::OWN_STATION,
     multidrop: 0x00,
 };
 ```
