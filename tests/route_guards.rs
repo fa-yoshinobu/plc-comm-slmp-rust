@@ -28,6 +28,31 @@ async fn udp_client_with_profile_and_strict(
     SlmpClient::connect(options).await.unwrap()
 }
 
+fn qualified_device(code: SlmpDeviceCode, number: u32) -> SlmpQualifiedDeviceAddress {
+    SlmpQualifiedDeviceAddress {
+        device: SlmpDeviceAddress::new(code, number),
+        extension_specification: None,
+        direct_memory_specification: None,
+    }
+}
+
+fn slmp_request_body(request: &[u8]) -> &[u8] {
+    if request.starts_with(&[0x54, 0x00]) {
+        &request[13..]
+    } else {
+        &request[9..]
+    }
+}
+
+fn hex_bytes(hex: &str) -> Vec<u8> {
+    let compact: String = hex.chars().filter(|value| !value.is_whitespace()).collect();
+    assert_eq!(compact.len() % 2, 0);
+    (0..compact.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&compact[index..index + 2], 16).unwrap())
+        .collect()
+}
+
 struct MultiResponseServer {
     port: u16,
 }
@@ -687,6 +712,323 @@ async fn qualified_g_hg_extended_bit_routes_reach_transport() {
     let write_body = &requests[1][13..];
     assert_eq!(u16::from_le_bytes([write_body[2], write_body[3]]), 0x1401);
     assert_eq!(u16::from_le_bytes([write_body[4], write_body[5]]), 0x0083);
+}
+
+#[tokio::test]
+async fn extended_random_iqr_payloads_match_dotnet_vectors() {
+    let server = CapturingResponseServer::start(vec![
+        (0, vec![0x34, 0x12, 0xEF, 0xCD, 0xAB, 0x89]),
+        (0, Vec::new()),
+        (0, Vec::new()),
+    ])
+    .await
+    .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let read = client
+        .read_random_ext(
+            &[(
+                qualified_device(SlmpDeviceCode::D, 100),
+                SlmpExtensionSpec {
+                    extension_specification: 0x0102,
+                    extension_specification_modification: 0x03,
+                    device_modification_index: 0x04,
+                    device_modification_flags: 0x05,
+                    direct_memory_specification: 0x06,
+                },
+            )],
+            &[(
+                parse_qualified_device(r"U01\G10").unwrap(),
+                SlmpExtensionSpec {
+                    extension_specification: 0x9999,
+                    extension_specification_modification: 0x07,
+                    device_modification_index: 0x08,
+                    device_modification_flags: 0x09,
+                    ..SlmpExtensionSpec::default()
+                },
+            )],
+        )
+        .await
+        .unwrap();
+    assert_eq!(read.word_values, vec![0x1234]);
+    assert_eq!(read.dword_values, vec![0x89AB_CDEF]);
+
+    client
+        .write_random_words_ext(
+            &[(
+                qualified_device(SlmpDeviceCode::D, 10),
+                0x1234,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0001,
+                    ..SlmpExtensionSpec::default()
+                },
+            )],
+            &[(
+                qualified_device(SlmpDeviceCode::W, 0x20),
+                0x89AB_CDEF,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0002,
+                    ..SlmpExtensionSpec::default()
+                },
+            )],
+        )
+        .await
+        .unwrap();
+
+    client
+        .write_random_bits_ext(&[
+            (
+                qualified_device(SlmpDeviceCode::M, 7),
+                true,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0003,
+                    ..SlmpExtensionSpec::default()
+                },
+            ),
+            (
+                qualified_device(SlmpDeviceCode::M, 8),
+                false,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0004,
+                    ..SlmpExtensionSpec::default()
+                },
+            ),
+        ])
+        .await
+        .unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 3);
+
+    let read_body = slmp_request_body(&requests[0]);
+    assert_eq!(u16::from_le_bytes([read_body[2], read_body[3]]), 0x0403);
+    assert_eq!(u16::from_le_bytes([read_body[4], read_body[5]]), 0x0082);
+    assert_eq!(
+        &read_body[6..],
+        hex_bytes("0101040564000000A800030002010608090A000000AB0007000100F8").as_slice()
+    );
+
+    let word_write_body = slmp_request_body(&requests[1]);
+    assert_eq!(
+        u16::from_le_bytes([word_write_body[2], word_write_body[3]]),
+        0x1402
+    );
+    assert_eq!(
+        u16::from_le_bytes([word_write_body[4], word_write_body[5]]),
+        0x0082
+    );
+    assert_eq!(
+        &word_write_body[6..],
+        hex_bytes("010100000A000000A80000000100003412000020000000B4000000020000EFCDAB89")
+            .as_slice()
+    );
+
+    let bit_write_body = slmp_request_body(&requests[2]);
+    assert_eq!(
+        u16::from_le_bytes([bit_write_body[2], bit_write_body[3]]),
+        0x1402
+    );
+    assert_eq!(
+        u16::from_le_bytes([bit_write_body[4], bit_write_body[5]]),
+        0x0083
+    );
+    assert_eq!(
+        &bit_write_body[6..],
+        hex_bytes("02000007000000900000000300000100000008000000900000000400000000").as_slice()
+    );
+}
+
+#[tokio::test]
+async fn extended_random_legacy_payloads_match_dotnet_vectors() {
+    let server = CapturingResponseServer::start(vec![
+        (0, vec![0x34, 0x12, 0xEF, 0xCD, 0xAB, 0x89]),
+        (0, Vec::new()),
+        (0, Vec::new()),
+    ])
+    .await
+    .unwrap();
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpuQj71E71100);
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let read = client
+        .read_random_ext(
+            &[(
+                qualified_device(SlmpDeviceCode::D, 100),
+                SlmpExtensionSpec {
+                    extension_specification: 0x0001,
+                    ..SlmpExtensionSpec::default()
+                },
+            )],
+            &[(
+                qualified_device(SlmpDeviceCode::D, 200),
+                SlmpExtensionSpec {
+                    extension_specification: 0x0002,
+                    ..SlmpExtensionSpec::default()
+                },
+            )],
+        )
+        .await
+        .unwrap();
+    assert_eq!(read.word_values, vec![0x1234]);
+    assert_eq!(read.dword_values, vec![0x89AB_CDEF]);
+
+    client
+        .write_random_words_ext(
+            &[(
+                qualified_device(SlmpDeviceCode::D, 10),
+                0x1234,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0001,
+                    ..SlmpExtensionSpec::default()
+                },
+            )],
+            &[(
+                qualified_device(SlmpDeviceCode::W, 0x20),
+                0x89AB_CDEF,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0002,
+                    ..SlmpExtensionSpec::default()
+                },
+            )],
+        )
+        .await
+        .unwrap();
+
+    client
+        .write_random_bits_ext(&[
+            (
+                qualified_device(SlmpDeviceCode::M, 7),
+                true,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0003,
+                    ..SlmpExtensionSpec::default()
+                },
+            ),
+            (
+                qualified_device(SlmpDeviceCode::M, 8),
+                false,
+                SlmpExtensionSpec {
+                    extension_specification: 0x0004,
+                    ..SlmpExtensionSpec::default()
+                },
+            ),
+        ])
+        .await
+        .unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 3);
+
+    let read_body = slmp_request_body(&requests[0]);
+    assert_eq!(u16::from_le_bytes([read_body[2], read_body[3]]), 0x0403);
+    assert_eq!(u16::from_le_bytes([read_body[4], read_body[5]]), 0x0080);
+    assert_eq!(
+        &read_body[6..],
+        hex_bytes("01010000640000A800000100000000C80000A80000020000").as_slice()
+    );
+
+    let word_write_body = slmp_request_body(&requests[1]);
+    assert_eq!(
+        u16::from_le_bytes([word_write_body[2], word_write_body[3]]),
+        0x1402
+    );
+    assert_eq!(
+        u16::from_le_bytes([word_write_body[4], word_write_body[5]]),
+        0x0080
+    );
+    assert_eq!(
+        &word_write_body[6..],
+        hex_bytes("010100000A0000A8000001000034120000200000B40000020000EFCDAB89").as_slice()
+    );
+
+    let bit_write_body = slmp_request_body(&requests[2]);
+    assert_eq!(
+        u16::from_le_bytes([bit_write_body[2], bit_write_body[3]]),
+        0x1402
+    );
+    assert_eq!(
+        u16::from_le_bytes([bit_write_body[4], bit_write_body[5]]),
+        0x0081
+    );
+    assert_eq!(
+        &bit_write_body[6..],
+        hex_bytes("02000007000090000003000001000008000090000004000000").as_slice()
+    );
+}
+
+#[tokio::test]
+async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
+    let iqf = udp_client_with_profile(SlmpPlcProfile::IqF).await;
+
+    let read_devices: Vec<_> = (0..97)
+        .map(|index| {
+            (
+                qualified_device(SlmpDeviceCode::D, index),
+                SlmpExtensionSpec::default(),
+            )
+        })
+        .collect();
+    assert!(
+        iqf.read_random_ext(&read_devices, &[])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..96")
+    );
+
+    let word_entries: Vec<_> = (0..81)
+        .map(|index| {
+            (
+                qualified_device(SlmpDeviceCode::D, 8000 + index),
+                0,
+                SlmpExtensionSpec::default(),
+            )
+        })
+        .collect();
+    assert!(
+        iqf.write_random_words_ext(&word_entries, &[])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..80")
+    );
+
+    let bit_entries: Vec<_> = (0..95)
+        .map(|index| {
+            (
+                qualified_device(SlmpDeviceCode::M, 4000 + index),
+                false,
+                SlmpExtensionSpec::default(),
+            )
+        })
+        .collect();
+    assert!(
+        iqf.write_random_bits_ext(&bit_entries)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..94")
+    );
+
+    let qcpu = udp_client_with_profile(SlmpPlcProfile::QCpuQj71E71100).await;
+    let qcpu_read_devices: Vec<_> = (0..186)
+        .map(|index| {
+            (
+                qualified_device(SlmpDeviceCode::D, index),
+                SlmpExtensionSpec::default(),
+            )
+        })
+        .collect();
+    assert!(
+        qcpu.read_random_ext(&qcpu_read_devices, &[])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("1..185")
+    );
 }
 
 #[tokio::test]

@@ -356,6 +356,18 @@ impl SlmpClient {
             .await
     }
 
+    pub async fn read_random_ext(
+        &self,
+        word_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
+        dword_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .read_random_ext(word_devices, dword_devices)
+            .await
+    }
+
     pub async fn write_random_words(
         &self,
         word_entries: &[(SlmpDeviceAddress, u16)],
@@ -368,11 +380,34 @@ impl SlmpClient {
             .await
     }
 
+    pub async fn write_random_words_ext(
+        &self,
+        word_entries: &[(SlmpQualifiedDeviceAddress, u16, SlmpExtensionSpec)],
+        dword_entries: &[(SlmpQualifiedDeviceAddress, u32, SlmpExtensionSpec)],
+    ) -> Result<(), SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .write_random_words_ext(word_entries, dword_entries)
+            .await
+    }
+
     pub async fn write_random_bits(
         &self,
         bit_entries: &[(SlmpDeviceAddress, bool)],
     ) -> Result<(), SlmpError> {
         self.inner.lock().await.write_random_bits(bit_entries).await
+    }
+
+    pub async fn write_random_bits_ext(
+        &self,
+        bit_entries: &[(SlmpQualifiedDeviceAddress, bool, SlmpExtensionSpec)],
+    ) -> Result<(), SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .write_random_bits_ext(bit_entries)
+            .await
     }
 
     pub async fn read_block(
@@ -1010,7 +1045,7 @@ impl ClientInner {
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
-        rules::validate_random_read_devices(word_devices, dword_devices)?;
+        rules::validate_random_read_devices(word_devices, dword_devices, false)?;
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -1073,6 +1108,77 @@ impl ClientInner {
         Ok(result)
     }
 
+    async fn read_random_ext(
+        &mut self,
+        word_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
+        dword_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
+        if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
+            return Err(SlmpError::new("random counts must be <= 255"));
+        }
+        rules::validate_random_read_like_counts(
+            word_devices.len(),
+            dword_devices.len(),
+            self.options.compatibility_mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::RandomReadWordExt,
+            "read_random_ext",
+        )?;
+
+        let word_refs: Vec<_> = word_devices.iter().map(|entry| entry.0.device).collect();
+        let dword_refs: Vec<_> = dword_devices.iter().map(|entry| entry.0.device).collect();
+        rules::validate_random_read_devices(&word_refs, &dword_refs, true)?;
+
+        let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
+        for (device, extension) in word_devices {
+            let extension = Self::resolve_effective_extension(*device, *extension)?;
+            self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
+        }
+        for (device, extension) in dword_devices {
+            let extension = Self::resolve_effective_extension(*device, *extension)?;
+            self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
+        }
+        let sub = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            0x0080
+        } else {
+            0x0082
+        };
+        let data = self
+            .request(SlmpCommand::DeviceReadRandom, sub, &payload, true)
+            .await?;
+        let expected = word_devices.len() * 2 + dword_devices.len() * 4;
+        if data.len() != expected {
+            return Err(SlmpError::new(format!(
+                "read_random_ext response size mismatch expected={expected} actual={}",
+                data.len()
+            )));
+        }
+        let mut cursor = 0;
+        let mut result = SlmpRandomReadResult::default();
+        for _ in 0..word_devices.len() {
+            result
+                .word_values
+                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+            cursor += 2;
+        }
+        for _ in 0..dword_devices.len() {
+            result.dword_values.push(u32::from_le_bytes([
+                data[cursor],
+                data[cursor + 1],
+                data[cursor + 2],
+                data[cursor + 3],
+            ]));
+            cursor += 4;
+        }
+        Ok(result)
+    }
+
     async fn write_random_words(
         &mut self,
         word_entries: &[(SlmpDeviceAddress, u16)],
@@ -1083,6 +1189,7 @@ impl ClientInner {
             word_entries,
             dword_entries,
             self.options.plc_profile,
+            false,
         )?;
         if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
@@ -1092,6 +1199,7 @@ impl ClientInner {
             dword_entries.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
+            SlmpProfileLimit::RandomWriteWord,
             "write_random_words",
         )?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
@@ -1125,6 +1233,66 @@ impl ClientInner {
         Ok(())
     }
 
+    async fn write_random_words_ext(
+        &mut self,
+        word_entries: &[(SlmpQualifiedDeviceAddress, u16, SlmpExtensionSpec)],
+        dword_entries: &[(SlmpQualifiedDeviceAddress, u32, SlmpExtensionSpec)],
+    ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
+        if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
+            return Err(SlmpError::new("random counts must be <= 255"));
+        }
+        rules::validate_random_write_word_counts(
+            word_entries.len(),
+            dword_entries.len(),
+            self.options.compatibility_mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::RandomWriteWordExt,
+            "write_random_words_ext",
+        )?;
+
+        let word_refs: Vec<_> = word_entries
+            .iter()
+            .map(|entry| (entry.0.device, entry.1))
+            .collect();
+        let dword_refs: Vec<_> = dword_entries
+            .iter()
+            .map(|entry| (entry.0.device, entry.1))
+            .collect();
+        rules::validate_random_write_word_devices(
+            &word_refs,
+            &dword_refs,
+            self.options.plc_profile,
+            true,
+        )?;
+
+        let mut payload = vec![word_entries.len() as u8, dword_entries.len() as u8];
+        for (device, value, extension) in word_entries {
+            let extension = Self::resolve_effective_extension(*device, *extension)?;
+            self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
+        for (device, value, extension) in dword_entries {
+            let extension = Self::resolve_effective_extension(*device, *extension)?;
+            self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
+        let sub = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            0x0080
+        } else {
+            0x0082
+        };
+        let _ = self
+            .request(SlmpCommand::DeviceWriteRandom, sub, &payload, true)
+            .await?;
+        Ok(())
+    }
+
     async fn write_random_bits(
         &mut self,
         bit_entries: &[(SlmpDeviceAddress, bool)],
@@ -1137,6 +1305,7 @@ impl ClientInner {
             bit_entries.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
+            SlmpProfileLimit::RandomWriteBit,
             "write_random_bits",
         )?;
         rules::validate_random_bit_write_devices(bit_entries, self.options.plc_profile)?;
@@ -1173,6 +1342,64 @@ impl ClientInner {
             0x0001
         } else {
             0x0003
+        };
+        let _ = self
+            .request(SlmpCommand::DeviceWriteRandom, sub, &payload, true)
+            .await?;
+        Ok(())
+    }
+
+    async fn write_random_bits_ext(
+        &mut self,
+        bit_entries: &[(SlmpQualifiedDeviceAddress, bool, SlmpExtensionSpec)],
+    ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
+        if bit_entries.len() > 0xFF {
+            return Err(SlmpError::new("random bit count must be <= 255"));
+        }
+        rules::validate_random_bit_write_count(
+            bit_entries.len(),
+            self.options.compatibility_mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::RandomWriteBitExt,
+            "write_random_bits_ext",
+        )?;
+        let bit_refs: Vec<_> = bit_entries
+            .iter()
+            .map(|entry| (entry.0.device, entry.1))
+            .collect();
+        rules::validate_random_bit_write_devices(&bit_refs, self.options.plc_profile)?;
+
+        let bit_value_size = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            1
+        } else {
+            2
+        };
+        let mut payload = Vec::with_capacity(bit_entries.len() * (13 + bit_value_size) + 1);
+        payload.push(bit_entries.len() as u8);
+        for (device, value, extension) in bit_entries {
+            let extension = Self::resolve_effective_extension(*device, *extension)?;
+            self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
+            if matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
+                payload.push(u8::from(*value));
+            } else {
+                payload.extend_from_slice(&u16::from(*value).to_le_bytes());
+            }
+        }
+        let sub = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            0x0081
+        } else {
+            0x0083
         };
         let _ = self
             .request(SlmpCommand::DeviceWriteRandom, sub, &payload, true)

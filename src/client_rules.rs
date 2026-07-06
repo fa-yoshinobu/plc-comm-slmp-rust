@@ -71,13 +71,7 @@ pub(crate) fn validate_random_read_like_counts(
     let total = word_points + dword_points;
     let limit = capability_profiles::profile_limit(plc_profile, limit_key)
         .map(|profile_limit| profile_limit.max)
-        .unwrap_or_else(|| {
-            if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
-                192
-            } else {
-                96
-            }
-        });
+        .unwrap_or_else(|| random_read_like_fallback_limit(compatibility_mode, limit_key));
     if total < 1 || total > limit {
         return Err(SlmpError::new(format!(
             "{name} total access points out of range (1..{limit}): word={word_points}, dword={dword_points}"
@@ -91,6 +85,7 @@ pub(crate) fn validate_random_write_word_counts(
     dword_points: usize,
     compatibility_mode: SlmpCompatibilityMode,
     plc_profile: SlmpPlcProfile,
+    limit_key: SlmpProfileLimit,
     name: &str,
 ) -> Result<(), SlmpError> {
     let total = word_points + dword_points;
@@ -99,9 +94,7 @@ pub(crate) fn validate_random_write_word_counts(
             "{name} word/dword access points out of range: word={word_points}, dword={dword_points}"
         )));
     }
-    if let Some(limit) =
-        capability_profiles::profile_limit(plc_profile, SlmpProfileLimit::RandomWriteWord)
-    {
+    if let Some(limit) = capability_profiles::profile_limit(plc_profile, limit_key) {
         if total > limit.max {
             return Err(SlmpError::new(format!(
                 "{name} word/dword access points out of range (1..{}): word={word_points}, dword={dword_points}",
@@ -118,11 +111,7 @@ pub(crate) fn validate_random_write_word_counts(
         }
     } else {
         let weighted = (word_points * 12) + (dword_points * 14);
-        let limit = if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
-            1920
-        } else {
-            960
-        };
+        let limit = random_write_word_fallback_weighted_limit(compatibility_mode, limit_key);
         if weighted > limit {
             return Err(SlmpError::new(format!(
                 "{name} word/dword access points out of range: word={word_points}, dword={dword_points}, weighted={weighted}, limit={limit}"
@@ -136,23 +125,67 @@ pub(crate) fn validate_random_bit_write_count(
     points: usize,
     compatibility_mode: SlmpCompatibilityMode,
     plc_profile: SlmpPlcProfile,
+    limit_key: SlmpProfileLimit,
     name: &str,
 ) -> Result<(), SlmpError> {
-    let limit = capability_profiles::profile_limit(plc_profile, SlmpProfileLimit::RandomWriteBit)
+    let limit = capability_profiles::profile_limit(plc_profile, limit_key)
         .map(|profile_limit| profile_limit.max)
-        .unwrap_or_else(|| {
-            if matches!(compatibility_mode, SlmpCompatibilityMode::Legacy) {
-                188
-            } else {
-                94
-            }
-        });
+        .unwrap_or_else(|| random_bit_write_fallback_limit(compatibility_mode, limit_key));
     if points < 1 || points > limit {
         return Err(SlmpError::new(format!(
             "{name} bit access points out of range (1..{limit}): {points}"
         )));
     }
     Ok(())
+}
+
+fn is_extended_random_limit(limit_key: SlmpProfileLimit) -> bool {
+    matches!(
+        limit_key,
+        SlmpProfileLimit::RandomReadWordExt
+            | SlmpProfileLimit::RandomWriteWordExt
+            | SlmpProfileLimit::RandomWriteBitExt
+            | SlmpProfileLimit::MonitorRegisterWordExt
+    )
+}
+
+fn random_read_like_fallback_limit(
+    compatibility_mode: SlmpCompatibilityMode,
+    limit_key: SlmpProfileLimit,
+) -> usize {
+    if is_extended_random_limit(limit_key)
+        || matches!(compatibility_mode, SlmpCompatibilityMode::Iqr)
+    {
+        96
+    } else {
+        192
+    }
+}
+
+fn random_write_word_fallback_weighted_limit(
+    compatibility_mode: SlmpCompatibilityMode,
+    limit_key: SlmpProfileLimit,
+) -> usize {
+    if is_extended_random_limit(limit_key)
+        || matches!(compatibility_mode, SlmpCompatibilityMode::Iqr)
+    {
+        960
+    } else {
+        1920
+    }
+}
+
+fn random_bit_write_fallback_limit(
+    compatibility_mode: SlmpCompatibilityMode,
+    limit_key: SlmpProfileLimit,
+) -> usize {
+    if is_extended_random_limit(limit_key)
+        || matches!(compatibility_mode, SlmpCompatibilityMode::Iqr)
+    {
+        94
+    } else {
+        188
+    }
 }
 
 pub(crate) fn validate_block_read_limits(
@@ -394,9 +427,10 @@ pub(crate) fn validate_direct_dword_write(
 pub(crate) fn validate_random_read_devices(
     word_devices: &[SlmpDeviceAddress],
     dword_devices: &[SlmpDeviceAddress],
+    allow_qualified_only_devices: bool,
 ) -> Result<(), SlmpError> {
     for device in word_devices.iter().chain(dword_devices.iter()) {
-        if is_qualified_only_device(device.code) {
+        if !allow_qualified_only_devices && is_qualified_only_device(device.code) {
             return Err(SlmpError::new(
                 "Read Random (0x0403) does not support standalone G/HG. Use U-qualified extended access.",
             ));
@@ -429,12 +463,13 @@ pub(crate) fn validate_random_write_word_devices(
     word_entries: &[(SlmpDeviceAddress, u16)],
     dword_entries: &[(SlmpDeviceAddress, u32)],
     plc_profile: SlmpPlcProfile,
+    allow_qualified_only_devices: bool,
 ) -> Result<(), SlmpError> {
     for (device, _) in word_entries {
         if is_read_only_device(device.code, plc_profile) {
             return Err(read_only_random_write_error(plc_profile));
         }
-        if is_qualified_only_device(device.code) {
+        if !allow_qualified_only_devices && is_qualified_only_device(device.code) {
             return Err(SlmpError::new(
                 "Write Random (0x1402) does not support standalone G/HG. Use U-qualified extended access.",
             ));
@@ -444,7 +479,7 @@ pub(crate) fn validate_random_write_word_devices(
         if is_read_only_device(device.code, plc_profile) {
             return Err(read_only_random_write_error(plc_profile));
         }
-        if is_qualified_only_device(device.code) {
+        if !allow_qualified_only_devices && is_qualified_only_device(device.code) {
             return Err(SlmpError::new(
                 "Write Random (0x1402) does not support standalone G/HG. Use U-qualified extended access.",
             ));
@@ -696,6 +731,53 @@ mod tests {
         assert!(is_random_dword_only_read_device(SlmpDeviceCode::LCN));
         assert!(is_random_dword_only_read_device(SlmpDeviceCode::LZ));
         assert!(!is_random_dword_only_read_device(SlmpDeviceCode::LTN));
+    }
+
+    #[test]
+    fn extended_random_fallback_limits_use_nonlegacy_values() {
+        assert_eq!(
+            random_read_like_fallback_limit(
+                SlmpCompatibilityMode::Legacy,
+                SlmpProfileLimit::RandomReadWordExt,
+            ),
+            96
+        );
+        assert_eq!(
+            random_write_word_fallback_weighted_limit(
+                SlmpCompatibilityMode::Legacy,
+                SlmpProfileLimit::RandomWriteWordExt,
+            ),
+            960
+        );
+        assert_eq!(
+            random_bit_write_fallback_limit(
+                SlmpCompatibilityMode::Legacy,
+                SlmpProfileLimit::RandomWriteBitExt,
+            ),
+            94
+        );
+
+        assert_eq!(
+            random_read_like_fallback_limit(
+                SlmpCompatibilityMode::Legacy,
+                SlmpProfileLimit::RandomReadWord,
+            ),
+            192
+        );
+        assert_eq!(
+            random_write_word_fallback_weighted_limit(
+                SlmpCompatibilityMode::Legacy,
+                SlmpProfileLimit::RandomWriteWord,
+            ),
+            1920
+        );
+        assert_eq!(
+            random_bit_write_fallback_limit(
+                SlmpCompatibilityMode::Legacy,
+                SlmpProfileLimit::RandomWriteBit,
+            ),
+            188
+        );
     }
 
     #[test]
