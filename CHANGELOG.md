@@ -17,18 +17,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-06
+
+### BREAKING
+- Release: Renamed the crates.io package and standardized the Rust import path.
+
+| Old crate/use | New crate/use |
+| --- | --- |
+| `plc-comm-slmp-rust` | `plc-comm-slmp` |
+| `use plc_comm_slmp_rust::...` | `use plc_comm_slmp::...` |
+
+- Library: Removed short `SlmpModuleIo` aliases in favor of the canonical module I/O vocabulary.
+
+| Removed name | Use instead |
+| --- | --- |
+| `CONTROL_CPU`, `CONNECTED_CPU`, `DEFAULT` | `OWN_STATION` |
+| `ACTIVE_CPU` | `CONTROL_SYSTEM_CPU` |
+| `STANDBY_CPU` | `STANDBY_SYSTEM_CPU` |
+| `TYPE_A_CPU` | `SYSTEM_A_CPU` |
+| `TYPE_B_CPU` | `SYSTEM_B_CPU` |
+| `CPU1` / `CPU_1` to `CPU4` / `CPU_4` | `MULTIPLE_CPU_1` to `MULTIPLE_CPU_4` |
+| `SELF-CPU1` to `SELF-CPU4` | `SELF-MULTIPLE-CPU-1` to `SELF-MULTIPLE-CPU-4` |
+
 ### Changed
-- Release: Bumped package metadata to `1.3.0`.
-- CI: Added a tag-driven release workflow that re-runs checks and attaches the packaged crate to the GitHub release.
+- Release: Bumped package metadata to `2.0.0`.
 - Library: Added `SlmpModuleIo` named constants for multi-CPU target routing while keeping the default own-station target unchanged.
-- Library: Removed short module I/O aliases as a breaking terminology cleanup; use `CONTROL_CPU` -> `OWN_STATION` for the previous connected-CPU behavior or `CONTROL_SYSTEM_CPU` for the redundant control-system route, `CONNECTED_CPU` / `DEFAULT` -> `OWN_STATION`, `ACTIVE_CPU` -> `CONTROL_SYSTEM_CPU`, `STANDBY_CPU` -> `STANDBY_SYSTEM_CPU`, `TYPE_A_CPU` -> `SYSTEM_A_CPU`, `TYPE_B_CPU` -> `SYSTEM_B_CPU`, and `CPU1`/`CPU_1` through `CPU4`/`CPU_4` -> `MULTIPLE_CPU_1` through `MULTIPLE_CPU_4`. The self target shortcut moved from `SELF-CPU1`-`SELF-CPU4` to `SELF-MULTIPLE-CPU-1`-`SELF-MULTIPLE-CPU-4`.
-- Docs: Documented `SlmpModuleIo` in the API reference and routing guide.
-- Tests: Added request-frame coverage showing named module I/O constants are encoded into the target header.
-- Tests: Updated frame-level mock responses to include structured error data on non-zero end-code responses and assert command/subcommand parsing.
-- Library: Synced the embedded SLMP capability fixture to `plc-comm-slmp-profiles` `v1.2.2`, including inferred Q/L 008x extended random/monitor limit keys and iQ-F `not-adopted` monitor limit placeholders.
-- Library: Added `read_random_ext`, `write_random_words_ext`, and `write_random_bits_ext` for 008x extended random routes, including profile-key validation for `RandomReadWordExt`, `RandomWriteWordExt`, and `RandomWriteBitExt`.
+- Library: Added extended random read/write APIs and synced the embedded SLMP capability fixture to `plc-comm-slmp-profiles` `v1.2.2`.
+- Docs: Updated README, Getting Started, docs.rs links, and release duplicate checks for `plc-comm-slmp`.
 - Tooling: Changed the canonical profile update script default ref to `v1.2.2`.
-- Tests: Added Legacy and iQ-R extended-random payload parity checks against the .NET vectors plus profile ext-limit guard coverage.
 
 ## [1.2.0] - 2026-07-05
 

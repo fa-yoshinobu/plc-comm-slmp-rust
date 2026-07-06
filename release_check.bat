@@ -13,7 +13,7 @@ if %errorlevel% neq 0 (
 )
 
 echo [2/4] Checking registry version...
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_registry_duplicate.ps1 -Registry crates -Package plc-comm-slmp-rust -VersionSource cargo -ManifestPath Cargo.toml
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_registry_duplicate.ps1 -Registry crates -Package plc-comm-slmp -VersionSource cargo -ManifestPath Cargo.toml
 if %errorlevel% neq 0 (
     echo [ERROR] Release version check failed.
     exit /b %errorlevel%

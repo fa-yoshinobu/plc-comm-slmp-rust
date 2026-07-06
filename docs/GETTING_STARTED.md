@@ -16,7 +16,7 @@ Use this page when you want the shortest path from a Rust program to a MELSEC PL
 ## Add dependency
 
 ```bash
-cargo add plc-comm-slmp-rust
+cargo add plc-comm-slmp
 cargo add tokio --features macros,rt-multi-thread
 ```
 
@@ -118,6 +118,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Next steps
 
-- Open the API reference: [docs.rs/plc-comm-slmp-rust](https://docs.rs/plc-comm-slmp-rust/).
+- Open the API reference: [docs.rs/plc-comm-slmp](https://docs.rs/plc-comm-slmp/).
 - Open the runnable samples: [examples README](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/tree/main/examples).
 - Continue with the [Usage guide](USAGE_GUIDE.md) and [Gotchas](GOTCHAS.md).
