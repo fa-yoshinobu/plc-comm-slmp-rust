@@ -359,7 +359,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
 }
 
 async fn connect_client(port: u16, plc_profile: SlmpPlcProfile) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", plc_profile);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", plc_profile).unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

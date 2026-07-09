@@ -2662,7 +2662,7 @@ mod tests {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         socket.connect("127.0.0.1:9").await.unwrap();
         ClientInner {
-            options: SlmpConnectionOptions::new("127.0.0.1", plc_profile),
+            options: SlmpConnectionOptions::new("127.0.0.1", plc_profile).unwrap(),
             transport: Transport::Udp(socket),
             serial: 0,
             last_request_frame: Vec::new(),

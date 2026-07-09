@@ -20,8 +20,8 @@ async fn udp_client_with_profile_and_strict(
     plc_profile: SlmpPlcProfile,
     strict_profile: bool,
 ) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
-    options.set_plc_profile(plc_profile);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    options.set_plc_profile(plc_profile).unwrap();
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = 9;
     options.strict_profile = strict_profile;
@@ -283,7 +283,7 @@ async fn frame_4e_ignores_mismatched_serial_response() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -318,7 +318,7 @@ async fn close_shuts_down_tcp_stream() {
         let _ = sender.send(read_result);
     });
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL).unwrap();
     options.port = port;
     let client = SlmpClient::connect(options).await.unwrap();
     client.close().await.unwrap();
@@ -364,7 +364,7 @@ async fn udp_read_words_accepts_manual_limit_datagram_response() {
         socket.send_to(&response, peer).await.unwrap();
     });
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = port;
     let client = SlmpClient::connect(options).await.unwrap();
@@ -479,7 +479,7 @@ async fn dword_helpers_use_random_dword_route_for_lz() {
     let server = MultiResponseServer::start(vec![build_dword_payload(&[0x1234_5678, 0x9ABC_DEF0])])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -704,7 +704,7 @@ async fn qualified_g_hg_extended_bit_routes_reach_transport() {
     let server = CapturingResponseServer::start(vec![(0, vec![0x10]), (0, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -746,7 +746,7 @@ async fn extended_random_iqr_payloads_match_dotnet_vectors() {
     ])
     .await
     .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -872,7 +872,8 @@ async fn extended_random_legacy_payloads_match_dotnet_vectors() {
     ])
     .await
     .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpuQj71E71100);
+    let mut options =
+        SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpuQj71E71100).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -1382,7 +1383,7 @@ async fn qnudv_strict_profile_false_sends_high_level_block_request() {
     let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x1234]))])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV).unwrap();
     options.port = server.port;
     options.strict_profile = false;
     let client = SlmpClient::connect(options).await.unwrap();
@@ -1412,7 +1413,7 @@ async fn raw_request_is_not_profile_feature_guarded() {
     let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x5555]))])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
     let payload = [
@@ -1483,7 +1484,7 @@ async fn iqf_config_dependent_g_route_is_not_guarded() {
     let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x0007]))])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -1515,7 +1516,7 @@ async fn profile_write_policy_is_enforced_even_when_strict_profile_is_false() {
     let server = CapturingResponseServer::start(vec![(0, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF).unwrap();
     options.port = server.port;
     let iqf = SlmpClient::connect(options).await.unwrap();
     iqf.write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::S, 0), &[true])
@@ -1572,7 +1573,7 @@ async fn direct_access_does_not_use_device_range_upper_bounds_as_send_guard() {
     let server = CapturingResponseServer::start(vec![(0, vec![0x34, 0x12]), (0, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -1597,7 +1598,7 @@ async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC05B, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -1640,7 +1641,7 @@ async fn mixed_block_write_does_not_retry_c056_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC056, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -1675,7 +1676,7 @@ async fn frame_3e_mock_nonzero_end_code_includes_error_info() {
     let server = CapturingResponseServer::start(vec![(0xC056, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 

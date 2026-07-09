@@ -776,8 +776,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.")]
     fn connection_options_reject_base_qcpu_profile() {
-        let _options = super::SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpu);
+        assert!(super::SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpu).is_err());
     }
 }

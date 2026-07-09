@@ -70,7 +70,7 @@ async fn label_writes_build_expected_payloads() {
 
 #[tokio::test]
 async fn oversized_label_payload_is_rejected_before_request_length_wraps() {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = 9;
     let client = SlmpClient::connect(options).await.unwrap();
@@ -93,7 +93,7 @@ async fn oversized_label_payload_is_rejected_before_request_length_wraps() {
 }
 
 async fn connect(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

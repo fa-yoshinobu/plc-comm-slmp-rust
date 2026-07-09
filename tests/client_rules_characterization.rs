@@ -111,7 +111,7 @@ impl ResponseServer {
 }
 
 async fn connect_client(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

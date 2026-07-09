@@ -559,7 +559,7 @@ async fn timeout_and_reconnect(
                     .read_words_raw(device(SlmpDeviceCode::D, 0), 1)
                     .await?;
                 client.close().await?;
-                Ok::<(), plc_comm_slmp::SlmpError>(())
+                Ok::<(), Box<dyn Error>>(())
             }
             .await;
             match result {
