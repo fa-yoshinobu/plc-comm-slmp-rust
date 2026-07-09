@@ -38,6 +38,7 @@ pub struct SlmpClient {
 enum Transport {
     Tcp(TcpStream),
     Udp(UdpSocket),
+    Closed,
 }
 
 struct ClientInner {
@@ -81,6 +82,7 @@ impl SlmpClient {
         if let Transport::Tcp(stream) = &mut inner.transport {
             stream.shutdown().await?;
         }
+        inner.transport = Transport::Closed;
         inner.last_request_frame.clear();
         inner.last_response_frame.clear();
         Ok(())
@@ -2078,32 +2080,53 @@ impl ClientInner {
 
         match &mut self.transport {
             Transport::Tcp(stream) => {
-                timeout(
-                    self.options.timeout,
-                    stream.write_all(&self.last_request_frame),
-                )
-                .await
-                .map_err(|_| SlmpError::new("tcp write timed out"))??;
-                self.traffic_stats.request_count += 1;
-                self.traffic_stats.tx_bytes += tx_len;
-                if !expect_response {
-                    self.last_response_frame.clear();
-                    return Ok(Vec::new());
-                }
-                loop {
-                    Self::receive_tcp_frame(
-                        stream,
+                let io_result = async {
+                    timeout(
                         self.options.timeout,
-                        &mut self.last_response_frame,
+                        stream.write_all(&self.last_request_frame),
                     )
-                    .await?;
-                    self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
-                    if Self::has_expected_response_serial(
-                        &self.last_response_frame,
-                        expected_serial,
-                    ) {
-                        break;
+                    .await
+                    .map_err(|_| SlmpError::new("tcp write timed out"))??;
+                    self.traffic_stats.request_count += 1;
+                    self.traffic_stats.tx_bytes += tx_len;
+                    if !expect_response {
+                        self.last_response_frame.clear();
+                        return Ok::<(), SlmpError>(());
                     }
+                    loop {
+                        Self::receive_tcp_frame(
+                            stream,
+                            self.options.frame_type,
+                            self.options.timeout,
+                            &mut self.last_response_frame,
+                        )
+                        .await?;
+                        self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                        if !Self::has_expected_response_frame_type(
+                            self.options.frame_type,
+                            &self.last_response_frame,
+                        ) {
+                            return Err(SlmpError::new("unexpected response frame type"));
+                        }
+                        if Self::has_expected_response_serial(
+                            &self.last_response_frame,
+                            expected_serial,
+                        ) {
+                            break;
+                        }
+                    }
+                    Ok(())
+                }
+                .await;
+                if let Err(error) = io_result {
+                    let transport = std::mem::replace(&mut self.transport, Transport::Closed);
+                    if let Transport::Tcp(mut broken_stream) = transport {
+                        let _ = broken_stream.shutdown().await;
+                    }
+                    return Err(error);
+                }
+                if !expect_response {
+                    return Ok(Vec::new());
                 }
                 Self::parse_response(command, subcommand, &self.last_response_frame)
             }
@@ -2129,6 +2152,12 @@ impl ClientInner {
                     .map_err(|_| SlmpError::new("udp receive timed out"))??;
                     self.last_response_frame.truncate(received);
                     self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                    if !Self::has_expected_response_frame_type(
+                        self.options.frame_type,
+                        &self.last_response_frame,
+                    ) {
+                        return Err(SlmpError::new("unexpected response frame type"));
+                    }
                     if Self::has_expected_response_serial(
                         &self.last_response_frame,
                         expected_serial,
@@ -2138,6 +2167,9 @@ impl ClientInner {
                 }
                 Self::parse_response(command, subcommand, &self.last_response_frame)
             }
+            Transport::Closed => Err(SlmpError::new(
+                "transport is closed after a previous TCP failure",
+            )),
         }
     }
 
@@ -2276,6 +2308,7 @@ impl ClientInner {
 
     async fn receive_tcp_frame(
         stream: &mut TcpStream,
+        frame_type: SlmpFrameType,
         timeout_duration: std::time::Duration,
         frame: &mut Vec<u8>,
     ) -> Result<(), SlmpError> {
@@ -2284,7 +2317,7 @@ impl ClientInner {
             .await
             .map_err(|_| SlmpError::new("tcp read timed out"))??;
 
-        if header[0] == 0xD4 && header[1] == 0x00 {
+        if matches!(frame_type, SlmpFrameType::Frame4E) && header[0] == 0xD4 && header[1] == 0x00 {
             timeout(timeout_duration, stream.read_exact(&mut header[2..13]))
                 .await
                 .map_err(|_| SlmpError::new("tcp read timed out"))??;
@@ -2297,7 +2330,7 @@ impl ClientInner {
             return Ok(());
         }
 
-        if header[0] == 0xD0 && header[1] == 0x00 {
+        if matches!(frame_type, SlmpFrameType::Frame3E) && header[0] == 0xD0 && header[1] == 0x00 {
             timeout(timeout_duration, stream.read_exact(&mut header[2..9]))
                 .await
                 .map_err(|_| SlmpError::new("tcp read timed out"))??;
@@ -2362,12 +2395,23 @@ impl ClientInner {
         Ok(response[header_size + 2..header_size + data_length].to_vec())
     }
 
+    fn has_expected_response_frame_type(frame_type: SlmpFrameType, response: &[u8]) -> bool {
+        match frame_type {
+            SlmpFrameType::Frame4E => {
+                response.len() >= 2 && response[0] == 0xD4 && response[1] == 0x00
+            }
+            SlmpFrameType::Frame3E => {
+                response.len() >= 2 && response[0] == 0xD0 && response[1] == 0x00
+            }
+        }
+    }
+
     fn has_expected_response_serial(response: &[u8], expected_serial: Option<u16>) -> bool {
         let Some(expected_serial) = expected_serial else {
             return true;
         };
         if response.len() < 4 || response[0] != 0xD4 || response[1] != 0x00 {
-            return true;
+            return false;
         }
         u16::from_le_bytes([response[2], response[3]]) == expected_serial
     }
@@ -2618,7 +2662,7 @@ mod tests {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         socket.connect("127.0.0.1:9").await.unwrap();
         ClientInner {
-            options: SlmpConnectionOptions::new("127.0.0.1", plc_profile),
+            options: SlmpConnectionOptions::new("127.0.0.1", plc_profile).unwrap(),
             transport: Transport::Udp(socket),
             serial: 0,
             last_request_frame: Vec::new(),

@@ -12,7 +12,8 @@ async fn read_device_range_catalog_uses_configured_unit_family_sd_window() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpuQj71E71100);
+    let mut options =
+        SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpuQj71E71100).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -54,7 +55,7 @@ async fn read_device_range_catalog_for_plc_profile_uses_only_profile_specific_sd
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -108,7 +109,7 @@ async fn read_device_range_catalog_for_plc_profile_exposes_iql_profile() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -162,7 +163,7 @@ async fn read_device_range_catalog_for_plc_profile_caps_iqr_sd_point_counts() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
@@ -194,7 +195,7 @@ async fn read_device_range_catalog_for_iqr_unit_reports_unit_profile() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqRRj71En71);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqRRj71En71).unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 

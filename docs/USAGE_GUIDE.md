@@ -41,7 +41,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
     options.timeout = Duration::from_secs(3);
     options.transport_mode = SlmpTransportMode::Tcp;
@@ -83,7 +83,7 @@ own address syntax.
 ```rust
 use plc_comm_slmp::{SlmpConnectionOptions, SlmpModuleIo, SlmpPlcProfile, SlmpTargetAddress};
 
-let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
 options.port = 1025;
 options.target = SlmpTargetAddress {
     network: 0x01,
@@ -116,7 +116,7 @@ use plc_comm_slmp::{
     SlmpPlcProfile,
 };
 
-let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
 options.port = 1025;
 
 let client = SlmpClient::connect(options).await?;
@@ -150,7 +150,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -191,7 +191,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -222,7 +222,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -248,7 +248,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -277,7 +277,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -305,7 +305,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -335,7 +335,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -439,7 +439,7 @@ use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
@@ -465,7 +465,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;

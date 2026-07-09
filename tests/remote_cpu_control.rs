@@ -48,7 +48,7 @@ async fn remote_reset_sends_fixed_reset_data() {
 }
 
 async fn connect(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

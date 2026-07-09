@@ -153,7 +153,13 @@ async fn main() {
         return;
     };
 
-    let mut options = SlmpConnectionOptions::new(host, plc_profile);
+    let mut options = match SlmpConnectionOptions::new(host, plc_profile) {
+        Ok(options) => options,
+        Err(error) => {
+            println!("{}", json!({"status": "error", "message": error.message}));
+            return;
+        }
+    };
     options.port = port;
     options.transport_mode = transport;
     options.strict_profile = strict_profile;

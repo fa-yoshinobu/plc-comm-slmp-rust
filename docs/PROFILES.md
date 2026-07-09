@@ -4,7 +4,9 @@ The canonical profile is the stable configuration value for PLC selection.
 `SlmpPlcProfile` is the Rust API selector that binds that profile to the SLMP
 frame and compatibility mode used by the client.
 Use `SlmpPlcProfile::display_name()` for UI labels. Store the canonical profile
-string, not the display name.
+string from `SlmpPlcProfile::canonical_name()`, not the display name. Use
+`SlmpPlcProfile::available_connection_profiles()` when a selector should list
+only profiles accepted by connection options.
 
 For cross-profile capability and device-range details, see the [SLMP Profile Reference](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/).
 
@@ -36,7 +38,7 @@ use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;

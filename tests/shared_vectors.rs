@@ -87,7 +87,7 @@ async fn frame_golden_vectors_match_shared_json() {
         let response_data = hex_decode(case["response_data_hex"].as_str().unwrap());
         let server = SingleShotServer::start(response_data).await.unwrap();
 
-        let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR);
+        let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
         options.port = server.port;
         let client = SlmpClient::connect(options).await.unwrap();
 

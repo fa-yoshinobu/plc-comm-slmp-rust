@@ -57,7 +57,7 @@ async fn run_transport(
 ) -> Result<Vec<String>, Box<dyn Error>> {
     let label = format!("{transport_mode:?}:{port}");
     let mut failures = Vec::new();
-    let options = options(host, port, transport_mode, 3_000);
+    let options = options(host, port, transport_mode, 3_000)?;
     let client = SlmpClient::connect(options.clone()).await?;
 
     println!("transport {label} -> start");
@@ -554,12 +554,12 @@ async fn timeout_and_reconnect(
         for attempt in 1..=3 {
             let result = async {
                 let client =
-                    SlmpClient::connect(options(host, port, transport_mode, 3_000)).await?;
+                    SlmpClient::connect(options(host, port, transport_mode, 3_000)?).await?;
                 let _ = client
                     .read_words_raw(device(SlmpDeviceCode::D, 0), 1)
                     .await?;
                 client.close().await?;
-                Ok::<(), plc_comm_slmp::SlmpError>(())
+                Ok::<(), Box<dyn Error>>(())
             }
             .await;
             match result {
@@ -598,7 +598,7 @@ async fn timeout_and_reconnect(
         SlmpTransportMode::Udp => port + 100,
     };
     let bad_result = async {
-        let client = SlmpClient::connect(options(host, bad_port, transport_mode, 500)).await?;
+        let client = SlmpClient::connect(options(host, bad_port, transport_mode, 500)?).await?;
         client
             .read_words_raw(device(SlmpDeviceCode::D, 0), 1)
             .await?;
@@ -615,7 +615,7 @@ async fn timeout_and_reconnect(
         bad_result.unwrap_err()
     );
 
-    let client = SlmpClient::connect(options(host, port, transport_mode, 3_000)).await?;
+    let client = SlmpClient::connect(options(host, port, transport_mode, 3_000)?).await?;
     let _ = client
         .read_words_raw(device(SlmpDeviceCode::D, 0), 1)
         .await?;
@@ -670,12 +670,12 @@ fn options(
     port: u16,
     transport_mode: SlmpTransportMode,
     timeout_ms: u64,
-) -> SlmpConnectionOptions {
-    let mut options = SlmpConnectionOptions::new(host, SlmpPlcProfile::IqL);
+) -> Result<SlmpConnectionOptions, Box<dyn Error>> {
+    let mut options = SlmpConnectionOptions::new(host, SlmpPlcProfile::IqL)?;
     options.port = port;
     options.transport_mode = transport_mode;
     options.timeout = Duration::from_millis(timeout_ms);
-    options
+    Ok(options)
 }
 
 fn device(code: SlmpDeviceCode, number: u32) -> SlmpDeviceAddress {
