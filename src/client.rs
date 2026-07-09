@@ -2128,11 +2128,7 @@ impl ClientInner {
                 if !expect_response {
                     return Ok(Vec::new());
                 }
-                Self::parse_response(
-                    command,
-                    subcommand,
-                    &self.last_response_frame,
-                )
+                Self::parse_response(command, subcommand, &self.last_response_frame)
             }
             Transport::Udp(socket) => {
                 timeout(self.options.timeout, socket.send(&self.last_request_frame))
@@ -2169,13 +2165,11 @@ impl ClientInner {
                         break;
                     }
                 }
-                Self::parse_response(
-                    command,
-                    subcommand,
-                    &self.last_response_frame,
-                )
+                Self::parse_response(command, subcommand, &self.last_response_frame)
             }
-            Transport::Closed => Err(SlmpError::new("transport is closed after a previous TCP failure")),
+            Transport::Closed => Err(SlmpError::new(
+                "transport is closed after a previous TCP failure",
+            )),
         }
     }
 
@@ -2403,8 +2397,12 @@ impl ClientInner {
 
     fn has_expected_response_frame_type(frame_type: SlmpFrameType, response: &[u8]) -> bool {
         match frame_type {
-            SlmpFrameType::Frame4E => response.len() >= 2 && response[0] == 0xD4 && response[1] == 0x00,
-            SlmpFrameType::Frame3E => response.len() >= 2 && response[0] == 0xD0 && response[1] == 0x00,
+            SlmpFrameType::Frame4E => {
+                response.len() >= 2 && response[0] == 0xD4 && response[1] == 0x00
+            }
+            SlmpFrameType::Frame3E => {
+                response.len() >= 2 && response[0] == 0xD0 && response[1] == 0x00
+            }
         }
     }
 
