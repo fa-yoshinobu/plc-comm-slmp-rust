@@ -174,7 +174,7 @@ pub(crate) fn build_catalog(
     }
 
     Ok(SlmpDeviceRangeCatalog {
-        model: profile_label(profile.plc_profile).to_string(),
+        model: device_range_model_label(profile.plc_profile).to_string(),
         model_code: 0,
         has_model_code: false,
         plc_profile: profile.plc_profile,
@@ -188,7 +188,7 @@ pub(crate) fn build_catalog_for_plc_profile(
 ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
     let profile = resolve_profile_for_plc_profile(plc_profile);
     let mut catalog = build_catalog(&profile, registers)?;
-    catalog.model = profile_label(plc_profile).to_string();
+    catalog.model = device_range_model_label(plc_profile).to_string();
     catalog.plc_profile = plc_profile;
     Ok(catalog)
 }
@@ -216,7 +216,7 @@ pub(crate) fn replace_fixed_point_count(
     catalog
 }
 
-pub(crate) fn profile_label(plc_profile: SlmpPlcProfile) -> &'static str {
+pub(crate) fn device_range_model_label(plc_profile: SlmpPlcProfile) -> &'static str {
     match plc_profile {
         SlmpPlcProfile::IqR => "IQ-R",
         SlmpPlcProfile::IqRRj71En71 => "iQ-R via RJ71EN71",

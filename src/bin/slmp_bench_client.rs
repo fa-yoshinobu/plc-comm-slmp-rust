@@ -28,7 +28,7 @@ async fn run() -> Result<Value, String> {
 }
 
 async fn measure_with_persistent_client(config: &BenchConfig) -> Result<Value, String> {
-    let client = SlmpClient::connect(config.connection_options())
+    let client = SlmpClient::connect(config.connection_options()?)
         .await
         .map_err(err_msg)?;
 
@@ -266,7 +266,7 @@ async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<S
 async fn connect_once(config: &BenchConfig) -> Result<String, String> {
     let client = timeout(
         config.operation_timeout,
-        SlmpClient::connect(config.connection_options()),
+        SlmpClient::connect(config.connection_options()?),
     )
     .await
     .map_err(|_| "connect timeout".to_string())?
@@ -276,7 +276,7 @@ async fn connect_once(config: &BenchConfig) -> Result<String, String> {
 }
 
 async fn timeout_once(config: &BenchConfig) -> Result<String, String> {
-    let mut options = config.connection_options();
+    let mut options = config.connection_options()?;
     options.host = "127.0.0.1".to_string();
     options.port = 1;
     options.timeout = Duration::from_millis(500);
@@ -434,13 +434,14 @@ impl BenchConfig {
         })
     }
 
-    fn connection_options(&self) -> SlmpConnectionOptions {
-        let mut options = SlmpConnectionOptions::new(self.host.clone(), self.plc_profile);
+    fn connection_options(&self) -> Result<SlmpConnectionOptions, String> {
+        let mut options = SlmpConnectionOptions::new(self.host.clone(), self.plc_profile)
+            .map_err(|error| error.message)?;
         options.port = self.port;
         options.transport_mode = self.transport;
         options.target = self.target;
         options.timeout = self.operation_timeout;
-        options
+        Ok(options)
     }
 }
 

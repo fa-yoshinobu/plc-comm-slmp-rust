@@ -51,7 +51,7 @@ pub fn env_csv(key: &str, default: &str) -> Vec<String> {
 pub fn options_from_env() -> Result<SlmpConnectionOptions, Box<dyn Error>> {
     let host = env_string("SLMP_HOST", "192.168.250.100");
     let plc_profile = parse_plc_profile(&env_profile_label()?)?;
-    let mut options = SlmpConnectionOptions::new(host, plc_profile);
+    let mut options = SlmpConnectionOptions::new(host, plc_profile)?;
     let transport = env_transport_label();
     options.port = env_port_label().parse()?;
     options.transport_mode = match transport.to_ascii_lowercase().as_str() {

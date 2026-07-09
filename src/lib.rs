@@ -25,7 +25,7 @@
 //!     .enable_all()
 //!     .build()?;
 //! runtime.block_on(async {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
 //!     options.port = 1025;
 //!
 //!     let client = SlmpClient::connect(options).await?;
@@ -49,7 +49,7 @@
 //!     .enable_all()
 //!     .build()?;
 //! runtime.block_on(async {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF);
+//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF)?;
 //!     options.port = 1025;
 //!     let client = SlmpClient::connect(options).await?;
 //!

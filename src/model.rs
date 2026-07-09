@@ -44,6 +44,28 @@ pub struct SlmpPlcProfileDefaults {
 }
 
 impl SlmpPlcProfile {
+    /// Return the profiles that can be used to open a connection.
+    ///
+    /// The abstract `melsec:qcpu` base profile is intentionally excluded;
+    /// callers must choose its concrete module route instead.
+    pub fn available_connection_profiles() -> &'static [Self] {
+        &[
+            Self::IqF,
+            Self::IqR,
+            Self::IqRRj71En71,
+            Self::IqL,
+            Self::MxF,
+            Self::MxR,
+            Self::QCpuQj71E71100,
+            Self::LCpu,
+            Self::LCpuLj71E71100,
+            Self::QnU,
+            Self::QnUQj71E71100,
+            Self::QnUDV,
+            Self::QnUDVQj71E71100,
+        ]
+    }
+
     pub fn canonical_name(self) -> &'static str {
         match self {
             Self::IqF => "melsec:iq-f",
@@ -148,11 +170,13 @@ impl SlmpPlcProfile {
         matches!(self, Self::QCpu)
     }
 
-    pub fn assert_connection_selectable(self) {
-        assert!(
-            !self.is_base_profile(),
-            "melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100."
-        );
+    pub fn validate_connection_selectable(self) -> Result<(), crate::error::SlmpError> {
+        if self.is_base_profile() {
+            return Err(crate::error::SlmpError::new(
+                "melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.",
+            ));
+        }
+        Ok(())
     }
 
     pub fn uses_iqf_xy_octal(self) -> bool {
@@ -647,10 +671,13 @@ pub struct SlmpConnectionOptions {
 }
 
 impl SlmpConnectionOptions {
-    pub fn new(host: impl Into<String>, plc_profile: SlmpPlcProfile) -> Self {
-        plc_profile.assert_connection_selectable();
+    pub fn new(
+        host: impl Into<String>,
+        plc_profile: SlmpPlcProfile,
+    ) -> Result<Self, crate::error::SlmpError> {
+        plc_profile.validate_connection_selectable()?;
         let defaults = plc_profile.defaults();
-        Self {
+        Ok(Self {
             host: host.into(),
             port: 1025,
             timeout: Duration::from_secs(3),
@@ -662,7 +689,7 @@ impl SlmpConnectionOptions {
             transport_mode: SlmpTransportMode::Tcp,
             monitoring_timer: 0x0010,
             strict_profile: true,
-        }
+        })
     }
 
     pub fn plc_profile(&self) -> SlmpPlcProfile {
@@ -677,12 +704,16 @@ impl SlmpConnectionOptions {
         self.compatibility_mode
     }
 
-    pub fn set_plc_profile(&mut self, plc_profile: SlmpPlcProfile) {
-        plc_profile.assert_connection_selectable();
+    pub fn set_plc_profile(
+        &mut self,
+        plc_profile: SlmpPlcProfile,
+    ) -> Result<(), crate::error::SlmpError> {
+        plc_profile.validate_connection_selectable()?;
         let defaults = plc_profile.defaults();
         self.plc_profile = plc_profile;
         self.frame_type = defaults.frame_type;
         self.compatibility_mode = defaults.compatibility_mode;
+        Ok(())
     }
 }
 

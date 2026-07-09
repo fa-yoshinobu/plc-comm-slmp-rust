@@ -17,6 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-10
+
+### Changed
+- Release: Bumped the main crate metadata to `2.0.1` and the `slmp-node` workspace crate to `1.0.3`.
+
+### BREAKING
+- Library: `SlmpConnectionOptions::new` and `set_plc_profile` now return `Result` for invalid connection profiles instead of panicking.
+
+### Added
+- Library: Added `SlmpPlcProfile::available_connection_profiles()` for selectors that must exclude the base-only `melsec:qcpu` profile.
+
+### Changed
+- Library: Renamed the internal device-range model-label helper to clarify that it is not a canonical profile identifier.
+- Docs: Updated connection examples and profile guidance for the recoverable error API.
+
 ## [2.0.0] - 2026-07-06
 
 ### BREAKING

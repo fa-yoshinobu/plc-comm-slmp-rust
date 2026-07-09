@@ -277,7 +277,7 @@ fn options_for(endpoint: &PlcEndpoint) -> MonitorResult<SlmpConnectionOptions> {
     if profile.is_base_profile() {
         return Err("melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.".into());
     }
-    let mut options = SlmpConnectionOptions::new(endpoint.host.clone(), profile);
+    let mut options = SlmpConnectionOptions::new(endpoint.host.clone(), profile)?;
     options.port = endpoint.port;
     options.timeout = Duration::from_millis(endpoint.timeout_ms);
     options.transport_mode = match endpoint.transport.as_str() {

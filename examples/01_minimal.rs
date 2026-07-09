@@ -4,7 +4,7 @@ use plc_comm_slmp::{SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfi
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR);
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
     options.port = 1025;
 
     let client = SlmpClient::connect(options).await?;
