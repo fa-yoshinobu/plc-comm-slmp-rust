@@ -1,7 +1,7 @@
 use crate::model::{SlmpDeviceCode, SlmpPlcProfile};
 
 pub(crate) const CANONICAL_SOURCE: &str =
-    "plc-comm-slmp-profiles v1.2.2 capability/slmp_builtin_ethernet_profiles.json";
+    "plc-comm-slmp-profiles main capability/slmp_ethernet_profiles.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SlmpProfileFeatureState {
@@ -1541,7 +1541,7 @@ mod tests {
 
     #[test]
     fn builtin_capability_profiles_match_canonical_fixture() {
-        let fixture = include_str!("../tests/fixtures/slmp_builtin_ethernet_profiles.json");
+        let fixture = include_str!("../tests/fixtures/slmp_ethernet_profiles.json");
         let expected: Value = serde_json::from_str(fixture).unwrap();
         let expected_profiles = expected["profiles"].as_object().unwrap();
         let actual: BTreeMap<_, _> = BUILTIN_CAPABILITY_PROFILES
