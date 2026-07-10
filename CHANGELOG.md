@@ -17,7 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-10
+
+### Added
+- Library: Added `SlmpPlcProfileDescriptor` and crate-root `plc_profile_descriptors()` for canonical SLMP profile metadata.
+
 ### Changed
+- Release: Bumped the main crate metadata to `3.1.0`; the `slmp-node` workspace crate remains `1.0.3`.
 - Tooling: Pinned canonical SLMP profile imports to immutable profile commit `e7e8f071ff1819a6b088b6a793e6f08029c54e38`.
 
 ## [3.0.0] - 2026-07-10

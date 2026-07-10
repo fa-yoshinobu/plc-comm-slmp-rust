@@ -142,8 +142,9 @@ pub use model::{
     SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
     SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
     SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpModuleIo, SlmpNamedTarget, SlmpPlcProfile,
-    SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress, SlmpTraceDirection,
-    SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpPlcProfileDescriptor, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
+    SlmpTraceDirection, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    plc_profile_descriptors,
 };
 pub use route_validation::{
     SlmpRouteValidationCase, SlmpRouteValidationOptions, SlmpRouteValidationReport,
