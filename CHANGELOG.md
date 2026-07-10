@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -17,13 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.1] - 2026-07-10
+## [3.0.0] - 2026-07-10
 
 ### Changed
-- Release: Bumped the main crate metadata to `2.0.1` and the `slmp-node` workspace crate to `1.0.3`.
+- Release: Bumped the main crate metadata to `3.0.0`; the `slmp-node` workspace crate remains `1.0.3`.
 
 ### BREAKING
-- Library: `SlmpConnectionOptions::new` and `set_plc_profile` now return `Result` for invalid connection profiles instead of panicking.
+- Library: Breaking: `SlmpConnectionOptions::new` and `set_plc_profile` now return `Result` for invalid connection profiles instead of panicking.
+- Migration: Handle the returned `Result` with `?` or explicit matching. Update callers that mutate options after construction to unwrap or propagate construction errors before accessing fields.
 
 ### Added
 - Library: Added `SlmpPlcProfile::available_connection_profiles()` for selectors that must exclude the base-only `melsec:qcpu` profile.
