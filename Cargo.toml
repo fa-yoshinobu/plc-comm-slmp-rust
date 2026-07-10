@@ -13,6 +13,8 @@ keywords = ["plc-comm", "slmp", "plc", "melsec", "mitsubishi"]
 categories = ["network-programming", "asynchronous"]
 include = [
     "Cargo.toml",
+    "LICENSE",
+    "CHANGELOG.md",
     "README.md",
     "src/**",
     "examples/**",

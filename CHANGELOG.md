@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Release: Bumped the main crate metadata to `3.0.0`; the `slmp-node` workspace crate remains `1.0.3`.
+- Packaging: Included LICENSE and CHANGELOG.md in the published crate.
+- Docs: Replaced relative README links with absolute URLs so they resolve on package registry pages.
 
 ### BREAKING
 - Library: Breaking: `SlmpConnectionOptions::new` and `set_plc_profile` now return `Result` for invalid connection profiles instead of panicking.
