@@ -144,6 +144,7 @@ pub use model::{
     SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpModuleIo, SlmpNamedTarget, SlmpPlcProfile,
     SlmpPlcProfileDescriptor, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
     SlmpTraceDirection, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    plc_profile_descriptors,
 };
 pub use route_validation::{
     SlmpRouteValidationCase, SlmpRouteValidationOptions, SlmpRouteValidationReport,

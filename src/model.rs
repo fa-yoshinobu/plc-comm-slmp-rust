@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -53,6 +54,23 @@ pub struct SlmpPlcProfileDescriptor {
 }
 
 impl SlmpPlcProfile {
+    pub const ALL: [Self; 14] = [
+        Self::IqF,
+        Self::IqR,
+        Self::IqRRj71En71,
+        Self::IqL,
+        Self::MxF,
+        Self::MxR,
+        Self::QCpu,
+        Self::QCpuQj71E71100,
+        Self::LCpu,
+        Self::LCpuLj71E71100,
+        Self::QnU,
+        Self::QnUQj71E71100,
+        Self::QnUDV,
+        Self::QnUDVQj71E71100,
+    ];
+
     /// Return the profiles that can be used to open a connection.
     ///
     /// The abstract `melsec:qcpu` base profile is intentionally excluded;
@@ -72,99 +90,6 @@ impl SlmpPlcProfile {
             Self::QnUQj71E71100,
             Self::QnUDV,
             Self::QnUDVQj71E71100,
-        ]
-    }
-
-    /// Return all canonical profiles with display, connection, and base-profile metadata.
-    ///
-    /// The abstract `melsec:qcpu` entry is included with `connectable` set to
-    /// `false` so selectors can explain why it cannot be opened directly.
-    pub fn profile_descriptors() -> &'static [SlmpPlcProfileDescriptor] {
-        &[
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:iq-f",
-                display_name: "MELSEC iQ-F (built-in)",
-                connectable: true,
-                base_profile: None,
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:iq-r",
-                display_name: "MELSEC iQ-R (built-in)",
-                connectable: true,
-                base_profile: None,
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:iq-r:rj71en71",
-                display_name: "MELSEC iQ-R (RJ71EN71)",
-                connectable: true,
-                base_profile: Some("melsec:iq-r"),
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:iq-l",
-                display_name: "MELSEC iQ-L (built-in)",
-                connectable: true,
-                base_profile: None,
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:mx-f",
-                display_name: "MELSEC MX-F (built-in)",
-                connectable: true,
-                base_profile: Some("melsec:iq-r"),
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:mx-r",
-                display_name: "MELSEC MX-R (built-in)",
-                connectable: true,
-                base_profile: Some("melsec:iq-r"),
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:qcpu",
-                display_name: "MELSEC-Q (base profile)",
-                connectable: false,
-                base_profile: Some("melsec:qnu"),
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:qcpu:qj71e71-100",
-                display_name: "MELSEC-Q (QJ71E71-100)",
-                connectable: true,
-                base_profile: Some("melsec:qcpu"),
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:lcpu",
-                display_name: "MELSEC-L (built-in)",
-                connectable: true,
-                base_profile: None,
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:lcpu:lj71e71-100",
-                display_name: "MELSEC-L (LJ71E71-100)",
-                connectable: true,
-                base_profile: Some("melsec:lcpu"),
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:qnu",
-                display_name: "MELSEC QnU (built-in)",
-                connectable: true,
-                base_profile: None,
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:qnu:qj71e71-100",
-                display_name: "MELSEC QnU (QJ71E71-100)",
-                connectable: true,
-                base_profile: Some("melsec:qnu"),
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:qnudv",
-                display_name: "MELSEC QnUDV (built-in)",
-                connectable: true,
-                base_profile: None,
-            },
-            SlmpPlcProfileDescriptor {
-                canonical_name: "melsec:qnudv:qj71e71-100",
-                display_name: "MELSEC QnUDV (QJ71E71-100)",
-                connectable: true,
-                base_profile: Some("melsec:qnudv"),
-            },
         ]
     }
 
@@ -203,6 +128,19 @@ impl SlmpPlcProfile {
             Self::QnUQj71E71100 => "MELSEC QnU (QJ71E71-100)",
             Self::QnUDV => "MELSEC QnUDV (built-in)",
             Self::QnUDVQj71E71100 => "MELSEC QnUDV (QJ71E71-100)",
+        }
+    }
+
+    pub fn base_profile(self) -> Option<&'static str> {
+        match self {
+            Self::IqRRj71En71 => Some("melsec:iq-r"),
+            Self::MxF | Self::MxR => Some("melsec:iq-r"),
+            Self::QCpu => Some("melsec:qnu"),
+            Self::QCpuQj71E71100 => Some("melsec:qcpu"),
+            Self::LCpuLj71E71100 => Some("melsec:lcpu"),
+            Self::QnUQj71E71100 => Some("melsec:qnu"),
+            Self::QnUDVQj71E71100 => Some("melsec:qnudv"),
+            _ => None,
         }
     }
 
@@ -293,19 +231,48 @@ impl SlmpPlcProfile {
     }
 }
 
+/// Return all canonical profiles with display, connection, and base-profile metadata.
+///
+/// The abstract `melsec:qcpu` entry is included with `connectable` set to
+/// `false` so selectors can explain why it cannot be opened directly.
+pub fn plc_profile_descriptors() -> &'static [SlmpPlcProfileDescriptor] {
+    static PROFILE_DESCRIPTORS: OnceLock<Vec<SlmpPlcProfileDescriptor>> = OnceLock::new();
+
+    PROFILE_DESCRIPTORS
+        .get_or_init(|| {
+            SlmpPlcProfile::ALL
+                .iter()
+                .map(|profile| SlmpPlcProfileDescriptor {
+                    canonical_name: profile.canonical_name(),
+                    display_name: profile.display_name(),
+                    connectable: !profile.is_base_profile(),
+                    base_profile: profile.base_profile(),
+                })
+                .collect()
+        })
+        .as_slice()
+}
+
 #[cfg(test)]
 mod plc_profile_descriptor_tests {
     use super::*;
     use serde_json::Value;
+    use std::collections::BTreeSet;
 
     #[test]
     fn profile_descriptors_match_canonical_profile_metadata() {
         let fixture = include_str!("../tests/fixtures/slmp_ethernet_profiles.json");
         let expected: Value = serde_json::from_str(fixture).unwrap();
         let expected_profiles = expected["profiles"].as_object().unwrap();
-        let descriptors = SlmpPlcProfile::profile_descriptors();
+        let descriptors = plc_profile_descriptors();
+        let expected_names: BTreeSet<_> = expected_profiles.keys().map(String::as_str).collect();
+        let actual_names: BTreeSet<_> = descriptors
+            .iter()
+            .map(|descriptor| descriptor.canonical_name)
+            .collect();
 
-        assert_eq!(descriptors.len(), 14);
+        assert_eq!(actual_names, expected_names);
+
         for descriptor in descriptors {
             let profile = &expected_profiles[descriptor.canonical_name];
             assert_eq!(
