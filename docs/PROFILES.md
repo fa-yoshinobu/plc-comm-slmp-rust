@@ -3,10 +3,10 @@
 The canonical profile is the stable configuration value for PLC selection.
 `SlmpPlcProfile` is the Rust API selector that binds that profile to the SLMP
 frame and compatibility mode used by the client.
-Use `SlmpPlcProfile::display_name()` for UI labels. Store the canonical profile
-string from `SlmpPlcProfile::canonical_name()`, not the display name. Use
-`SlmpPlcProfile::available_connection_profiles()` when a selector should list
-only profiles accepted by connection options.
+Use `SlmpPlcProfile::profile_descriptors()` when a UI or configuration schema
+needs the canonical name, display name, connection availability, and
+base-profile relationship in one list. The abstract `melsec:qcpu` entry is
+included with `connectable: false`. Store `canonical_name`, not `display_name`.
 
 For cross-profile capability and device-range details, see the [SLMP Profile Reference](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/).
 

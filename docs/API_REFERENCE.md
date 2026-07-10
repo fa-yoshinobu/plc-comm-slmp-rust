@@ -53,7 +53,7 @@ CPU-buffer access.
 
 | Operation | Public API |
 | --- | --- |
-| Connection options | `SlmpConnectionOptions`, `SlmpPlcProfile::available_connection_profiles`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
+| Connection options and profile descriptors | `SlmpConnectionOptions`, `SlmpPlcProfile::profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
 | Address parsing | `SlmpAddress::parse`, `SlmpAddress::parse_for_plc_profile`, `SlmpAddress::format`, `parse_device_for_plc_profile`, `parse_qualified_device` |
 | Typed values | `read_typed`, `write_typed` |
 | Named mixed snapshots | `read_named`, `write_named`, `poll_named` |
