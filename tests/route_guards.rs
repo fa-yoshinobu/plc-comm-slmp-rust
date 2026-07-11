@@ -1,8 +1,7 @@
 use plc_comm_slmp::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpCommand,
-    SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpExtensionSpec,
-    SlmpPlcProfile, SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue,
-    parse_qualified_device, read_dwords_chunked, read_dwords_single_request, read_named,
+    SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCommand, SlmpConnectionOptions,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpPlcProfile, SlmpQualifiedDeviceAddress,
+    SlmpTransportMode, SlmpValue, parse_qualified_device, read_dwords_single_request, read_named,
     read_typed, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,44 +12,30 @@ async fn udp_client() -> SlmpClient {
 }
 
 async fn udp_client_with_profile(plc_profile: SlmpPlcProfile) -> SlmpClient {
-    udp_client_with_profile_and_strict(plc_profile, true).await
-}
-
-async fn udp_client_with_profile_and_strict(
-    plc_profile: SlmpPlcProfile,
-    strict_profile: bool,
-) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
-    options.set_plc_profile(plc_profile).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        plc_profile,
+    )
+    .unwrap();
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = 9;
-    options.strict_profile = strict_profile;
     SlmpClient::connect(options).await.unwrap()
 }
 
-fn qualified_device(code: SlmpDeviceCode, number: u32) -> SlmpQualifiedDeviceAddress {
+fn qualified_device_for(
+    plc_profile: SlmpPlcProfile,
+    code: SlmpDeviceCode,
+    number: u32,
+) -> SlmpQualifiedDeviceAddress {
     SlmpQualifiedDeviceAddress {
-        device: SlmpDeviceAddress::new(code, number),
+        device: SlmpDeviceAddress::new(code, number, plc_profile),
         extension_specification: None,
         direct_memory_specification: None,
+        modification: None,
     }
-}
-
-fn slmp_request_body(request: &[u8]) -> &[u8] {
-    if request.starts_with(&[0x54, 0x00]) {
-        &request[13..]
-    } else {
-        &request[9..]
-    }
-}
-
-fn hex_bytes(hex: &str) -> Vec<u8> {
-    let compact: String = hex.chars().filter(|value| !value.is_whitespace()).collect();
-    assert_eq!(compact.len() % 2, 0);
-    (0..compact.len())
-        .step_by(2)
-        .map(|index| u8::from_str_radix(&compact[index..index + 2], 16).unwrap())
-        .collect()
 }
 
 struct MultiResponseServer {
@@ -283,12 +268,22 @@ async fn frame_4e_ignores_mismatched_serial_response() {
         .await
         .unwrap();
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let words = client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 1)
+        .read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
+            1,
+        )
         .await
         .unwrap();
 
@@ -300,7 +295,10 @@ async fn frame_4e_ignores_mismatched_serial_response() {
 async fn direct_bit_read_rejects_long_timer_state_devices() {
     let client = udp_client().await;
     let err = client
-        .read_bits(SlmpDeviceAddress::new(SlmpDeviceCode::LTS, 10), 1)
+        .read_bits(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LTS, 10, SlmpPlcProfile::IqR),
+            1,
+        )
         .await
         .unwrap_err();
     assert!(err.to_string().contains("Direct bit read is not supported"));
@@ -318,7 +316,14 @@ async fn close_shuts_down_tcp_stream() {
         let _ = sender.send(read_result);
     });
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqL,
+    )
+    .unwrap();
     options.port = port;
     let client = SlmpClient::connect(options).await.unwrap();
     client.close().await.unwrap();
@@ -364,13 +369,23 @@ async fn udp_read_words_accepts_manual_limit_datagram_response() {
         socket.send_to(&response, peer).await.unwrap();
     });
 
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let values = client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 960)
+        .read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
+            960,
+        )
         .await
         .unwrap();
 
@@ -380,10 +395,67 @@ async fn udp_read_words_accepts_manual_limit_datagram_response() {
 }
 
 #[tokio::test]
+async fn profile_mismatch_is_rejected_before_transport() {
+    let client = udp_client_with_profile(SlmpPlcProfile::IqF).await;
+    let error = client
+        .read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
+            1,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.message.contains("profile mismatch"));
+    assert!(error.message.contains("melsec:iq-r"));
+    assert!(error.message.contains("melsec:iq-f"));
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn aggregate_operations_reject_all_empty_inputs_before_transport() {
+    let client = udp_client().await;
+
+    assert!(client.read_random(&[], &[]).await.is_err());
+    assert!(client.read_random_ext(&[], &[]).await.is_err());
+    assert!(client.write_random_words(&[], &[]).await.is_err());
+    assert!(client.write_random_words_ext(&[], &[]).await.is_err());
+    assert!(client.write_random_bits(&[]).await.is_err());
+    assert!(client.write_random_bits_ext(&[]).await.is_err());
+    assert!(client.read_block(&[], &[]).await.is_err());
+    assert!(client.write_block(&[], &[]).await.is_err());
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn udp_timeout_closes_transport_before_another_request() {
+    let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.local_addr().unwrap().port(),
+        SlmpTransportMode::Udp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.timeout = std::time::Duration::from_millis(20);
+    let client = SlmpClient::connect(options).await.unwrap();
+    let address = SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR);
+
+    let first = client.read_words_raw(address, 1).await.unwrap_err();
+    assert!(first.message.contains("udp receive timed out"));
+    let second = client.read_words_raw(address, 1).await.unwrap_err();
+    assert!(second.message.contains("transport is closed"));
+    assert_eq!(client.traffic_stats().await.request_count, 1);
+}
+
+#[tokio::test]
 async fn direct_bit_write_rejects_long_counter_state_devices() {
     let client = udp_client().await;
     let err = client
-        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::LCC, 10), &[true])
+        .write_bits(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LCC, 10, SlmpPlcProfile::IqR),
+            &[true],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -396,13 +468,19 @@ async fn direct_bit_write_rejects_long_counter_state_devices() {
 async fn s_device_writes_are_rejected_before_transport() {
     let client = udp_client().await;
     let err = client
-        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::S, 10), &[true])
+        .write_bits(
+            SlmpDeviceAddress::new(SlmpDeviceCode::S, 10, SlmpPlcProfile::IqR),
+            &[true],
+        )
         .await
         .unwrap_err();
     assert!(err.to_string().contains("S is read-only"));
 
     let err = client
-        .write_random_bits(&[(SlmpDeviceAddress::new(SlmpDeviceCode::S, 10), true)])
+        .write_random_bits(&[(
+            SlmpDeviceAddress::new(SlmpDeviceCode::S, 10, SlmpPlcProfile::IqR),
+            true,
+        )])
         .await
         .unwrap_err();
     assert!(err.to_string().contains("profile read-only devices"));
@@ -412,7 +490,10 @@ async fn s_device_writes_are_rejected_before_transport() {
 async fn direct_bit_write_rejects_long_timer_state_devices() {
     let client = udp_client().await;
     let err = client
-        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::LTC, 10), &[true])
+        .write_bits(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LTC, 10, SlmpPlcProfile::IqR),
+            &[true],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -425,7 +506,10 @@ async fn direct_bit_write_rejects_long_timer_state_devices() {
 async fn direct_word_write_rejects_long_current_and_lz_devices() {
     let client = udp_client().await;
     let err = client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10), 4)
+        .read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
+            4,
+        )
         .await
         .unwrap_err();
     assert!(
@@ -434,7 +518,10 @@ async fn direct_word_write_rejects_long_current_and_lz_devices() {
     );
 
     let err = client
-        .write_words(SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10), &[1])
+        .write_words(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
+            &[1],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -443,7 +530,10 @@ async fn direct_word_write_rejects_long_current_and_lz_devices() {
     );
 
     let err = client
-        .write_words(SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1), &[1])
+        .write_words(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1, SlmpPlcProfile::IqR),
+            &[1],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -456,7 +546,10 @@ async fn direct_word_write_rejects_long_current_and_lz_devices() {
 async fn direct_dword_routes_reject_long_current_and_lz_devices() {
     let client = udp_client().await;
     let err = client
-        .read_dwords_raw(SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10), 1)
+        .read_dwords_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
+            1,
+        )
         .await
         .unwrap_err();
     assert!(
@@ -465,7 +558,10 @@ async fn direct_dword_routes_reject_long_current_and_lz_devices() {
     );
 
     let err = client
-        .write_dwords(SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1), &[1])
+        .write_dwords(
+            SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1, SlmpPlcProfile::IqR),
+            &[1],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -479,33 +575,38 @@ async fn dword_helpers_use_random_dword_route_for_lz() {
     let server = MultiResponseServer::start(vec![build_dword_payload(&[0x1234_5678, 0x9ABC_DEF0])])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqL).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqL,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
-    let values =
-        read_dwords_single_request(&client, SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0), 2)
-            .await
-            .unwrap();
+    let values = read_dwords_single_request(
+        &client,
+        SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0, SlmpPlcProfile::IqL),
+        2,
+    )
+    .await
+    .unwrap();
     assert_eq!(values, vec![0x1234_5678, 0x9ABC_DEF0]);
 }
 
 #[tokio::test]
 async fn dword_helpers_apply_lz_random_read_limits() {
     let client = udp_client().await;
-    let err =
-        read_dwords_single_request(&client, SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0), 97)
-            .await
-            .unwrap_err();
+    let err = read_dwords_single_request(
+        &client,
+        SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0, SlmpPlcProfile::IqR),
+        97,
+    )
+    .await
+    .unwrap_err();
     assert!(err.to_string().contains("1-96"));
-
-    let err = read_dwords_chunked(&client, SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 1, 0)
-        .await
-        .unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("max_dwords_per_request must be at least 1")
-    );
 }
 
 #[tokio::test]
@@ -514,7 +615,7 @@ async fn typed_lz_routes_reject_non_dword_dtypes() {
     for dtype in ["U", "S", "F", "BIT"] {
         let err = read_typed(
             &client,
-            SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1, SlmpPlcProfile::IqR),
             dtype,
         )
         .await
@@ -523,7 +624,7 @@ async fn typed_lz_routes_reject_non_dword_dtypes() {
 
         let err = write_typed(
             &client,
-            SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1, SlmpPlcProfile::IqR),
             dtype,
             &SlmpValue::U16(1),
         )
@@ -548,12 +649,12 @@ async fn direct_extended_bit_write_rejects_long_timer_state_devices() {
     let err = client
         .write_bits_extended(
             SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LSTS, 10),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::LSTS, 10, SlmpPlcProfile::IqR),
                 extension_specification: None,
                 direct_memory_specification: None,
+                modification: None,
             },
             &[true],
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -569,12 +670,12 @@ async fn direct_extended_bit_write_rejects_long_counter_state_devices() {
     let err = client
         .write_bits_extended(
             SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 10),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 10, SlmpPlcProfile::IqR),
                 extension_specification: None,
                 direct_memory_specification: None,
+                modification: None,
             },
             &[true],
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -590,12 +691,12 @@ async fn direct_extended_word_read_rejects_long_counter_current_devices() {
     let err = client
         .read_words_extended(
             SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
                 extension_specification: None,
                 direct_memory_specification: None,
+                modification: None,
             },
             4,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -611,12 +712,12 @@ async fn direct_extended_word_write_rejects_long_current_and_lz_devices() {
     let err = client
         .write_words_extended(
             SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LTN, 10),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::LTN, 10, SlmpPlcProfile::IqR),
                 extension_specification: None,
                 direct_memory_specification: None,
+                modification: None,
             },
             &[1],
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -628,12 +729,12 @@ async fn direct_extended_word_write_rejects_long_current_and_lz_devices() {
     let err = client
         .write_words_extended(
             SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1, SlmpPlcProfile::IqR),
                 extension_specification: None,
                 direct_memory_specification: None,
+                modification: None,
             },
             &[1],
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -645,15 +746,15 @@ async fn direct_extended_word_write_rejects_long_current_and_lz_devices() {
 
 #[test]
 fn parse_qualified_device_rejects_hg_outside_iqr_cpu_range() {
-    let g = parse_qualified_device(r"U1\G0").unwrap();
+    let g = parse_qualified_device(r"U1\G0", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap();
     assert_eq!(g.extension_specification, Some(0x0001));
     assert_eq!(g.direct_memory_specification, Some(0xF8));
 
-    let hg = parse_qualified_device(r"U3E0\HG0").unwrap();
+    let hg = parse_qualified_device(r"U3E0\HG0", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap();
     assert_eq!(hg.extension_specification, Some(0x03E0));
     assert_eq!(hg.direct_memory_specification, Some(0xFA));
 
-    let err = parse_qualified_device(r"U1\HG0").unwrap_err();
+    let err = parse_qualified_device(r"U1\HG0", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap_err();
     assert!(
         err.to_string()
             .contains("HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG")
@@ -667,12 +768,12 @@ async fn extended_g_hg_reject_unqualified_device_addresses() {
     let err = client
         .read_words_extended(
             SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::G, 0),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::G, 0, SlmpPlcProfile::IqR),
                 extension_specification: None,
                 direct_memory_specification: None,
+                modification: None,
             },
             1,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -684,12 +785,12 @@ async fn extended_g_hg_reject_unqualified_device_addresses() {
     let err = client
         .read_words_extended(
             SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::HG, 0),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::HG, 0, SlmpPlcProfile::IqR),
                 extension_specification: None,
                 direct_memory_specification: None,
+                modification: None,
             },
             1,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -704,15 +805,21 @@ async fn qualified_g_hg_extended_bit_routes_reach_transport() {
     let server = CapturingResponseServer::start(vec![(0, vec![0x10]), (0, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let values = client
         .read_bits_extended(
-            parse_qualified_device(r"U3E0\G10").unwrap(),
+            parse_qualified_device(r"U3E0\G10", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap(),
             1,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap();
@@ -720,9 +827,8 @@ async fn qualified_g_hg_extended_bit_routes_reach_transport() {
 
     client
         .write_bits_extended(
-            parse_qualified_device(r"U3E0\HG11").unwrap(),
+            parse_qualified_device(r"U3E0\HG11", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap(),
             &[true],
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap();
@@ -738,262 +844,11 @@ async fn qualified_g_hg_extended_bit_routes_reach_transport() {
 }
 
 #[tokio::test]
-async fn extended_random_iqr_payloads_match_dotnet_vectors() {
-    let server = CapturingResponseServer::start(vec![
-        (0, vec![0x34, 0x12, 0xEF, 0xCD, 0xAB, 0x89]),
-        (0, Vec::new()),
-        (0, Vec::new()),
-    ])
-    .await
-    .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
-    options.port = server.port;
-    let client = SlmpClient::connect(options).await.unwrap();
-
-    let read = client
-        .read_random_ext(
-            &[(
-                qualified_device(SlmpDeviceCode::D, 100),
-                SlmpExtensionSpec {
-                    extension_specification: 0x0102,
-                    extension_specification_modification: 0x03,
-                    device_modification_index: 0x04,
-                    device_modification_flags: 0x05,
-                    direct_memory_specification: 0x06,
-                },
-            )],
-            &[(
-                parse_qualified_device(r"U01\G10").unwrap(),
-                SlmpExtensionSpec {
-                    extension_specification: 0x9999,
-                    extension_specification_modification: 0x07,
-                    device_modification_index: 0x08,
-                    device_modification_flags: 0x09,
-                    ..SlmpExtensionSpec::default()
-                },
-            )],
-        )
-        .await
-        .unwrap();
-    assert_eq!(read.word_values, vec![0x1234]);
-    assert_eq!(read.dword_values, vec![0x89AB_CDEF]);
-
-    client
-        .write_random_words_ext(
-            &[(
-                qualified_device(SlmpDeviceCode::D, 10),
-                0x1234,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0001,
-                    ..SlmpExtensionSpec::default()
-                },
-            )],
-            &[(
-                qualified_device(SlmpDeviceCode::W, 0x20),
-                0x89AB_CDEF,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0002,
-                    ..SlmpExtensionSpec::default()
-                },
-            )],
-        )
-        .await
-        .unwrap();
-
-    client
-        .write_random_bits_ext(&[
-            (
-                qualified_device(SlmpDeviceCode::M, 7),
-                true,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0003,
-                    ..SlmpExtensionSpec::default()
-                },
-            ),
-            (
-                qualified_device(SlmpDeviceCode::M, 8),
-                false,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0004,
-                    ..SlmpExtensionSpec::default()
-                },
-            ),
-        ])
-        .await
-        .unwrap();
-
-    let requests = server.requests().await;
-    assert_eq!(requests.len(), 3);
-
-    let read_body = slmp_request_body(&requests[0]);
-    assert_eq!(u16::from_le_bytes([read_body[2], read_body[3]]), 0x0403);
-    assert_eq!(u16::from_le_bytes([read_body[4], read_body[5]]), 0x0082);
-    assert_eq!(
-        &read_body[6..],
-        hex_bytes("0101040564000000A800030002010608090A000000AB0007000100F8").as_slice()
-    );
-
-    let word_write_body = slmp_request_body(&requests[1]);
-    assert_eq!(
-        u16::from_le_bytes([word_write_body[2], word_write_body[3]]),
-        0x1402
-    );
-    assert_eq!(
-        u16::from_le_bytes([word_write_body[4], word_write_body[5]]),
-        0x0082
-    );
-    assert_eq!(
-        &word_write_body[6..],
-        hex_bytes("010100000A000000A80000000100003412000020000000B4000000020000EFCDAB89")
-            .as_slice()
-    );
-
-    let bit_write_body = slmp_request_body(&requests[2]);
-    assert_eq!(
-        u16::from_le_bytes([bit_write_body[2], bit_write_body[3]]),
-        0x1402
-    );
-    assert_eq!(
-        u16::from_le_bytes([bit_write_body[4], bit_write_body[5]]),
-        0x0083
-    );
-    assert_eq!(
-        &bit_write_body[6..],
-        hex_bytes("02000007000000900000000300000100000008000000900000000400000000").as_slice()
-    );
-}
-
-#[tokio::test]
-async fn extended_random_legacy_payloads_match_dotnet_vectors() {
-    let server = CapturingResponseServer::start(vec![
-        (0, vec![0x34, 0x12, 0xEF, 0xCD, 0xAB, 0x89]),
-        (0, Vec::new()),
-        (0, Vec::new()),
-    ])
-    .await
-    .unwrap();
-    let mut options =
-        SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpuQj71E71100).unwrap();
-    options.port = server.port;
-    let client = SlmpClient::connect(options).await.unwrap();
-
-    let read = client
-        .read_random_ext(
-            &[(
-                qualified_device(SlmpDeviceCode::D, 100),
-                SlmpExtensionSpec {
-                    extension_specification: 0x0001,
-                    ..SlmpExtensionSpec::default()
-                },
-            )],
-            &[(
-                qualified_device(SlmpDeviceCode::D, 200),
-                SlmpExtensionSpec {
-                    extension_specification: 0x0002,
-                    ..SlmpExtensionSpec::default()
-                },
-            )],
-        )
-        .await
-        .unwrap();
-    assert_eq!(read.word_values, vec![0x1234]);
-    assert_eq!(read.dword_values, vec![0x89AB_CDEF]);
-
-    client
-        .write_random_words_ext(
-            &[(
-                qualified_device(SlmpDeviceCode::D, 10),
-                0x1234,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0001,
-                    ..SlmpExtensionSpec::default()
-                },
-            )],
-            &[(
-                qualified_device(SlmpDeviceCode::W, 0x20),
-                0x89AB_CDEF,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0002,
-                    ..SlmpExtensionSpec::default()
-                },
-            )],
-        )
-        .await
-        .unwrap();
-
-    client
-        .write_random_bits_ext(&[
-            (
-                qualified_device(SlmpDeviceCode::M, 7),
-                true,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0003,
-                    ..SlmpExtensionSpec::default()
-                },
-            ),
-            (
-                qualified_device(SlmpDeviceCode::M, 8),
-                false,
-                SlmpExtensionSpec {
-                    extension_specification: 0x0004,
-                    ..SlmpExtensionSpec::default()
-                },
-            ),
-        ])
-        .await
-        .unwrap();
-
-    let requests = server.requests().await;
-    assert_eq!(requests.len(), 3);
-
-    let read_body = slmp_request_body(&requests[0]);
-    assert_eq!(u16::from_le_bytes([read_body[2], read_body[3]]), 0x0403);
-    assert_eq!(u16::from_le_bytes([read_body[4], read_body[5]]), 0x0080);
-    assert_eq!(
-        &read_body[6..],
-        hex_bytes("01010000640000A800000100000000C80000A80000020000").as_slice()
-    );
-
-    let word_write_body = slmp_request_body(&requests[1]);
-    assert_eq!(
-        u16::from_le_bytes([word_write_body[2], word_write_body[3]]),
-        0x1402
-    );
-    assert_eq!(
-        u16::from_le_bytes([word_write_body[4], word_write_body[5]]),
-        0x0080
-    );
-    assert_eq!(
-        &word_write_body[6..],
-        hex_bytes("010100000A0000A8000001000034120000200000B40000020000EFCDAB89").as_slice()
-    );
-
-    let bit_write_body = slmp_request_body(&requests[2]);
-    assert_eq!(
-        u16::from_le_bytes([bit_write_body[2], bit_write_body[3]]),
-        0x1402
-    );
-    assert_eq!(
-        u16::from_le_bytes([bit_write_body[4], bit_write_body[5]]),
-        0x0081
-    );
-    assert_eq!(
-        &bit_write_body[6..],
-        hex_bytes("02000007000090000003000001000008000090000004000000").as_slice()
-    );
-}
-
-#[tokio::test]
 async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
     let iqf = udp_client_with_profile(SlmpPlcProfile::IqF).await;
 
     let read_devices: Vec<_> = (0..97)
-        .map(|index| {
-            (
-                qualified_device(SlmpDeviceCode::D, index),
-                SlmpExtensionSpec::default(),
-            )
-        })
+        .map(|index| qualified_device_for(SlmpPlcProfile::IqF, SlmpDeviceCode::D, index))
         .collect();
     assert!(
         iqf.read_random_ext(&read_devices, &[])
@@ -1006,9 +861,8 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
     let word_entries: Vec<_> = (0..81)
         .map(|index| {
             (
-                qualified_device(SlmpDeviceCode::D, 8000 + index),
+                qualified_device_for(SlmpPlcProfile::IqF, SlmpDeviceCode::D, 8000 + index),
                 0,
-                SlmpExtensionSpec::default(),
             )
         })
         .collect();
@@ -1023,9 +877,8 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
     let bit_entries: Vec<_> = (0..95)
         .map(|index| {
             (
-                qualified_device(SlmpDeviceCode::M, 4000 + index),
+                qualified_device_for(SlmpPlcProfile::IqF, SlmpDeviceCode::M, 4000 + index),
                 false,
-                SlmpExtensionSpec::default(),
             )
         })
         .collect();
@@ -1039,12 +892,7 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
 
     let qcpu = udp_client_with_profile(SlmpPlcProfile::QCpuQj71E71100).await;
     let qcpu_read_devices: Vec<_> = (0..186)
-        .map(|index| {
-            (
-                qualified_device(SlmpDeviceCode::D, index),
-                SlmpExtensionSpec::default(),
-            )
-        })
+        .map(|index| qualified_device_for(SlmpPlcProfile::QCpuQj71E71100, SlmpDeviceCode::D, index))
         .collect();
     assert!(
         qcpu.read_random_ext(&qcpu_read_devices, &[])
@@ -1059,13 +907,19 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
 async fn standalone_g_hg_random_bit_writes_are_rejected() {
     let client = udp_client().await;
     let err = client
-        .write_random_bits(&[(SlmpDeviceAddress::new(SlmpDeviceCode::G, 10), true)])
+        .write_random_bits(&[(
+            SlmpDeviceAddress::new(SlmpDeviceCode::G, 10, SlmpPlcProfile::IqR),
+            true,
+        )])
         .await
         .unwrap_err();
     assert!(err.to_string().contains("standalone G/HG bit entries"));
 
     let err = client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::G, 10), 1)
+        .read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::G, 10, SlmpPlcProfile::IqR),
+            1,
+        )
         .await
         .unwrap_err();
     assert!(err.to_string().contains("standalone G/HG"));
@@ -1075,7 +929,14 @@ async fn standalone_g_hg_random_bit_writes_are_rejected() {
 async fn random_read_rejects_long_timer_state_devices() {
     let client = udp_client().await;
     let err = client
-        .read_random(&[SlmpDeviceAddress::new(SlmpDeviceCode::LTC, 10)], &[])
+        .read_random(
+            &[SlmpDeviceAddress::new(
+                SlmpDeviceCode::LTC,
+                10,
+                SlmpPlcProfile::IqR,
+            )],
+            &[],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -1088,7 +949,14 @@ async fn random_read_rejects_long_timer_state_devices() {
 async fn random_word_routes_reject_long_current_and_lz_devices() {
     let client = udp_client().await;
     let err = client
-        .read_random(&[SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10)], &[])
+        .read_random(
+            &[SlmpDeviceAddress::new(
+                SlmpDeviceCode::LCN,
+                10,
+                SlmpPlcProfile::IqR,
+            )],
+            &[],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -1097,7 +965,13 @@ async fn random_word_routes_reject_long_current_and_lz_devices() {
     );
 
     let err = client
-        .write_random_words(&[(SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1), 1)], &[])
+        .write_random_words(
+            &[(
+                SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1, SlmpPlcProfile::IqR),
+                1,
+            )],
+            &[],
+        )
         .await
         .unwrap_err();
     assert!(
@@ -1112,7 +986,10 @@ async fn manual_point_limits_reject_overruns_before_transport() {
 
     assert!(
         client
-            .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 961)
+            .read_words_raw(
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
+                961
+            )
             .await
             .unwrap_err()
             .to_string()
@@ -1120,7 +997,10 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     );
     assert!(
         client
-            .write_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), &vec![0; 961])
+            .write_words(
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
+                &vec![0; 961]
+            )
             .await
             .unwrap_err()
             .to_string()
@@ -1128,7 +1008,10 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     );
     assert!(
         client
-            .read_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 0), 7169)
+            .read_bits(
+                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, SlmpPlcProfile::IqR),
+                7169
+            )
             .await
             .unwrap_err()
             .to_string()
@@ -1137,7 +1020,7 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     assert!(
         client
             .write_bits(
-                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0),
+                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, SlmpPlcProfile::IqR),
                 &vec![false; 7169]
             )
             .await
@@ -1149,7 +1032,10 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     let iqf_client = udp_client_with_profile(SlmpPlcProfile::IqF).await;
     assert!(
         iqf_client
-            .read_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 0), 3585)
+            .read_bits(
+                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, SlmpPlcProfile::IqF),
+                3585
+            )
             .await
             .unwrap_err()
             .to_string()
@@ -1158,7 +1044,7 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     assert!(
         iqf_client
             .write_bits(
-                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0),
+                SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, SlmpPlcProfile::IqF),
                 &vec![false; 3585]
             )
             .await
@@ -1168,7 +1054,12 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     );
 
     let random_words: Vec<_> = (0..81)
-        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000 + i), 0))
+        .map(|i| {
+            (
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000 + i, SlmpPlcProfile::IqR),
+                0,
+            )
+        })
         .collect();
     assert!(
         client
@@ -1180,7 +1071,12 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     );
 
     let random_dwords: Vec<_> = (0..69)
-        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000 + (i * 2)), 0))
+        .map(|i| {
+            (
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000 + (i * 2), SlmpPlcProfile::IqR),
+                0,
+            )
+        })
         .collect();
     assert!(
         client
@@ -1192,7 +1088,12 @@ async fn manual_point_limits_reject_overruns_before_transport() {
     );
 
     let random_bits: Vec<_> = (0..95)
-        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::M, 4000 + i), false))
+        .map(|i| {
+            (
+                SlmpDeviceAddress::new(SlmpDeviceCode::M, 4000 + i, SlmpPlcProfile::IqR),
+                false,
+            )
+        })
         .collect();
     assert!(
         client
@@ -1207,7 +1108,7 @@ async fn manual_point_limits_reject_overruns_before_transport() {
         client
             .read_block(
                 &[SlmpBlockRead {
-                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 0),
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
                     points: 961,
                 }],
                 &[],
@@ -1221,11 +1122,10 @@ async fn manual_point_limits_reject_overruns_before_transport() {
         client
             .write_block(
                 &[SlmpBlockWrite {
-                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000),
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 8000, SlmpPlcProfile::IqR),
                     values: vec![0; 952],
                 }],
                 &[],
-                None,
             )
             .await
             .unwrap_err()
@@ -1273,7 +1173,7 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
     let err = client
         .read_block(
             &[plc_comm_slmp::SlmpBlockRead {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
                 points: 4,
             }],
             &[],
@@ -1285,11 +1185,10 @@ async fn block_routes_reject_lcn_lz_and_long_current_write_blocks() {
     let err = client
         .write_block(
             &[plc_comm_slmp::SlmpBlockWrite {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 0, SlmpPlcProfile::IqR),
                 values: vec![1, 0],
             }],
             &[],
-            None,
         )
         .await
         .unwrap_err();
@@ -1304,11 +1203,11 @@ async fn ql_builtin_profiles_use_profile_feature_guard_before_transport() {
         let err = client
             .read_block(
                 &[SlmpBlockRead {
-                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, profile),
                     points: 1,
                 }],
                 &[SlmpBlockRead {
-                    device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 100),
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, profile),
                     points: 1,
                 }],
             )
@@ -1323,14 +1222,13 @@ async fn ql_builtin_profiles_use_profile_feature_guard_before_transport() {
         let err = client
             .write_block(
                 &[SlmpBlockWrite {
-                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, profile),
                     values: vec![1],
                 }],
                 &[SlmpBlockWrite {
-                    device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 100),
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, profile),
                     values: vec![1],
                 }],
-                None,
             )
             .await
             .unwrap_err();
@@ -1355,13 +1253,12 @@ async fn ql_measured_profiles_use_profile_feature_guard_for_type_name_and_block(
         assert_eq!(info.feature_key, "type_name");
         assert_eq!(info.state, "blocked");
         assert!(err.message.contains("C059"));
-        assert!(err.message.contains("strict_profile=false"));
         assert_eq!(client.traffic_stats().await.request_count, 0);
 
         let err = client
             .read_block(
                 &[SlmpBlockRead {
-                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                    device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, profile),
                     points: 1,
                 }],
                 &[],
@@ -1379,41 +1276,18 @@ async fn ql_measured_profiles_use_profile_feature_guard_for_type_name_and_block(
 }
 
 #[tokio::test]
-async fn qnudv_strict_profile_false_sends_high_level_block_request() {
-    let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x1234]))])
-        .await
-        .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV).unwrap();
-    options.port = server.port;
-    options.strict_profile = false;
-    let client = SlmpClient::connect(options).await.unwrap();
-
-    let result = client
-        .read_block(
-            &[SlmpBlockRead {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
-                points: 1,
-            }],
-            &[],
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(result.word_values, vec![0x1234]);
-    let requests = server.requests().await;
-    assert_eq!(requests.len(), 1);
-    assert_eq!(&requests[0][0..2], &[0x50, 0x00]);
-    let body = request_body(&requests[0]);
-    assert_eq!(u16::from_le_bytes([body[2], body[3]]), 0x0406);
-    assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0000);
-}
-
-#[tokio::test]
 async fn raw_request_is_not_profile_feature_guarded() {
     let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x5555]))])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QnUDV).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::QnUDV,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
     let payload = [
@@ -1423,7 +1297,7 @@ async fn raw_request_is_not_profile_feature_guarded() {
     ];
 
     let data = client
-        .request(SlmpCommand::DeviceReadBlock, 0x0000, &payload, true)
+        .raw_command(SlmpCommand::DeviceReadBlock, 0x0000, &payload)
         .await
         .unwrap();
 
@@ -1436,9 +1310,8 @@ async fn profile_extended_feature_guards_match_canonical_states() {
     let iqf = udp_client_with_profile(SlmpPlcProfile::IqF).await;
     let err = iqf
         .read_words_extended(
-            parse_qualified_device(r"J1\W0").unwrap(),
+            parse_qualified_device(r"J1\W0", SlmpPlcProfile::IqF).unwrap(),
             1,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -1451,9 +1324,8 @@ async fn profile_extended_feature_guards_match_canonical_states() {
     let iql = udp_client_with_profile(SlmpPlcProfile::IqL).await;
     let err = iql
         .read_words_extended(
-            parse_qualified_device(r"U3E0\HG0").unwrap(),
+            parse_qualified_device(r"U3E0\HG0", SlmpPlcProfile::IqL).unwrap(),
             1,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -1466,9 +1338,8 @@ async fn profile_extended_feature_guards_match_canonical_states() {
     let qnudv = udp_client_with_profile(SlmpPlcProfile::QnUDV).await;
     let err = qnudv
         .read_words_extended(
-            parse_qualified_device(r"U2\G100").unwrap(),
+            parse_qualified_device(r"U2\G100", SlmpPlcProfile::QnUDV).unwrap(),
             1,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap_err();
@@ -1484,15 +1355,21 @@ async fn iqf_config_dependent_g_route_is_not_guarded() {
     let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x0007]))])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqF,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let values = client
         .read_words_extended(
-            parse_qualified_device(r"U1\G0").unwrap(),
+            parse_qualified_device(r"U1\G0", SlmpPlcProfile::IqF).unwrap(),
             1,
-            SlmpExtensionSpec::default(),
         )
         .await
         .unwrap();
@@ -1502,10 +1379,13 @@ async fn iqf_config_dependent_g_route_is_not_guarded() {
 }
 
 #[tokio::test]
-async fn profile_write_policy_is_enforced_even_when_strict_profile_is_false() {
-    let iqr = udp_client_with_profile_and_strict(SlmpPlcProfile::IqR, false).await;
+async fn profile_write_policy_is_enforced() {
+    let iqr = udp_client_with_profile(SlmpPlcProfile::IqR).await;
     let err = iqr
-        .write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::S, 0), &[true])
+        .write_bits(
+            SlmpDeviceAddress::new(SlmpDeviceCode::S, 0, SlmpPlcProfile::IqR),
+            &[true],
+        )
         .await
         .unwrap_err();
     assert_eq!(err.kind, SlmpErrorKind::General);
@@ -1516,12 +1396,22 @@ async fn profile_write_policy_is_enforced_even_when_strict_profile_is_false() {
     let server = CapturingResponseServer::start(vec![(0, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqF,
+    )
+    .unwrap();
     options.port = server.port;
     let iqf = SlmpClient::connect(options).await.unwrap();
-    iqf.write_bits(SlmpDeviceAddress::new(SlmpDeviceCode::S, 0), &[true])
-        .await
-        .unwrap();
+    iqf.write_bits(
+        SlmpDeviceAddress::new(SlmpDeviceCode::S, 0, SlmpPlcProfile::IqF),
+        &[true],
+    )
+    .await
+    .unwrap();
     assert_eq!(server.requests().await.len(), 1);
 }
 
@@ -1529,7 +1419,7 @@ async fn profile_write_policy_is_enforced_even_when_strict_profile_is_false() {
 async fn profile_limits_are_enforced_from_canonical_table() {
     let iqr = udp_client_with_profile(SlmpPlcProfile::IqR).await;
     let words: Vec<_> = (0..97)
-        .map(|i| SlmpDeviceAddress::new(SlmpDeviceCode::D, 1000 + i))
+        .map(|i| SlmpDeviceAddress::new(SlmpDeviceCode::D, 1000 + i, SlmpPlcProfile::IqR))
         .collect();
     let err = iqr.read_random(&words, &[]).await.unwrap_err();
     assert!(err.message.contains("1..96"));
@@ -1537,17 +1427,32 @@ async fn profile_limits_are_enforced_from_canonical_table() {
 
     let iql = udp_client_with_profile(SlmpPlcProfile::IqL).await;
     let entries: Vec<_> = (0..81)
-        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 2000 + i), 0))
+        .map(|i| {
+            (
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 2000 + i, SlmpPlcProfile::IqL),
+                0,
+            )
+        })
         .collect();
     let err = iql.write_random_words(&entries, &[]).await.unwrap_err();
     assert!(err.message.contains("1..80"));
     assert_eq!(iql.traffic_stats().await.request_count, 0);
 
     let word_entries: Vec<_> = (0..40)
-        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8100 + i), 0))
+        .map(|i| {
+            (
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 8100 + i, SlmpPlcProfile::IqL),
+                0,
+            )
+        })
         .collect();
     let dword_entries: Vec<_> = (0..40)
-        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 8200 + (i * 2)), 0))
+        .map(|i| {
+            (
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 8200 + (i * 2), SlmpPlcProfile::IqL),
+                0,
+            )
+        })
         .collect();
     let err = iql
         .write_random_words(&word_entries, &dword_entries)
@@ -1558,7 +1463,12 @@ async fn profile_limits_are_enforced_from_canonical_table() {
 
     let iqf = udp_client_with_profile(SlmpPlcProfile::IqF).await;
     let iqf_dword_entries: Vec<_> = (0..138)
-        .map(|i| (SlmpDeviceAddress::new(SlmpDeviceCode::D, 9000 + (i * 2)), 0))
+        .map(|i| {
+            (
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 9000 + (i * 2), SlmpPlcProfile::IqF),
+                0,
+            )
+        })
         .collect();
     let err = iqf
         .write_random_words(&[], &iqf_dword_entries)
@@ -1573,19 +1483,29 @@ async fn direct_access_does_not_use_device_range_upper_bounds_as_send_guard() {
     let server = CapturingResponseServer::start(vec![(0, vec![0x34, 0x12]), (0, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let values = client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999), 1)
+        .read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999, SlmpPlcProfile::IqR),
+            1,
+        )
         .await
         .unwrap();
     assert_eq!(values, vec![0x1234]);
 
     client
         .write_words(
-            SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999),
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999, SlmpPlcProfile::IqR),
             &[0x5678],
         )
         .await
@@ -1598,23 +1518,27 @@ async fn mixed_block_write_does_not_retry_c05b_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC05B, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let error = client
         .write_block(
             &[SlmpBlockWrite {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
                 values: vec![0x1234],
             }],
             &[SlmpBlockWrite {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 200),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 200, SlmpPlcProfile::IqR),
                 values: vec![0x0005],
             }],
-            Some(SlmpBlockWriteOptions {
-                split_mixed_blocks: false,
-            }),
         )
         .await
         .unwrap_err();
@@ -1641,23 +1565,27 @@ async fn mixed_block_write_does_not_retry_c056_as_split_requests() {
     let server = CapturingResponseServer::start(vec![(0xC056, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let error = client
         .write_block(
             &[SlmpBlockWrite {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
                 values: vec![0x1234],
             }],
             &[SlmpBlockWrite {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 200),
+                device: SlmpDeviceAddress::new(SlmpDeviceCode::M, 200, SlmpPlcProfile::IqR),
                 values: vec![0x0005],
             }],
-            Some(SlmpBlockWriteOptions {
-                split_mixed_blocks: false,
-            }),
         )
         .await
         .unwrap_err();
@@ -1676,12 +1604,22 @@ async fn frame_3e_mock_nonzero_end_code_includes_error_info() {
     let server = CapturingResponseServer::start(vec![(0xC056, Vec::new())])
         .await
         .unwrap();
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqF).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqF,
+    )
+    .unwrap();
     options.port = server.port;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let error = client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0), 1)
+        .read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqF),
+            1,
+        )
         .await
         .unwrap_err();
 
@@ -1700,12 +1638,4 @@ fn assert_block_write_shape(request: &[u8], word_blocks: u8, bit_blocks: u8) {
     assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0002);
     assert_eq!(body[6], word_blocks);
     assert_eq!(body[7], bit_blocks);
-}
-
-fn request_body(request: &[u8]) -> &[u8] {
-    if request.starts_with(&[0x50, 0x00]) {
-        &request[9..]
-    } else {
-        &request[13..]
-    }
 }

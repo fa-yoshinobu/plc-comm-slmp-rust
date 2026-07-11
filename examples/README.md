@@ -1,6 +1,10 @@
 # Examples
 
-These examples are runnable entry points for the public API. Defaults are `SLMP_HOST=192.168.250.100`, TCP `SLMP_PORT=1025`, and UDP `SLMP_PORT=1035`. Use `SLMP_PLC_PROFILE` to select your PLC. For cable-pull reconnect checks, prefer `SLMP_TRANSPORT=udp` with `SLMP_PORT=1035`.
+These examples are runnable entry points for the public API. The destination
+port, transport, complete target route, and PLC profile are required. For an
+own-station TCP example, set `SLMP_PORT=1025`, `SLMP_TRANSPORT=tcp`,
+`SLMP_TARGET=SELF`, and `SLMP_PLC_PROFILE=melsec:iq-r` explicitly. A host value
+shown by an example is illustrative, not a discovered PLC endpoint.
 
 Use only test addresses that are safe for your PLC program before you run any write example.
 
@@ -10,7 +14,7 @@ Use only test addresses that are safe for your PLC program before you run any wr
 | `raw_read_write` | `cargo run --features cli --example raw_read_write` | Reads words with the raw client and optionally writes test words. |
 | `named_helpers` | `cargo run --features cli --example named_helpers` | Uses `read_named`, `write_named`, and `poll_named`. |
 | `polling_reconnect` | `cargo run --features cli --example polling_reconnect -- D100 U 1` | Read-only polling loop with automatic reconnect and backoff after transport loss. |
-| `multi_plc_monitor` | `cargo run --features cli --example multi_plc_monitor -- --plc line-a=192.168.250.101,melsec:iq-r,1035,udp --tag d100=D100:U --cycles 1 --dry-run` | Read-only multi-PLC polling with `connected`/`lost`/`reconnecting`/`recovered` states. |
+| `multi_plc_monitor` | `cargo run --features cli --example multi_plc_monitor -- --plc line-a=192.168.250.101,melsec:iq-r,1035,udp,SELF --tag d100=D100:U --cycles 1 --dry-run` | Read-only multi-PLC polling with `connected`/`lost`/`reconnecting`/`recovered` states. |
 | `config_polling` | `cargo run --features cli --example config_polling -- --config examples/config_polling.example.json --dry-run` | Read-only polling from JSON config, with long-form `timestamp,plc,tag,value` CSV output. |
 | `advanced_operations` | `cargo run --features cli --example advanced_operations` | Demonstrates type-name, random, block, extended, and self-test operations. |
 | `device_range_catalog` | `cargo run --features cli --example device_range_catalog` | Reads the live device-range catalog for the selected profile. |

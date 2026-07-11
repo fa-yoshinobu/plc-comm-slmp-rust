@@ -17,6 +17,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING
+- Library: `SlmpConnectionOptions::new` now requires destination port, transport, complete target route, and canonical PLC profile. Port zero is rejected; no destination or transport is inferred.
+- Library: Address parsing, formatting, normalization, qualified-device parsing, and numeric semantic address construction are profile-bound. A semantic address from another profile is rejected before transport use.
+- Library: Removed public automatic chunking, mixed-block splitting, localized end-code messages, public strict-profile bypass, and the response-optional raw request surface. `raw_command` always requires command, subcommand, and payload and always returns the response bytes.
+- Library: Extended Device operations derive wire fields from the qualified semantic address. Normal APIs no longer accept `SlmpExtensionSpec`; typed Z, LZ, and indirect modifiers remain explicit.
+- Library: Remote RUN and PAUSE require typed mode values; Remote RUN also requires a typed clear mode. Remote RESET has fixed protocol data and no response-mode argument.
+- Library: Random and block aggregate APIs provide category-specific methods so unused categories can be omitted, while an all-empty aggregate request is rejected before transport.
+- Library: `read_named` no longer splits an oversized random-read batch into multiple requests. It reports the selected profile limit before sending, preventing a multi-time snapshot from being returned as one result.
+- Library: Standard label APIs no longer accept an abbreviation table. Use the explicitly named `*_with_abbreviations` variants when abbreviations are required.
+- Samples/Tooling: Executable environment, JSON, monitor, benchmark, and verification inputs require port, transport, target route, and profile instead of supplying runnable endpoint defaults. Named reads require an explicit dtype.
+
+### Changed
+- Library: The default communication timeout is 3 seconds, the monitoring timer is 4 seconds (`0x0010`), and TCP keepalive idle time is 30 seconds.
+- Library: 4E serial numbers are assigned under the client request lock and matched against responses. Timeout, receive failure, or external Rust future cancellation invalidates the in-flight TCP/UDP socket so partial or delayed data cannot satisfy a later request.
+- Docs: Updated migration, routing, single-request consistency, profile-bound address, Extended Device, remote-control, and executable-example guidance for the new contract.
+
+### Tests
+- Tests: Added concurrent request serialization/serial-number coverage, UDP timeout invalidation, external-cancellation invalidation, profile-mismatch pre-transport rejection, aggregate empty-input rejection, typed Extended Device modifiers, explicit remote-control wire values, and approved connection default checks.
+
 ## [3.1.0] - 2026-07-10
 
 ### Added

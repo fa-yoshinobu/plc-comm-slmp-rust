@@ -7,50 +7,21 @@ use crate::model::{
 pub struct SlmpAddress;
 
 impl SlmpAddress {
-    pub fn parse(text: &str) -> Result<SlmpDeviceAddress, SlmpError> {
-        parse_device(text)
+    pub fn parse(text: &str, plc_profile: SlmpPlcProfile) -> Result<SlmpDeviceAddress, SlmpError> {
+        parse_device(text, plc_profile)
     }
 
-    pub fn parse_for_plc_profile(
-        text: &str,
-        family: SlmpPlcProfile,
-    ) -> Result<SlmpDeviceAddress, SlmpError> {
-        parse_device_for_plc_profile(text, family)
-    }
-
-    pub fn try_parse(text: &str) -> Option<SlmpDeviceAddress> {
-        parse_device(text).ok()
-    }
-
-    pub fn try_parse_for_plc_profile(
-        text: &str,
-        family: SlmpPlcProfile,
-    ) -> Option<SlmpDeviceAddress> {
-        parse_device_for_plc_profile(text, family).ok()
+    pub fn try_parse(text: &str, plc_profile: SlmpPlcProfile) -> Option<SlmpDeviceAddress> {
+        parse_device(text, plc_profile).ok()
     }
 
     pub fn format(address: SlmpDeviceAddress) -> String {
-        let number = format_number(address, None);
+        let number = format_number(address);
         format!("{}{}", address.code.prefix(), number)
     }
 
-    pub fn format_for_plc_profile(address: SlmpDeviceAddress, family: SlmpPlcProfile) -> String {
-        let number = format_number(address, Some(family));
-        format!("{}{}", address.code.prefix(), number)
-    }
-
-    pub fn normalize(text: &str) -> Result<String, SlmpError> {
-        Ok(Self::format(Self::parse(text)?))
-    }
-
-    pub fn normalize_for_plc_profile(
-        text: &str,
-        family: SlmpPlcProfile,
-    ) -> Result<String, SlmpError> {
-        Ok(Self::format_for_plc_profile(
-            Self::parse_for_plc_profile(text, family)?,
-            family,
-        ))
+    pub fn normalize(text: &str, plc_profile: SlmpPlcProfile) -> Result<String, SlmpError> {
+        Ok(Self::format(Self::parse(text, plc_profile)?))
     }
 }
 
@@ -115,45 +86,28 @@ pub struct NamedAddressParts {
     pub bit_index: Option<u8>,
 }
 
-pub fn normalize_named_address(address: &str) -> Result<String, SlmpError> {
+pub fn normalize_named_address(
+    address: &str,
+    plc_profile: SlmpPlcProfile,
+) -> Result<String, SlmpError> {
     let parts = parse_named_address(address)?;
-    let canonical_base = SlmpAddress::normalize(&parts.base)?;
+    let canonical_base = SlmpAddress::normalize(&parts.base, plc_profile)?;
     if let Some(bit_index) = parts.bit_index {
         return Ok(format!("{canonical_base}.{bit_index:X}"));
     }
     Ok(format!("{canonical_base}:{}", parts.dtype))
 }
 
-pub fn parse_device(text: &str) -> Result<SlmpDeviceAddress, SlmpError> {
-    parse_device_internal(text, None)
-}
-
-pub fn parse_device_for_plc_profile(
+pub fn parse_device(
     text: &str,
-    family: SlmpPlcProfile,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<SlmpDeviceAddress, SlmpError> {
-    parse_device_internal(text, Some(family))
-}
-
-pub fn parse_device_for_family_hint(
-    text: &str,
-    family: Option<SlmpPlcProfile>,
-) -> Result<SlmpDeviceAddress, SlmpError> {
-    let device = match family {
-        Some(family) => parse_device_for_plc_profile(text, family)?,
-        None => parse_device(text)?,
-    };
-    if family.is_none() && matches!(device.code, SlmpDeviceCode::X | SlmpDeviceCode::Y) {
-        return Err(SlmpError::new(
-            "X/Y string addresses require explicit plc_profile. Use IqF for FX/iQ-F targets, choose an explicit non-iQ-F family, or pass a numeric SlmpDeviceAddress.",
-        ));
-    }
-    Ok(device)
+    parse_device_internal(text, plc_profile)
 }
 
 fn parse_device_internal(
     text: &str,
-    family: Option<SlmpPlcProfile>,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<SlmpDeviceAddress, SlmpError> {
     let token = text.trim().to_uppercase();
     if token.is_empty() {
@@ -168,15 +122,15 @@ fn parse_device_internal(
         if token.starts_with(prefix)
             && let Some(code) = SlmpDeviceCode::parse_prefix(prefix)
         {
-            ensure_device_supported_for_family(prefix, code, family)?;
+            ensure_device_supported_for_family(prefix, code, plc_profile)?;
             let number_text = &token[prefix.len()..];
-            let radix = device_radix(code, family);
+            let radix = device_radix(code, plc_profile);
             let number = parse_u32_with_radix(number_text, radix).map_err(|_| {
                 SlmpError::new(format!(
                     "Invalid SLMP device number '{number_text}' for device code '{prefix}' in '{text}'."
                 ))
             })?;
-            return Ok(SlmpDeviceAddress::new(code, number));
+            return Ok(SlmpDeviceAddress::new(code, number, plc_profile));
         }
     }
 
@@ -188,15 +142,13 @@ fn parse_device_internal(
 fn ensure_device_supported_for_family(
     prefix: &str,
     code: SlmpDeviceCode,
-    family: Option<SlmpPlcProfile>,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
-    if let Some(family) = family {
-        if device_is_unsupported_for_family(code, family) {
-            let profile = family.canonical_name();
-            return Err(SlmpError::new(format!(
-                "SLMP device code '{prefix}' is not supported for plc_profile '{profile}'."
-            )));
-        }
+    if device_is_unsupported_for_family(code, plc_profile) {
+        let profile = plc_profile.canonical_name();
+        return Err(SlmpError::new(format!(
+            "SLMP device code '{prefix}' is not supported for plc_profile '{profile}'."
+        )));
     }
     Ok(())
 }
@@ -248,10 +200,8 @@ fn device_is_unsupported_for_family(code: SlmpDeviceCode, family: SlmpPlcProfile
     }
 }
 
-fn device_radix(code: SlmpDeviceCode, family: Option<SlmpPlcProfile>) -> u32 {
-    if matches!(code, SlmpDeviceCode::X | SlmpDeviceCode::Y)
-        && family.is_some_and(SlmpPlcProfile::uses_iqf_xy_octal)
-    {
+fn device_radix(code: SlmpDeviceCode, plc_profile: SlmpPlcProfile) -> u32 {
+    if matches!(code, SlmpDeviceCode::X | SlmpDeviceCode::Y) && plc_profile.uses_iqf_xy_octal() {
         return 8;
     }
     if code.is_hex_addressed() { 16 } else { 10 }
@@ -265,15 +215,18 @@ fn parse_u32_with_radix(text: &str, radix: u32) -> Result<u32, std::num::ParseIn
     }
 }
 
-fn format_number(address: SlmpDeviceAddress, family: Option<SlmpPlcProfile>) -> String {
-    match device_radix(address.code, family) {
+fn format_number(address: SlmpDeviceAddress) -> String {
+    match device_radix(address.code, address.plc_profile()) {
         8 => format!("{:o}", address.number).to_ascii_uppercase(),
         16 => format!("{:X}", address.number),
         _ => address.number.to_string(),
     }
 }
 
-pub fn parse_qualified_device(text: &str) -> Result<SlmpQualifiedDeviceAddress, SlmpError> {
+pub fn parse_qualified_device(
+    text: &str,
+    plc_profile: SlmpPlcProfile,
+) -> Result<SlmpQualifiedDeviceAddress, SlmpError> {
     let token = text.trim().to_uppercase();
     if token.is_empty() {
         return Err(SlmpError::new("Device text is required."));
@@ -286,9 +239,10 @@ pub fn parse_qualified_device(text: &str) -> Result<SlmpQualifiedDeviceAddress, 
             .parse()
             .map_err(|_| SlmpError::new("Invalid J-direct network."))?;
         return Ok(SlmpQualifiedDeviceAddress {
-            device: parse_device(device_text)?,
+            device: parse_device(device_text, plc_profile)?,
             extension_specification: Some(network),
             direct_memory_specification: Some(0xF9),
+            modification: None,
         });
     }
 
@@ -297,7 +251,7 @@ pub fn parse_qualified_device(text: &str) -> Result<SlmpQualifiedDeviceAddress, 
     {
         let extension_specification = u16::from_str_radix(extension, 16)
             .map_err(|_| SlmpError::new("Invalid extension specification."))?;
-        let device = parse_device(device_text)?;
+        let device = parse_device(device_text, plc_profile)?;
         let direct_memory_specification = match device.code {
             SlmpDeviceCode::G => Some(0xF8),
             SlmpDeviceCode::HG => {
@@ -314,13 +268,15 @@ pub fn parse_qualified_device(text: &str) -> Result<SlmpQualifiedDeviceAddress, 
             device,
             extension_specification: Some(extension_specification),
             direct_memory_specification,
+            modification: None,
         });
     }
 
     Ok(SlmpQualifiedDeviceAddress {
-        device: parse_device(&token)?,
+        device: parse_device(&token, plc_profile)?,
         extension_specification: None,
         direct_memory_specification: None,
+        modification: None,
     })
 }
 
@@ -395,23 +351,21 @@ pub fn device_spec_size(mode: SlmpCompatibilityMode) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SlmpAddress, parse_device, parse_device_for_family_hint, parse_device_for_plc_profile,
-        parse_named_address, parse_named_target,
-    };
+    use super::{SlmpAddress, parse_device, parse_named_address, parse_named_target};
     use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile};
 
     #[test]
     fn iq_f_xy_strings_are_parsed_as_octal() {
         assert_eq!(
-            parse_device_for_plc_profile("X100", SlmpPlcProfile::IqF).unwrap(),
-            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0o100)
+            parse_device("X100", SlmpPlcProfile::IqF).unwrap(),
+            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0o100, SlmpPlcProfile::IqF)
         );
         assert_eq!(
-            SlmpAddress::format_for_plc_profile(
-                SlmpDeviceAddress::new(SlmpDeviceCode::Y, 0o217),
+            SlmpAddress::format(SlmpDeviceAddress::new(
+                SlmpDeviceCode::Y,
+                0o217,
                 SlmpPlcProfile::IqF,
-            ),
+            )),
             "Y217"
         );
     }
@@ -419,14 +373,15 @@ mod tests {
     #[test]
     fn non_iq_f_xy_strings_remain_hex() {
         assert_eq!(
-            parse_device_for_plc_profile("X100", SlmpPlcProfile::IqR).unwrap(),
-            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0x100)
+            parse_device("X100", SlmpPlcProfile::IqR).unwrap(),
+            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0x100, SlmpPlcProfile::IqR)
         );
         assert_eq!(
-            SlmpAddress::format_for_plc_profile(
-                SlmpDeviceAddress::new(SlmpDeviceCode::X, 0x1A),
+            SlmpAddress::format(SlmpDeviceAddress::new(
+                SlmpDeviceCode::X,
+                0x1A,
                 SlmpPlcProfile::IqR,
-            ),
+            )),
             "X1A"
         );
     }
@@ -434,7 +389,7 @@ mod tests {
     #[test]
     fn iq_f_direct_io_devices_are_rejected() {
         for address in ["DX10", "DY10", "V10", "LTS10", "ZR10", "RD10"] {
-            let error = parse_device_for_plc_profile(address, SlmpPlcProfile::IqF).unwrap_err();
+            let error = parse_device(address, SlmpPlcProfile::IqF).unwrap_err();
             assert!(
                 error.message.contains("not supported"),
                 "unexpected error: {}",
@@ -451,7 +406,7 @@ mod tests {
             ("RD0", SlmpPlcProfile::LCpu),
             ("LTN0", SlmpPlcProfile::QCpu),
         ] {
-            let error = parse_device_for_plc_profile(address, profile).unwrap_err();
+            let error = parse_device(address, profile).unwrap_err();
             assert!(
                 error.message.contains("not supported"),
                 "unexpected error for {address}: {}",
@@ -476,7 +431,7 @@ mod tests {
                 for device in rows[item]["devices"].as_array().unwrap() {
                     let device_name = device["device"].as_str().unwrap();
                     let address = format!("{device_name}10");
-                    let parsed = parse_device_for_plc_profile(&address, plc_profile);
+                    let parsed = parse_device(&address, plc_profile);
                     assert_eq!(
                         parsed.is_ok(),
                         expected_supported,
@@ -486,29 +441,29 @@ mod tests {
             }
         }
 
-        assert!(parse_device_for_plc_profile("DX10", SlmpPlcProfile::IqF).is_err());
-        assert!(parse_device_for_plc_profile("DY10", SlmpPlcProfile::IqF).is_err());
+        assert!(parse_device("DX10", SlmpPlcProfile::IqF).is_err());
+        assert!(parse_device("DY10", SlmpPlcProfile::IqF).is_err());
     }
 
     #[test]
     fn hex_number_can_be_all_letters() {
         assert_eq!(
-            parse_device("XFF").unwrap(),
-            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0xff)
+            parse_device("XFF", SlmpPlcProfile::IqR).unwrap(),
+            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0xff, SlmpPlcProfile::IqR)
         );
     }
 
     #[test]
     fn step_relay_is_parsed_as_decimal_bit_device() {
         assert_eq!(
-            parse_device("S10").unwrap(),
-            SlmpDeviceAddress::new(SlmpDeviceCode::S, 10)
+            parse_device("S10", SlmpPlcProfile::IqR).unwrap(),
+            SlmpDeviceAddress::new(SlmpDeviceCode::S, 10, SlmpPlcProfile::IqR)
         );
     }
 
     #[test]
     fn known_code_with_invalid_number_does_not_fallback() {
-        let error = parse_device("DFFFF").unwrap_err();
+        let error = parse_device("DFFFF", SlmpPlcProfile::IqR).unwrap_err();
         assert!(
             error.message.contains("device code 'D'"),
             "unexpected error: {}",
@@ -517,13 +472,13 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_xy_strings_require_explicit_family_for_high_level_parse() {
-        let error = parse_device_for_family_hint("Y217", None).unwrap_err();
-        assert!(
-            error.message.contains("explicit plc_profile"),
-            "unexpected error: {}",
-            error.message
-        );
+    fn semantic_address_formats_with_its_bound_profile() {
+        let iqf = parse_device("X10", SlmpPlcProfile::IqF).unwrap();
+        let iqr = parse_device("X10", SlmpPlcProfile::IqR).unwrap();
+        assert_eq!(iqf.number, 8);
+        assert_eq!(iqr.number, 16);
+        assert_eq!(iqf.to_string(), "X10");
+        assert_eq!(iqr.to_string(), "X10");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use plc_comm_slmp::{
-    SlmpAddress, SlmpBlockRead, SlmpClient, SlmpCompatibilityMode, SlmpConnectionOptions,
-    SlmpDeviceAddress, SlmpPlcProfile, encode_device_spec, normalize_named_address,
-    parse_named_address,
+    RawSlmpDeviceAddress, SlmpAddress, SlmpBlockRead, SlmpClient, SlmpCompatibilityMode,
+    SlmpConnectionOptions, SlmpDeviceAddress, SlmpPlcProfile, encode_raw_device_spec,
+    normalize_named_address, parse_named_address,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -21,13 +21,20 @@ fn load_json(name: &str) -> Value {
 fn device_spec_vectors_match_shared_json() {
     let doc = load_json("device_spec_vectors.json");
     for vector in doc["vectors"].as_array().unwrap() {
-        let device = SlmpAddress::parse(vector["device"].as_str().unwrap()).unwrap();
+        let device = SlmpAddress::parse(
+            vector["device"].as_str().unwrap(),
+            plc_comm_slmp::SlmpPlcProfile::IqR,
+        )
+        .unwrap();
         let mode = match vector["series"].as_str().unwrap() {
             "legacy" => SlmpCompatibilityMode::Legacy,
             "iqr" => SlmpCompatibilityMode::Iqr,
             other => panic!("unsupported mode {other}"),
         };
-        let actual = hex_upper(&encode_device_spec(mode, device));
+        let actual = hex_upper(&encode_raw_device_spec(
+            mode,
+            RawSlmpDeviceAddress::new(device.code, device.number),
+        ));
         assert_eq!(
             actual,
             vector["hex"].as_str().unwrap(),
@@ -70,7 +77,11 @@ fn shared_address_parse_vectors_match() {
 fn shared_address_normalize_vectors_match() {
     let doc = load_json("high_level_address_normalize_vectors.json");
     for case in doc["cases"].as_array().unwrap() {
-        let actual = normalize_named_address(case["input"].as_str().unwrap()).unwrap();
+        let actual = normalize_named_address(
+            case["input"].as_str().unwrap(),
+            plc_comm_slmp::SlmpPlcProfile::IqR,
+        )
+        .unwrap();
         assert_eq!(
             actual,
             case["expected"].as_str().unwrap(),
@@ -87,7 +98,14 @@ async fn frame_golden_vectors_match_shared_json() {
         let response_data = hex_decode(case["response_data_hex"].as_str().unwrap());
         let server = SingleShotServer::start(response_data).await.unwrap();
 
-        let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+        let mut options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            1025,
+            plc_comm_slmp::SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
         options.port = server.port;
         let client = SlmpClient::connect(options).await.unwrap();
 
@@ -110,14 +128,20 @@ async fn dispatch_case(client: &SlmpClient, case: &Value) -> Result<(), plc_comm
         }
         "read_words" => {
             let args = &case["args"];
-            let device = SlmpAddress::parse(args["device"].as_str().unwrap())?;
+            let device = SlmpAddress::parse(
+                args["device"].as_str().unwrap(),
+                plc_comm_slmp::SlmpPlcProfile::IqR,
+            )?;
             let points = args["points"].as_u64().unwrap() as u16;
             let values = client.read_words_raw(device, points).await?;
             assert!(!values.is_empty());
         }
         "write_bits" => {
             let args = &case["args"];
-            let device = SlmpAddress::parse(args["device"].as_str().unwrap())?;
+            let device = SlmpAddress::parse(
+                args["device"].as_str().unwrap(),
+                plc_comm_slmp::SlmpPlcProfile::IqR,
+            )?;
             let values: Vec<bool> = args["values"]
                 .as_array()
                 .unwrap()
@@ -132,13 +156,19 @@ async fn dispatch_case(client: &SlmpClient, case: &Value) -> Result<(), plc_comm
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|value| SlmpAddress::parse(value.as_str().unwrap()).unwrap())
+                .map(|value| {
+                    SlmpAddress::parse(value.as_str().unwrap(), plc_comm_slmp::SlmpPlcProfile::IqR)
+                        .unwrap()
+                })
                 .collect();
             let dwords: Vec<SlmpDeviceAddress> = args["dword_devices"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|value| SlmpAddress::parse(value.as_str().unwrap()).unwrap())
+                .map(|value| {
+                    SlmpAddress::parse(value.as_str().unwrap(), plc_comm_slmp::SlmpPlcProfile::IqR)
+                        .unwrap()
+                })
                 .collect();
             let result = client.read_random(&words, &dwords).await?;
             assert!(!result.word_values.is_empty());
@@ -150,7 +180,11 @@ async fn dispatch_case(client: &SlmpClient, case: &Value) -> Result<(), plc_comm
                 .unwrap()
                 .iter()
                 .map(|item| {
-                    let device = SlmpAddress::parse(item["device"].as_str().unwrap()).unwrap();
+                    let device = SlmpAddress::parse(
+                        item["device"].as_str().unwrap(),
+                        plc_comm_slmp::SlmpPlcProfile::IqR,
+                    )
+                    .unwrap();
                     let value = item["value"].as_bool().unwrap();
                     (device, value)
                 })
@@ -164,7 +198,11 @@ async fn dispatch_case(client: &SlmpClient, case: &Value) -> Result<(), plc_comm
                 .unwrap()
                 .iter()
                 .map(|item| SlmpBlockRead {
-                    device: SlmpAddress::parse(item["device"].as_str().unwrap()).unwrap(),
+                    device: SlmpAddress::parse(
+                        item["device"].as_str().unwrap(),
+                        plc_comm_slmp::SlmpPlcProfile::IqR,
+                    )
+                    .unwrap(),
                     points: item["points"].as_u64().unwrap() as u16,
                 })
                 .collect();
@@ -173,7 +211,11 @@ async fn dispatch_case(client: &SlmpClient, case: &Value) -> Result<(), plc_comm
                 .unwrap()
                 .iter()
                 .map(|item| SlmpBlockRead {
-                    device: SlmpAddress::parse(item["device"].as_str().unwrap()).unwrap(),
+                    device: SlmpAddress::parse(
+                        item["device"].as_str().unwrap(),
+                        plc_comm_slmp::SlmpPlcProfile::IqR,
+                    )
+                    .unwrap(),
                     points: item["points"].as_u64().unwrap() as u16,
                 })
                 .collect();
@@ -187,8 +229,7 @@ async fn dispatch_case(client: &SlmpClient, case: &Value) -> Result<(), plc_comm
                 .await?;
         }
         "remote_reset" => {
-            let expect_response = case["args"]["expect_response"].as_bool().unwrap_or(true);
-            client.remote_reset(expect_response).await?;
+            client.remote_reset().await?;
         }
         other => panic!("unsupported operation {other}"),
     }
@@ -212,6 +253,7 @@ fn hex_decode(value: &str) -> Vec<u8> {
 struct SingleShotServer {
     port: u16,
     request: std::sync::Arc<tokio::sync::Mutex<Option<Vec<u8>>>>,
+    captured: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl SingleShotServer {
@@ -220,6 +262,8 @@ impl SingleShotServer {
         let port = listener.local_addr()?.port();
         let request = std::sync::Arc::new(tokio::sync::Mutex::new(None));
         let request_clone = request.clone();
+        let captured = std::sync::Arc::new(tokio::sync::Notify::new());
+        let captured_clone = captured.clone();
         tokio::spawn(async move {
             if let Ok((mut stream, _)) = listener.accept().await {
                 let mut header = [0u8; 19];
@@ -238,6 +282,7 @@ impl SingleShotServer {
                     let mut request_frame = header.to_vec();
                     request_frame.extend_from_slice(&payload);
                     *request_clone.lock().await = Some(request_frame.clone());
+                    captured_clone.notify_one();
 
                     let mut response = vec![0u8; 13 + 2 + response_data.len()];
                     response[0] = 0xD4;
@@ -257,10 +302,20 @@ impl SingleShotServer {
                 }
             }
         });
-        Ok(Self { port, request })
+        Ok(Self {
+            port,
+            request,
+            captured,
+        })
     }
 
     async fn take_request(&self) -> Option<Vec<u8>> {
+        if let Some(request) = self.request.lock().await.take() {
+            return Some(request);
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(1), self.captured.notified())
+            .await
+            .ok()?;
         self.request.lock().await.take()
     }
 }

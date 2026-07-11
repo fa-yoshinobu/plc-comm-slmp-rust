@@ -14,7 +14,10 @@ async fn read_bits_unpacks_high_nibble_then_low_nibble_and_trims_odd_points() {
     let client = connect_client(server.port).await;
 
     let values = client
-        .read_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 100), 5)
+        .read_bits(
+            SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, SlmpPlcProfile::IqR),
+            5,
+        )
         .await
         .unwrap();
 
@@ -111,7 +114,14 @@ impl ResponseServer {
 }
 
 async fn connect_client(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

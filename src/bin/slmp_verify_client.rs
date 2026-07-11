@@ -4,10 +4,10 @@
 use futures_util::StreamExt;
 use plc_comm_slmp::{
     NamedAddress, SlmpAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpConnectionOptions,
-    SlmpExtensionSpec, SlmpLabelArrayReadPoint, SlmpLabelArrayWritePoint,
-    SlmpLabelRandomWritePoint, SlmpPlcProfile, SlmpTargetAddress, SlmpTransportMode,
-    parse_qualified_device, parse_scalar_for_named_with_family, parse_target_auto_number,
-    poll_named, read_named, write_named,
+    SlmpLabelArrayReadPoint, SlmpLabelArrayWritePoint, SlmpLabelRandomWritePoint, SlmpPlcProfile,
+    SlmpRemoteClearMode, SlmpRemoteMode, SlmpTargetAddress, SlmpTransportMode,
+    parse_qualified_device, parse_scalar_for_named, parse_target_auto_number, poll_named,
+    read_named, write_named,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -31,8 +31,7 @@ async fn main() {
     let address = args.get(4).cloned().unwrap_or_default();
     let mut extras = Vec::new();
     let mut plc_profile = None;
-    let mut strict_profile = true;
-    let mut transport = SlmpTransportMode::Tcp;
+    let mut transport = None;
     let mut target = None;
     let mut mode = "word".to_string();
     let mut word_devs = String::new();
@@ -60,16 +59,18 @@ async fn main() {
                     }
                 }
             }
-            "--strict-profile" => {
-                index += 1;
-                strict_profile = args.get(index).map(String::as_str) != Some("false");
-            }
             "--transport" => {
                 index += 1;
-                transport = if args.get(index).map(String::as_str) == Some("udp") {
-                    SlmpTransportMode::Udp
-                } else {
-                    SlmpTransportMode::Tcp
+                transport = match args.get(index).map(String::as_str) {
+                    Some("tcp") => Some(SlmpTransportMode::Tcp),
+                    Some("udp") => Some(SlmpTransportMode::Udp),
+                    _ => {
+                        println!(
+                            "{}",
+                            json!({"status": "error", "message": "--transport requires tcp or udp"})
+                        );
+                        return;
+                    }
                 };
             }
             "--mode" => {
@@ -152,26 +153,28 @@ async fn main() {
         );
         return;
     };
-
-    let mut options = match SlmpConnectionOptions::new(host, plc_profile) {
-        Ok(options) => options,
-        Err(error) => {
-            println!("{}", json!({"status": "error", "message": error.message}));
-            return;
-        }
+    let Some(transport) = transport else {
+        println!(
+            "{}",
+            json!({"status": "error", "message": "transport is required. Pass --transport tcp or --transport udp."})
+        );
+        return;
     };
-    options.port = port;
-    options.transport_mode = transport;
-    options.strict_profile = strict_profile;
+
     let has_network_station_target = target_network.is_some()
         || target_station.is_some()
         || target_module_io.is_some()
         || target_multidrop.is_some();
-    if has_network_station_target {
-        if target.is_some() {
+    let target = if has_network_station_target {
+        if target.is_some()
+            || target_network.is_none()
+            || target_station.is_none()
+            || target_module_io.is_none()
+            || target_multidrop.is_none()
+        {
             println!(
                 "{}",
-                json!({"status": "error", "message": "Use either --target or --network/--station, not both."})
+                json!({"status": "error", "message": "Specify exactly one complete target using --target or all of --network, --station, --module-io, and --multidrop."})
             );
             return;
         }
@@ -181,16 +184,29 @@ async fn main() {
             target_module_io.as_deref(),
             target_multidrop.as_deref(),
         ) {
-            Ok(target) => options.target = target,
+            Ok(target) => target,
             Err(error) => {
                 println!("{}", json!({"status": "error", "message": error.message}));
                 return;
             }
         }
     } else if let Some(target) = target {
-        options.target = target;
-    }
+        target
+    } else {
+        println!(
+            "{}",
+            json!({"status": "error", "message": "target is required. Pass --target network,station,module_io,multidrop."})
+        );
+        return;
+    };
 
+    let options = match SlmpConnectionOptions::new(host, port, transport, target, plc_profile) {
+        Ok(options) => options,
+        Err(error) => {
+            println!("{}", json!({"status": "error", "message": error.message}));
+            return;
+        }
+    };
     let result = match SlmpClient::connect(options).await {
         Ok(client) => {
             run_command(
@@ -265,9 +281,10 @@ async fn run_command(
     word_blocks: &str,
     bit_blocks: &str,
 ) -> Result<String, plc_comm_slmp::SlmpError> {
+    let plc_profile = client.plc_profile().await;
     let output = match command {
         "read" => {
-            let device = SlmpAddress::parse(address)?;
+            let device = SlmpAddress::parse(address, plc_profile)?;
             let count = parse_optional_u16(extras.first().map(String::as_str), 1, "read count")?;
             match mode {
                 "bit" => {
@@ -285,7 +302,7 @@ async fn run_command(
             }
         }
         "write" => {
-            let device = SlmpAddress::parse(address)?;
+            let device = SlmpAddress::parse(address, plc_profile)?;
             match mode {
                 "bit" => {
                     let values: Vec<bool> = extras
@@ -351,7 +368,9 @@ async fn run_command(
             })
         }
         "remote-run" => {
-            client.remote_run(false, 0).await?;
+            let mode = parse_remote_mode(extras.first().map(String::as_str))?;
+            let clear_mode = parse_remote_clear_mode(extras.get(1).map(String::as_str))?;
+            client.remote_run(mode, clear_mode).await?;
             json!({"status":"success"})
         }
         "remote-stop" => {
@@ -359,7 +378,8 @@ async fn run_command(
             json!({"status":"success"})
         }
         "remote-pause" => {
-            client.remote_pause(false).await?;
+            let mode = parse_remote_mode(extras.first().map(String::as_str))?;
+            client.remote_pause(mode).await?;
             json!({"status":"success"})
         }
         "remote-latch-clear" => {
@@ -367,12 +387,12 @@ async fn run_command(
             json!({"status":"success"})
         }
         "remote-reset" => {
-            client.remote_reset(false).await?;
+            client.remote_reset().await?;
             json!({"status":"success"})
         }
         "random-read" => {
-            let word_devices = parse_device_list(word_devs)?;
-            let dword_devices = parse_device_list(dword_devs)?;
+            let word_devices = parse_device_list(word_devs, plc_profile)?;
+            let dword_devices = parse_device_list(dword_devs, plc_profile)?;
             let result = client.read_random(&word_devices, &dword_devices).await?;
             json!({"status":"success","word_values": result.word_values, "dword_values": result.dword_values})
         }
@@ -381,7 +401,7 @@ async fn run_command(
                 .into_iter()
                 .map(|(device, value)| {
                     Ok((
-                        SlmpAddress::parse(&device)?,
+                        SlmpAddress::parse(&device, plc_profile)?,
                         i64_to_u16(value, "random word value")?,
                     ))
                 })
@@ -390,7 +410,7 @@ async fn run_command(
                 .into_iter()
                 .map(|(device, value)| {
                     Ok((
-                        SlmpAddress::parse(&device)?,
+                        SlmpAddress::parse(&device, plc_profile)?,
                         i64_to_u32(value, "random dword value")?,
                     ))
                 })
@@ -405,7 +425,7 @@ async fn run_command(
                 .into_iter()
                 .map(|(device, value)| {
                     Ok((
-                        SlmpAddress::parse(&device)?,
+                        SlmpAddress::parse(&device, plc_profile)?,
                         i64_to_bit(value, "random bit value")?,
                     ))
                 })
@@ -418,7 +438,7 @@ async fn run_command(
                 .into_iter()
                 .map(|(device, count)| {
                     Ok(SlmpBlockRead {
-                        device: SlmpAddress::parse(&device)?,
+                        device: SlmpAddress::parse(&device, plc_profile)?,
                         points: i64_to_u16(count, "word block count")?,
                     })
                 })
@@ -427,7 +447,7 @@ async fn run_command(
                 .into_iter()
                 .map(|(device, count)| {
                     Ok(SlmpBlockRead {
-                        device: SlmpAddress::parse(&device)?,
+                        device: SlmpAddress::parse(&device, plc_profile)?,
                         points: i64_to_u16(count, "bit block count")?,
                     })
                 })
@@ -440,7 +460,7 @@ async fn run_command(
                 .into_iter()
                 .map(|(device, values)| {
                     Ok(SlmpBlockWrite {
-                        device: SlmpAddress::parse(&device)?,
+                        device: SlmpAddress::parse(&device, plc_profile)?,
                         values: values
                             .into_iter()
                             .map(|value| i64_to_u16(value, "word block value"))
@@ -452,7 +472,7 @@ async fn run_command(
                 .into_iter()
                 .map(|(device, values)| {
                     Ok(SlmpBlockWrite {
-                        device: SlmpAddress::parse(&device)?,
+                        device: SlmpAddress::parse(&device, plc_profile)?,
                         values: values
                             .into_iter()
                             .map(|value| i64_to_u16(value, "bit block value"))
@@ -460,7 +480,7 @@ async fn run_command(
                     })
                 })
                 .collect::<Result<_, plc_comm_slmp::SlmpError>>()?;
-            client.write_block(&word_blocks, &bit_blocks, None).await?;
+            client.write_block(&word_blocks, &bit_blocks).await?;
             json!({"status":"success"})
         }
         "self-test" => {
@@ -514,7 +534,7 @@ async fn run_command(
         }
         "label-random-read" => {
             let labels = parse_label_names(address);
-            let results = client.read_random_labels(&labels, &[]).await?;
+            let results = client.read_random_labels(&labels).await?;
             json!({"status":"success","values": results.into_iter().map(|item| item.data).collect::<Vec<_>>()})
         }
         "label-random-write" => {
@@ -526,12 +546,12 @@ async fn run_command(
                     data: data.clone(),
                 })
                 .collect::<Vec<_>>();
-            client.write_random_labels(&points, &[]).await?;
+            client.write_random_labels(&points).await?;
             json!({"status":"success"})
         }
         "label-array-read" => {
             let points = parse_array_label_read_points(address)?;
-            let results = client.read_array_labels(&points, &[]).await?;
+            let results = client.read_array_labels(&points).await?;
             json!({"status":"success","values": results.into_iter().map(|item| item.data).collect::<Vec<_>>()})
         }
         "label-array-write" => {
@@ -545,41 +565,35 @@ async fn run_command(
                     data: data.clone(),
                 })
                 .collect::<Vec<_>>();
-            client.write_array_labels(&points, &[]).await?;
+            client.write_array_labels(&points).await?;
             json!({"status":"success"})
         }
         "read-ext" => {
-            let device = parse_qualified_device(address)?;
+            let device = parse_qualified_device(address, plc_profile)?;
             let count =
                 parse_optional_u16(extras.first().map(String::as_str), 1, "extended read count")?;
-            let extension = SlmpExtensionSpec::default();
             match mode {
                 "bit" => {
-                    json!({"status":"success","values": client.read_bits_extended(device, count, extension).await?.into_iter().map(u8::from).collect::<Vec<_>>() })
+                    json!({"status":"success","values": client.read_bits_extended(device, count).await?.into_iter().map(u8::from).collect::<Vec<_>>() })
                 }
                 _ => {
-                    json!({"status":"success","values": client.read_words_extended(device, count, extension).await? })
+                    json!({"status":"success","values": client.read_words_extended(device, count).await? })
                 }
             }
         }
         "write-ext" => {
-            let device = parse_qualified_device(address)?;
-            let extension = SlmpExtensionSpec::default();
+            let device = parse_qualified_device(address, plc_profile)?;
             match mode {
                 "bit" => {
                     let values: Vec<bool> = extras.iter().map(|value| value == "1").collect();
-                    client
-                        .write_bits_extended(device, &values, extension)
-                        .await?;
+                    client.write_bits_extended(device, &values).await?;
                 }
                 _ => {
                     let values: Vec<u16> = extras
                         .iter()
                         .map(|value| parse_cli_u16(value, "extended write value"))
                         .collect::<Result<_, _>>()?;
-                    client
-                        .write_words_extended(device, &values, extension)
-                        .await?;
+                    client.write_words_extended(device, &values).await?;
                 }
             }
             json!({"status":"success"})
@@ -650,7 +664,7 @@ fn parse_named_updates(
             .ok_or_else(|| plc_comm_slmp::SlmpError::new("Invalid named update."))?;
         updates.insert(
             key.trim().to_string(),
-            parse_scalar_for_named_with_family(key.trim(), value.trim(), Some(plc_profile))?,
+            parse_scalar_for_named(key.trim(), value.trim(), plc_profile)?,
         );
     }
     Ok(updates)
@@ -762,14 +776,38 @@ fn parse_target_flag(value: &str) -> Result<SlmpTargetAddress, plc_comm_slmp::Sl
     })
 }
 
+fn parse_remote_mode(value: Option<&str>) -> Result<SlmpRemoteMode, plc_comm_slmp::SlmpError> {
+    match value {
+        Some("normal") => Ok(SlmpRemoteMode::Normal),
+        Some("force") => Ok(SlmpRemoteMode::Force),
+        _ => Err(plc_comm_slmp::SlmpError::new(
+            "remote mode is required and must be 'normal' or 'force'",
+        )),
+    }
+}
+
+fn parse_remote_clear_mode(
+    value: Option<&str>,
+) -> Result<SlmpRemoteClearMode, plc_comm_slmp::SlmpError> {
+    match value {
+        Some("no-clear") => Ok(SlmpRemoteClearMode::NoClear),
+        Some("clear-except-latch") => Ok(SlmpRemoteClearMode::ClearExceptLatch),
+        Some("clear-all") => Ok(SlmpRemoteClearMode::ClearAll),
+        _ => Err(plc_comm_slmp::SlmpError::new(
+            "remote RUN clear mode is required and must be 'no-clear', 'clear-except-latch', or 'clear-all'",
+        )),
+    }
+}
+
 fn parse_device_list(
     text: &str,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<Vec<plc_comm_slmp::SlmpDeviceAddress>, plc_comm_slmp::SlmpError> {
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
     text.split(',')
-        .map(|value| SlmpAddress::parse(value.trim()))
+        .map(|value| SlmpAddress::parse(value.trim(), plc_profile))
         .collect()
 }
 

@@ -3,10 +3,10 @@ mod common;
 
 use common::{env_csv, options_from_env, print_connection_banner};
 use plc_comm_slmp::{
-    NamedAddress, SlmpClient, SlmpCommand, SlmpCompatibilityMode, SlmpDeviceAddress,
-    SlmpDeviceCode, SlmpExtensionSpec, SlmpQualifiedDeviceAddress, SlmpValue, encode_device_spec,
-    parse_device_for_plc_profile, parse_qualified_device, read_named, read_typed, write_named,
-    write_typed,
+    NamedAddress, RawSlmpDeviceAddress, SlmpClient, SlmpCommand, SlmpCompatibilityMode,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpQualifiedDeviceAddress, SlmpValue,
+    encode_raw_device_spec, parse_device, parse_qualified_device, read_named, read_typed,
+    write_named, write_typed,
 };
 use std::error::Error;
 
@@ -30,6 +30,19 @@ const DWORD_DEVICES: &[(&str, &str)] = &[
 const EXT_BIT_DEVICES: &[&str] = &["J1\\X10", "J1\\Y10", "J1\\B10", "J1\\SB10"];
 const EXT_WORD_DEVICES: &[&str] = &["J1\\W10", "J1\\SW10"];
 
+#[derive(Debug, Clone, Copy, Default)]
+struct RawExtensionSpec {
+    extension_specification: u16,
+    extension_specification_modification: u8,
+    device_modification_index: u8,
+    device_modification_flags: u8,
+    direct_memory_specification: u8,
+}
+
+fn encode_device_spec(mode: SlmpCompatibilityMode, device: SlmpDeviceAddress) -> Vec<u8> {
+    encode_raw_device_spec(mode, RawSlmpDeviceAddress::new(device.code, device.number))
+}
+
 fn make_error(message: impl Into<String>) -> Box<dyn Error> {
     Box::new(std::io::Error::other(message.into()))
 }
@@ -51,10 +64,7 @@ async fn parse_device_for_client(
     client: &SlmpClient,
     address: &str,
 ) -> Result<SlmpDeviceAddress, Box<dyn Error>> {
-    Ok(parse_device_for_plc_profile(
-        address,
-        client.plc_profile().await,
-    )?)
+    Ok(parse_device(address, client.plc_profile().await)?)
 }
 
 fn subcommand(mode: SlmpCompatibilityMode, bit_unit: bool) -> u16 {
@@ -66,11 +76,7 @@ fn subcommand(mode: SlmpCompatibilityMode, bit_unit: bool) -> u16 {
     }
 }
 
-fn ext_subcommand(
-    mode: SlmpCompatibilityMode,
-    bit_unit: bool,
-    extension: SlmpExtensionSpec,
-) -> u16 {
+fn ext_subcommand(mode: SlmpCompatibilityMode, bit_unit: bool, extension: RawExtensionSpec) -> u16 {
     if extension.direct_memory_specification == 0xF9
         || matches!(mode, SlmpCompatibilityMode::Legacy)
     {
@@ -195,8 +201,8 @@ fn value_from_named_u32(values: &NamedAddress, key: &str) -> Result<u32, Box<dyn
 
 fn effective_extension(
     qualified: SlmpQualifiedDeviceAddress,
-    extension: SlmpExtensionSpec,
-) -> SlmpExtensionSpec {
+    extension: RawExtensionSpec,
+) -> RawExtensionSpec {
     let mut result = extension;
     if let Some(value) = qualified.extension_specification {
         result.extension_specification = value;
@@ -210,7 +216,7 @@ fn effective_extension(
 fn encode_extended_device_spec(
     mode: SlmpCompatibilityMode,
     device: SlmpDeviceAddress,
-    extension: SlmpExtensionSpec,
+    extension: RawExtensionSpec,
 ) -> Vec<u8> {
     if extension.direct_memory_specification == 0xF9 {
         return vec![
@@ -263,12 +269,7 @@ async fn request_plain_read_bits(
     let mut payload = encode_device_spec(mode, device);
     payload.extend_from_slice(&points.to_le_bytes());
     let raw = client
-        .request(
-            SlmpCommand::DeviceRead,
-            subcommand(mode, true),
-            &payload,
-            true,
-        )
+        .raw_command(SlmpCommand::DeviceRead, subcommand(mode, true), &payload)
         .await?;
     unpack_bits(&raw, points as usize)
 }
@@ -283,12 +284,7 @@ async fn request_plain_write_bits(
     payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
     payload.extend_from_slice(&pack_bits(values));
     let _ = client
-        .request(
-            SlmpCommand::DeviceWrite,
-            subcommand(mode, true),
-            &payload,
-            true,
-        )
+        .raw_command(SlmpCommand::DeviceWrite, subcommand(mode, true), &payload)
         .await?;
     Ok(())
 }
@@ -302,12 +298,7 @@ async fn request_plain_read_words(
     let mut payload = encode_device_spec(mode, device);
     payload.extend_from_slice(&points.to_le_bytes());
     let raw = client
-        .request(
-            SlmpCommand::DeviceRead,
-            subcommand(mode, false),
-            &payload,
-            true,
-        )
+        .raw_command(SlmpCommand::DeviceRead, subcommand(mode, false), &payload)
         .await?;
     payload_to_words(&raw)
 }
@@ -322,12 +313,7 @@ async fn request_plain_write_words(
     payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
     payload.extend_from_slice(&words_to_payload(values));
     let _ = client
-        .request(
-            SlmpCommand::DeviceWrite,
-            subcommand(mode, false),
-            &payload,
-            true,
-        )
+        .raw_command(SlmpCommand::DeviceWrite, subcommand(mode, false), &payload)
         .await?;
     Ok(())
 }
@@ -337,17 +323,16 @@ async fn request_ext_read_bits(
     mode: SlmpCompatibilityMode,
     qualified: SlmpQualifiedDeviceAddress,
     points: u16,
-    extension: SlmpExtensionSpec,
+    extension: RawExtensionSpec,
 ) -> Result<Vec<bool>, Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
     let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
     payload.extend_from_slice(&points.to_le_bytes());
     let raw = client
-        .request(
+        .raw_command(
             SlmpCommand::DeviceRead,
             ext_subcommand(mode, true, extension),
             &payload,
-            true,
         )
         .await?;
     unpack_bits(&raw, points as usize)
@@ -358,18 +343,17 @@ async fn request_ext_write_bits(
     mode: SlmpCompatibilityMode,
     qualified: SlmpQualifiedDeviceAddress,
     values: &[bool],
-    extension: SlmpExtensionSpec,
+    extension: RawExtensionSpec,
 ) -> Result<(), Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
     let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
     payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
     payload.extend_from_slice(&pack_bits(values));
     let _ = client
-        .request(
+        .raw_command(
             SlmpCommand::DeviceWrite,
             ext_subcommand(mode, true, extension),
             &payload,
-            true,
         )
         .await?;
     Ok(())
@@ -380,17 +364,16 @@ async fn request_ext_read_words(
     mode: SlmpCompatibilityMode,
     qualified: SlmpQualifiedDeviceAddress,
     points: u16,
-    extension: SlmpExtensionSpec,
+    extension: RawExtensionSpec,
 ) -> Result<Vec<u16>, Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
     let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
     payload.extend_from_slice(&points.to_le_bytes());
     let raw = client
-        .request(
+        .raw_command(
             SlmpCommand::DeviceRead,
             ext_subcommand(mode, false, extension),
             &payload,
-            true,
         )
         .await?;
     payload_to_words(&raw)
@@ -401,18 +384,17 @@ async fn request_ext_write_words(
     mode: SlmpCompatibilityMode,
     qualified: SlmpQualifiedDeviceAddress,
     values: &[u16],
-    extension: SlmpExtensionSpec,
+    extension: RawExtensionSpec,
 ) -> Result<(), Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
     let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
     payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
     payload.extend_from_slice(&words_to_payload(values));
     let _ = client
-        .request(
+        .raw_command(
             SlmpCommand::DeviceWrite,
             ext_subcommand(mode, false, extension),
             &payload,
-            true,
         )
         .await?;
     Ok(())
@@ -443,19 +425,19 @@ fn ensure_all_equal<T: PartialEq + std::fmt::Debug>(
 fn long_timer_state_base(device: SlmpDeviceAddress) -> Option<(SlmpDeviceAddress, bool)> {
     match device.code {
         SlmpDeviceCode::LTS => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number, device.plc_profile()),
             true,
         )),
         SlmpDeviceCode::LTC => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number, device.plc_profile()),
             false,
         )),
         SlmpDeviceCode::LSTS => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number, device.plc_profile()),
             true,
         )),
         SlmpDeviceCode::LSTC => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number, device.plc_profile()),
             false,
         )),
         _ => None,
@@ -915,9 +897,9 @@ async fn compare_ext_bit_device(
     mode: SlmpCompatibilityMode,
     address: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let qualified = parse_qualified_device(address)?;
-    let extension = effective_extension(qualified, SlmpExtensionSpec::default());
-    let original = client.read_bits_extended(qualified, 1, extension).await?[0];
+    let qualified = parse_qualified_device(address, client.plc_profile().await)?;
+    let extension = effective_extension(qualified, RawExtensionSpec::default());
+    let original = client.read_bits_extended(qualified, 1).await?[0];
     let result: Result<(), Box<dyn Error>> = async {
         for (writer, value) in [
             ("write_bits_extended:on", true),
@@ -927,16 +909,14 @@ async fn compare_ext_bit_device(
         ] {
             match writer {
                 "write_bits_extended:on" | "write_bits_extended:off" => {
-                    client
-                        .write_bits_extended(qualified, &[value], extension)
-                        .await?
+                    client.write_bits_extended(qualified, &[value]).await?
                 }
                 _ => request_ext_write_bits(client, mode, qualified, &[value], extension).await?,
             }
             let observed = [
                 (
                     "read_bits_extended",
-                    client.read_bits_extended(qualified, 1, extension).await?[0],
+                    client.read_bits_extended(qualified, 1).await?[0],
                 ),
                 (
                     "request",
@@ -949,9 +929,7 @@ async fn compare_ext_bit_device(
         Ok(())
     }
     .await;
-    client
-        .write_bits_extended(qualified, &[original], extension)
-        .await?;
+    client.write_bits_extended(qualified, &[original]).await?;
     result
 }
 
@@ -960,9 +938,9 @@ async fn compare_ext_word_device(
     mode: SlmpCompatibilityMode,
     address: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let qualified = parse_qualified_device(address)?;
-    let extension = effective_extension(qualified, SlmpExtensionSpec::default());
-    let original = client.read_words_extended(qualified, 1, extension).await?[0];
+    let qualified = parse_qualified_device(address, client.plc_profile().await)?;
+    let extension = effective_extension(qualified, RawExtensionSpec::default());
+    let original = client.read_words_extended(qualified, 1).await?[0];
     let value_a = seeded_u16(address, 0x55);
     let value_b = seeded_u16(address, 0x66);
     let result: Result<(), Box<dyn Error>> = async {
@@ -974,16 +952,14 @@ async fn compare_ext_word_device(
         ] {
             match writer {
                 "write_words_extended:a" | "write_words_extended:b" => {
-                    client
-                        .write_words_extended(qualified, &[value], extension)
-                        .await?
+                    client.write_words_extended(qualified, &[value]).await?
                 }
                 _ => request_ext_write_words(client, mode, qualified, &[value], extension).await?,
             }
             let observed = [
                 (
                     "read_words_extended",
-                    client.read_words_extended(qualified, 1, extension).await?[0],
+                    client.read_words_extended(qualified, 1).await?[0],
                 ),
                 (
                     "request",
@@ -996,9 +972,7 @@ async fn compare_ext_word_device(
         Ok(())
     }
     .await;
-    client
-        .write_words_extended(qualified, &[original], extension)
-        .await?;
+    client.write_words_extended(qualified, &[original]).await?;
     result
 }
 

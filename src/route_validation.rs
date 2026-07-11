@@ -5,9 +5,7 @@ use crate::device_ranges::{
 };
 use crate::error::SlmpError;
 use crate::helpers::{SlmpValue, read_typed, write_typed};
-use crate::model::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpDeviceAddress, SlmpPlcProfile,
-};
+use crate::model::{SlmpBlockRead, SlmpBlockWrite, SlmpDeviceAddress, SlmpPlcProfile};
 use std::future::Future;
 
 const DEFAULT_RANGE_END_CODE: u16 = 0x4031;
@@ -33,8 +31,6 @@ pub struct SlmpRouteValidationOptions {
     pub bit_device: String,
     #[serde(default = "default_lz_device")]
     pub lz_device: String,
-    #[serde(default)]
-    pub plc_profile: Option<SlmpPlcProfile>,
     #[serde(default = "default_range_error_devices")]
     pub range_error_devices: Vec<String>,
 }
@@ -47,7 +43,6 @@ impl Default for SlmpRouteValidationOptions {
             float_device: default_float_device(),
             bit_device: default_bit_device(),
             lz_device: default_lz_device(),
-            plc_profile: None,
             range_error_devices: default_range_error_devices(),
         }
     }
@@ -158,15 +153,12 @@ pub async fn run_route_validation_compare(
     options: SlmpRouteValidationOptions,
 ) -> Result<SlmpRouteValidationReport, SlmpError> {
     let options = options.normalized();
+    let plc_profile = client.plc_profile().await;
     let model = client
         .read_type_name()
         .await
         .map(|info| info.model)
         .unwrap_or_else(|_| "unknown".to_string());
-    let plc_profile = match options.plc_profile {
-        Some(plc_profile) => plc_profile,
-        None => client.plc_profile().await,
-    };
     let options = apply_profile_default_devices(options, plc_profile);
     let capabilities = route_capabilities(plc_profile);
     let mut report = SlmpRouteValidationReport {
@@ -305,7 +297,7 @@ async fn parse_for_client(
     client: &SlmpClient,
     address: &str,
 ) -> Result<SlmpDeviceAddress, SlmpError> {
-    SlmpAddress::parse_for_plc_profile(address, client.plc_profile().await)
+    SlmpAddress::parse(address, client.plc_profile().await)
 }
 
 async fn validate_block_read(
@@ -373,9 +365,6 @@ async fn validate_block_write(
                     device: bit,
                     values: write_bit_words.clone(),
                 }],
-                Some(SlmpBlockWriteOptions {
-                    split_mixed_blocks: false,
-                }),
             )
             .await?;
         let observed_words = client.read_words_raw(word, 2).await?;
@@ -435,7 +424,6 @@ async fn validate_lz_block_guards(
                     values: vec![1],
                 }],
                 &[],
-                None,
             )
             .await,
         "write_block LZ",
@@ -673,14 +661,7 @@ async fn validate_range_error_routes(
     report: &mut SlmpRouteValidationReport,
 ) -> Result<(), SlmpError> {
     let expected_end_code = expected_range_end_code(plc_profile);
-    let catalog = match options.plc_profile {
-        Some(plc_profile) => {
-            client
-                .read_device_range_catalog_for_plc_profile(plc_profile)
-                .await?
-        }
-        None => client.read_device_range_catalog().await?,
-    };
+    let catalog = client.read_device_range_catalog().await?;
     for device in &options.range_error_devices {
         let Some(entry) = catalog.entries.iter().find(|entry| &entry.device == device) else {
             report.push(
@@ -847,7 +828,6 @@ async fn validate_one_range_error_device(
                             device,
                             values: vec![0],
                         }],
-                        None,
                     )
                     .await,
                 "write_block bit range",
@@ -916,7 +896,6 @@ async fn validate_one_range_error_device(
                         values: vec![0],
                     }],
                     &[],
-                    None,
                 )
                 .await,
             "write_block word range",

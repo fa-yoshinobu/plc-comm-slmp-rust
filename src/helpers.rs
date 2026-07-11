@@ -1,5 +1,4 @@
-use crate::address::{parse_device_for_family_hint, parse_named_address};
-use crate::capability_profiles::{self, SlmpProfileLimit};
+use crate::address::{parse_device, parse_named_address};
 use crate::client::SlmpClient;
 use crate::error::SlmpError;
 use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile};
@@ -192,7 +191,12 @@ pub async fn read_dwords_single_request(
 ) -> Result<Vec<u32>, SlmpError> {
     if matches!(start.code, SlmpDeviceCode::LZ) {
         validate_single_request_count(count, RANDOM_READ_BATCH_LIMIT)?;
-        return read_random_dwords_chunked(client, start, count, count).await;
+        let devices = (0..count)
+            .map(|index| {
+                SlmpDeviceAddress::new(start.code, start.number + index as u32, start.plc_profile())
+            })
+            .collect::<Vec<_>>();
+        return Ok(client.read_random(&[], &devices).await?.dword_values);
     }
     validate_single_request_count(count, 480)?;
     client.read_dwords_raw(start, count as u16).await
@@ -216,142 +220,6 @@ pub async fn write_dwords_single_request(
     client.write_dwords(start, values).await
 }
 
-pub async fn read_words_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    count: usize,
-    max_words_per_request: usize,
-) -> Result<Vec<u16>, SlmpError> {
-    let chunk = (max_words_per_request / 2) * 2;
-    if chunk == 0 {
-        return Err(SlmpError::new("max_words_per_request must be at least 2."));
-    }
-    let mut remaining = count;
-    let mut offset = 0u32;
-    let mut result = Vec::with_capacity(count);
-    while remaining > 0 {
-        let next = remaining.min(chunk);
-        result.extend(
-            client
-                .read_words_raw(
-                    SlmpDeviceAddress::new(start.code, start.number + offset),
-                    next as u16,
-                )
-                .await?,
-        );
-        remaining -= next;
-        offset += next as u32;
-    }
-    Ok(result)
-}
-
-pub async fn read_dwords_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    count: usize,
-    max_dwords_per_request: usize,
-) -> Result<Vec<u32>, SlmpError> {
-    if max_dwords_per_request == 0 {
-        return Err(SlmpError::new("max_dwords_per_request must be at least 1."));
-    }
-    if matches!(start.code, SlmpDeviceCode::LZ) {
-        return read_random_dwords_chunked(
-            client,
-            start,
-            count,
-            max_dwords_per_request.min(RANDOM_READ_BATCH_LIMIT),
-        )
-        .await;
-    }
-    let mut remaining = count;
-    let mut offset = 0u32;
-    let mut result = Vec::with_capacity(count);
-    while remaining > 0 {
-        let next = remaining.min(max_dwords_per_request);
-        result.extend(
-            client
-                .read_dwords_raw(
-                    SlmpDeviceAddress::new(start.code, start.number + offset * 2),
-                    next as u16,
-                )
-                .await?,
-        );
-        remaining -= next;
-        offset += next as u32;
-    }
-    Ok(result)
-}
-
-async fn read_random_dwords_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    count: usize,
-    max_dwords_per_request: usize,
-) -> Result<Vec<u32>, SlmpError> {
-    if max_dwords_per_request == 0 {
-        return Err(SlmpError::new("max_dwords_per_request must be at least 1."));
-    }
-    let mut remaining = count;
-    let mut offset = 0u32;
-    let mut result = Vec::with_capacity(count);
-    while remaining > 0 {
-        let next = remaining.min(max_dwords_per_request);
-        let devices = (0..next)
-            .map(|index| SlmpDeviceAddress::new(start.code, start.number + offset + index as u32))
-            .collect::<Vec<_>>();
-        result.extend(client.read_random(&[], &devices).await?.dword_values);
-        remaining -= next;
-        offset += next as u32;
-    }
-    Ok(result)
-}
-
-pub async fn write_words_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    values: &[u16],
-    max_words_per_request: usize,
-) -> Result<(), SlmpError> {
-    if max_words_per_request == 0 {
-        return Err(SlmpError::new("chunk size must be positive."));
-    }
-    let mut offset = 0usize;
-    while offset < values.len() {
-        let end = (offset + max_words_per_request).min(values.len());
-        client
-            .write_words(
-                SlmpDeviceAddress::new(start.code, start.number + offset as u32),
-                &values[offset..end],
-            )
-            .await?;
-        offset = end;
-    }
-    Ok(())
-}
-
-pub async fn write_dwords_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    values: &[u32],
-    max_dwords_per_request: usize,
-) -> Result<(), SlmpError> {
-    if max_dwords_per_request == 0 {
-        return Err(SlmpError::new("chunk size must be positive."));
-    }
-    let mut offset = 0usize;
-    while offset < values.len() {
-        let end = (offset + max_dwords_per_request).min(values.len());
-        client
-            .write_dwords(
-                SlmpDeviceAddress::new(start.code, start.number + (offset * 2) as u32),
-                &values[offset..end],
-            )
-            .await?;
-        offset = end;
-    }
-    Ok(())
-}
-
 pub async fn read_named(
     client: &SlmpClient,
     addresses: &[String],
@@ -364,7 +232,7 @@ pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<
     let plc_profile = client.plc_profile().await;
     for (address, value) in updates {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
+        let device = parse_device(&parts.base, plc_profile)?;
         if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
             let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
@@ -423,7 +291,7 @@ fn compile_read_plan(
     let mut seen_dword_devices = HashSet::with_capacity(addresses.len());
     for address in addresses {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
+        let device = parse_device(&parts.base, plc_profile)?;
 
         let (dtype, bit_word_read) = if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
@@ -581,7 +449,11 @@ fn plain_bit_word_read(device: SlmpDeviceAddress) -> Option<BitWordRead> {
     }
     let bit_index = (device.number % 16) as u8;
     Some(BitWordRead {
-        device: SlmpDeviceAddress::new(device.code, device.number - u32::from(bit_index)),
+        device: SlmpDeviceAddress::new(
+            device.code,
+            device.number - u32::from(bit_index),
+            device.plc_profile(),
+        ),
         bit_index,
     })
 }
@@ -619,54 +491,18 @@ async fn read_random_maps(
 > {
     let mut words = HashMap::with_capacity(word_devices.len());
     let mut dwords = HashMap::with_capacity(dword_devices.len());
-    let mut word_index = 0usize;
-    let mut dword_index = 0usize;
-    let batch_limit = random_read_batch_limit(client.plc_profile().await);
-
-    while word_index < word_devices.len() || dword_index < dword_devices.len() {
-        let word_take = word_devices
-            .len()
-            .saturating_sub(word_index)
-            .min(batch_limit);
-        let dword_limit = batch_limit.saturating_sub(word_take);
-        let dword_take = dword_devices
-            .len()
-            .saturating_sub(dword_index)
-            .min(dword_limit);
-        let word_end = word_index + word_take;
-        let dword_end = dword_index + dword_take;
-        let random = client
-            .read_random(
-                &word_devices[word_index..word_end],
-                &dword_devices[dword_index..dword_end],
-            )
-            .await?;
-        for (device, value) in word_devices[word_index..word_end]
-            .iter()
-            .copied()
-            .zip(random.word_values)
-        {
-            words.insert(device, value);
-        }
-        for (device, value) in dword_devices[dword_index..dword_end]
-            .iter()
-            .copied()
-            .zip(random.dword_values)
-        {
-            dwords.insert(device, value);
-        }
-        word_index = word_end;
-        dword_index = dword_end;
+    if word_devices.is_empty() && dword_devices.is_empty() {
+        return Ok((words, dwords));
+    }
+    let random = client.read_random(word_devices, dword_devices).await?;
+    for (device, value) in word_devices.iter().copied().zip(random.word_values) {
+        words.insert(device, value);
+    }
+    for (device, value) in dword_devices.iter().copied().zip(random.dword_values) {
+        dwords.insert(device, value);
     }
 
     Ok((words, dwords))
-}
-
-fn random_read_batch_limit(plc_profile: SlmpPlcProfile) -> usize {
-    capability_profiles::profile_limit(plc_profile, SlmpProfileLimit::RandomReadWord)
-        .map(|limit| limit.max)
-        .filter(|max| *max > 0)
-        .unwrap_or(RANDOM_READ_BATCH_LIMIT)
 }
 
 async fn read_random_dword_scalar(
@@ -939,17 +775,13 @@ enum NamedWriteRoute {
     RandomDWords,
 }
 
-pub fn parse_scalar_for_named(address: &str, value: &str) -> Result<SlmpValue, SlmpError> {
-    parse_scalar_for_named_with_family(address, value, None)
-}
-
-pub fn parse_scalar_for_named_with_family(
+pub fn parse_scalar_for_named(
     address: &str,
     value: &str,
-    plc_profile: Option<SlmpPlcProfile>,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<SlmpValue, SlmpError> {
     let parts = parse_named_address(address)?;
-    let device = parse_device_for_family_hint(&parts.base, plc_profile)?;
+    let device = parse_device(&parts.base, plc_profile)?;
     if parts.dtype == "BIT_IN_WORD" {
         require_bit_in_word_index(address, parts.bit_index)?;
         return Ok(SlmpValue::Bool(matches!(

@@ -11,12 +11,13 @@ use crate::device_ranges::{
 };
 use crate::error::{SlmpError, SlmpErrorInfo};
 use crate::model::{
-    SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
+    RawSlmpDeviceAddress, SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpDeviceAddress,
-    SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
-    SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
-    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpPlcProfile, SlmpQualifiedDeviceAddress,
-    SlmpRandomReadResult, SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    SlmpDeviceCode, SlmpDeviceModification, SlmpExtensionSpec, SlmpFrameType,
+    SlmpLabelArrayReadPoint, SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint,
+    SlmpLabelRandomReadResult, SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpPlcProfile,
+    SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpRemoteClearMode, SlmpRemoteMode,
+    SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
 use socket2::{SockRef, TcpKeepalive};
 use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
@@ -52,6 +53,14 @@ struct ClientInner {
 
 impl SlmpClient {
     pub async fn connect(options: SlmpConnectionOptions) -> Result<Self, SlmpError> {
+        if options.port == 0 {
+            return Err(SlmpError::new(
+                "port is required and must be in range 1..=65535",
+            ));
+        }
+        if options.timeout.is_zero() {
+            return Err(SlmpError::new("timeout must be greater than zero"));
+        }
         let transport = match options.transport_mode {
             SlmpTransportMode::Tcp => {
                 let stream = connect_tcp_stream(&options).await?;
@@ -221,9 +230,12 @@ impl SlmpClient {
     }
 
     async fn can_read_one_word(&self, device: SlmpDeviceCode, number: u32) -> bool {
-        self.read_words_raw(SlmpDeviceAddress::new(device, number), 1)
-            .await
-            .is_ok()
+        self.read_words_raw(
+            SlmpDeviceAddress::new(device, number, self.plc_profile().await),
+            1,
+        )
+        .await
+        .is_ok()
     }
 
     pub async fn read_words_raw(
@@ -231,7 +243,9 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u16>, SlmpError> {
-        self.inner.lock().await.read_words_raw(device, points).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.read_words_raw(device, points).await
     }
 
     pub async fn write_words(
@@ -239,7 +253,9 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         values: &[u16],
     ) -> Result<(), SlmpError> {
-        self.inner.lock().await.write_words(device, values).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.write_words(device, values).await
     }
 
     pub async fn read_bits(
@@ -247,7 +263,9 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<bool>, SlmpError> {
-        self.inner.lock().await.read_bits(device, points).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.read_bits(device, points).await
     }
 
     pub async fn write_bits(
@@ -255,7 +273,9 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         values: &[bool],
     ) -> Result<(), SlmpError> {
-        self.inner.lock().await.write_bits(device, values).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.write_bits(device, values).await
     }
 
     pub async fn read_dwords_raw(
@@ -263,11 +283,9 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u32>, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .read_dwords_raw(device, points)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.read_dwords_raw(device, points).await
     }
 
     pub async fn write_dwords(
@@ -275,7 +293,9 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         values: &[u32],
     ) -> Result<(), SlmpError> {
-        self.inner.lock().await.write_dwords(device, values).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.write_dwords(device, values).await
     }
 
     pub async fn read_float32s(
@@ -283,7 +303,9 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<f32>, SlmpError> {
-        self.inner.lock().await.read_float32s(device, points).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.read_float32s(device, points).await
     }
 
     pub async fn write_float32s(
@@ -291,59 +313,49 @@ impl SlmpClient {
         device: SlmpDeviceAddress,
         values: &[f32],
     ) -> Result<(), SlmpError> {
-        self.inner.lock().await.write_float32s(device, values).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        inner.write_float32s(device, values).await
     }
 
     pub async fn read_words_extended(
         &self,
         device: SlmpQualifiedDeviceAddress,
         points: u16,
-        extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .read_words_extended(device, points, extension)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device.device)?;
+        inner.read_words_extended(device, points).await
     }
 
     pub async fn write_words_extended(
         &self,
         device: SlmpQualifiedDeviceAddress,
         values: &[u16],
-        extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .write_words_extended(device, values, extension)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device.device)?;
+        inner.write_words_extended(device, values).await
     }
 
     pub async fn read_bits_extended(
         &self,
         device: SlmpQualifiedDeviceAddress,
         points: u16,
-        extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .read_bits_extended(device, points, extension)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device.device)?;
+        inner.read_bits_extended(device, points).await
     }
 
     pub async fn write_bits_extended(
         &self,
         device: SlmpQualifiedDeviceAddress,
         values: &[bool],
-        extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .write_bits_extended(device, values, extension)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device.device)?;
+        inner.write_bits_extended(device, values).await
     }
 
     pub async fn read_random(
@@ -351,23 +363,52 @@ impl SlmpClient {
         word_devices: &[SlmpDeviceAddress],
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .read_random(word_devices, dword_devices)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(word_devices.iter().chain(dword_devices))?;
+        inner.read_random(word_devices, dword_devices).await
+    }
+
+    pub async fn read_random_words(
+        &self,
+        word_devices: &[SlmpDeviceAddress],
+    ) -> Result<Vec<u16>, SlmpError> {
+        Ok(self.read_random(word_devices, &[]).await?.word_values)
+    }
+
+    pub async fn read_random_dwords(
+        &self,
+        dword_devices: &[SlmpDeviceAddress],
+    ) -> Result<Vec<u32>, SlmpError> {
+        Ok(self.read_random(&[], dword_devices).await?.dword_values)
     }
 
     pub async fn read_random_ext(
         &self,
-        word_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
-        dword_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
+        word_devices: &[SlmpQualifiedDeviceAddress],
+        dword_devices: &[SlmpQualifiedDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .read_random_ext(word_devices, dword_devices)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(
+            word_devices
+                .iter()
+                .map(|device| &device.device)
+                .chain(dword_devices.iter().map(|device| &device.device)),
+        )?;
+        inner.read_random_ext(word_devices, dword_devices).await
+    }
+
+    pub async fn read_random_words_extended(
+        &self,
+        word_devices: &[SlmpQualifiedDeviceAddress],
+    ) -> Result<Vec<u16>, SlmpError> {
+        Ok(self.read_random_ext(word_devices, &[]).await?.word_values)
+    }
+
+    pub async fn read_random_dwords_extended(
+        &self,
+        dword_devices: &[SlmpQualifiedDeviceAddress],
+    ) -> Result<Vec<u32>, SlmpError> {
+        Ok(self.read_random_ext(&[], dword_devices).await?.dword_values)
     }
 
     pub async fn write_random_words(
@@ -375,41 +416,77 @@ impl SlmpClient {
         word_entries: &[(SlmpDeviceAddress, u16)],
         dword_entries: &[(SlmpDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .write_random_words(word_entries, dword_entries)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(
+            word_entries
+                .iter()
+                .map(|(device, _)| device)
+                .chain(dword_entries.iter().map(|(device, _)| device)),
+        )?;
+        inner.write_random_words(word_entries, dword_entries).await
+    }
+
+    pub async fn write_random_u16s(
+        &self,
+        word_entries: &[(SlmpDeviceAddress, u16)],
+    ) -> Result<(), SlmpError> {
+        self.write_random_words(word_entries, &[]).await
+    }
+
+    pub async fn write_random_u32s(
+        &self,
+        dword_entries: &[(SlmpDeviceAddress, u32)],
+    ) -> Result<(), SlmpError> {
+        self.write_random_words(&[], dword_entries).await
     }
 
     pub async fn write_random_words_ext(
         &self,
-        word_entries: &[(SlmpQualifiedDeviceAddress, u16, SlmpExtensionSpec)],
-        dword_entries: &[(SlmpQualifiedDeviceAddress, u32, SlmpExtensionSpec)],
+        word_entries: &[(SlmpQualifiedDeviceAddress, u16)],
+        dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(
+            word_entries
+                .iter()
+                .map(|(device, _)| &device.device)
+                .chain(dword_entries.iter().map(|(device, _)| &device.device)),
+        )?;
+        inner
             .write_random_words_ext(word_entries, dword_entries)
             .await
+    }
+
+    pub async fn write_random_u16s_extended(
+        &self,
+        word_entries: &[(SlmpQualifiedDeviceAddress, u16)],
+    ) -> Result<(), SlmpError> {
+        self.write_random_words_ext(word_entries, &[]).await
+    }
+
+    pub async fn write_random_u32s_extended(
+        &self,
+        dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
+    ) -> Result<(), SlmpError> {
+        self.write_random_words_ext(&[], dword_entries).await
     }
 
     pub async fn write_random_bits(
         &self,
         bit_entries: &[(SlmpDeviceAddress, bool)],
     ) -> Result<(), SlmpError> {
-        self.inner.lock().await.write_random_bits(bit_entries).await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(bit_entries.iter().map(|(device, _)| device))?;
+        inner.write_random_bits(bit_entries).await
     }
 
     pub async fn write_random_bits_ext(
         &self,
-        bit_entries: &[(SlmpQualifiedDeviceAddress, bool, SlmpExtensionSpec)],
+        bit_entries: &[(SlmpQualifiedDeviceAddress, bool)],
     ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .write_random_bits_ext(bit_entries)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(bit_entries.iter().map(|(device, _)| &device.device))?;
+        inner.write_random_bits_ext(bit_entries).await
     }
 
     pub async fn read_block(
@@ -417,44 +494,75 @@ impl SlmpClient {
         word_blocks: &[SlmpBlockRead],
         bit_blocks: &[SlmpBlockRead],
     ) -> Result<SlmpBlockReadResult, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .read_block(word_blocks, bit_blocks)
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(
+            word_blocks
+                .iter()
+                .map(|block| &block.device)
+                .chain(bit_blocks.iter().map(|block| &block.device)),
+        )?;
+        inner.read_block(word_blocks, bit_blocks).await
+    }
+
+    pub async fn read_word_blocks(
+        &self,
+        word_blocks: &[SlmpBlockRead],
+    ) -> Result<SlmpBlockReadResult, SlmpError> {
+        self.read_block(word_blocks, &[]).await
+    }
+
+    pub async fn read_bit_blocks(
+        &self,
+        bit_blocks: &[SlmpBlockRead],
+    ) -> Result<SlmpBlockReadResult, SlmpError> {
+        self.read_block(&[], bit_blocks).await
     }
 
     pub async fn write_block(
         &self,
         word_blocks: &[SlmpBlockWrite],
         bit_blocks: &[SlmpBlockWrite],
-        options: Option<SlmpBlockWriteOptions>,
     ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .write_block(word_blocks, bit_blocks, options.unwrap_or_default())
-            .await
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(
+            word_blocks
+                .iter()
+                .map(|block| &block.device)
+                .chain(bit_blocks.iter().map(|block| &block.device)),
+        )?;
+        inner.write_block(word_blocks, bit_blocks).await
     }
 
-    pub async fn remote_run(&self, force: bool, clear_mode: u16) -> Result<(), SlmpError> {
-        self.inner.lock().await.remote_run(force, clear_mode).await
+    pub async fn write_word_blocks(&self, word_blocks: &[SlmpBlockWrite]) -> Result<(), SlmpError> {
+        self.write_block(word_blocks, &[]).await
+    }
+
+    pub async fn write_bit_blocks(&self, bit_blocks: &[SlmpBlockWrite]) -> Result<(), SlmpError> {
+        self.write_block(&[], bit_blocks).await
+    }
+
+    pub async fn remote_run(
+        &self,
+        mode: SlmpRemoteMode,
+        clear_mode: SlmpRemoteClearMode,
+    ) -> Result<(), SlmpError> {
+        self.inner.lock().await.remote_run(mode, clear_mode).await
     }
 
     pub async fn remote_stop(&self) -> Result<(), SlmpError> {
         self.inner.lock().await.remote_stop().await
     }
 
-    pub async fn remote_pause(&self, force: bool) -> Result<(), SlmpError> {
-        self.inner.lock().await.remote_pause(force).await
+    pub async fn remote_pause(&self, mode: SlmpRemoteMode) -> Result<(), SlmpError> {
+        self.inner.lock().await.remote_pause(mode).await
     }
 
     pub async fn remote_latch_clear(&self) -> Result<(), SlmpError> {
         self.inner.lock().await.remote_latch_clear().await
     }
 
-    pub async fn remote_reset(&self, expect_response: bool) -> Result<(), SlmpError> {
-        self.inner.lock().await.remote_reset(expect_response).await
+    pub async fn remote_reset(&self) -> Result<(), SlmpError> {
+        self.inner.lock().await.remote_reset().await
     }
 
     pub async fn remote_password_unlock(&self, password: &str) -> Result<(), SlmpError> {
@@ -526,6 +634,13 @@ impl SlmpClient {
     pub async fn read_array_labels(
         &self,
         points: &[SlmpLabelArrayReadPoint],
+    ) -> Result<Vec<SlmpLabelArrayReadResult>, SlmpError> {
+        self.read_array_labels_with_abbreviations(points, &[]).await
+    }
+
+    pub async fn read_array_labels_with_abbreviations(
+        &self,
+        points: &[SlmpLabelArrayReadPoint],
         abbreviation_labels: &[String],
     ) -> Result<Vec<SlmpLabelArrayReadResult>, SlmpError> {
         self.inner
@@ -536,6 +651,14 @@ impl SlmpClient {
     }
 
     pub async fn write_array_labels(
+        &self,
+        points: &[SlmpLabelArrayWritePoint],
+    ) -> Result<(), SlmpError> {
+        self.write_array_labels_with_abbreviations(points, &[])
+            .await
+    }
+
+    pub async fn write_array_labels_with_abbreviations(
         &self,
         points: &[SlmpLabelArrayWritePoint],
         abbreviation_labels: &[String],
@@ -550,6 +673,14 @@ impl SlmpClient {
     pub async fn read_random_labels(
         &self,
         labels: &[String],
+    ) -> Result<Vec<SlmpLabelRandomReadResult>, SlmpError> {
+        self.read_random_labels_with_abbreviations(labels, &[])
+            .await
+    }
+
+    pub async fn read_random_labels_with_abbreviations(
+        &self,
+        labels: &[String],
         abbreviation_labels: &[String],
     ) -> Result<Vec<SlmpLabelRandomReadResult>, SlmpError> {
         self.inner
@@ -560,6 +691,14 @@ impl SlmpClient {
     }
 
     pub async fn write_random_labels(
+        &self,
+        points: &[SlmpLabelRandomWritePoint],
+    ) -> Result<(), SlmpError> {
+        self.write_random_labels_with_abbreviations(points, &[])
+            .await
+    }
+
+    pub async fn write_random_labels_with_abbreviations(
         &self,
         points: &[SlmpLabelRandomWritePoint],
         abbreviation_labels: &[String],
@@ -595,17 +734,16 @@ impl SlmpClient {
             .await
     }
 
-    pub async fn request(
+    pub async fn raw_command(
         &self,
         command: SlmpCommand,
         subcommand: u16,
         payload: &[u8],
-        expect_response: bool,
     ) -> Result<Vec<u8>, SlmpError> {
         self.inner
             .lock()
             .await
-            .request(command, subcommand, payload, expect_response)
+            .request(command, subcommand, payload, true)
             .await
     }
 }
@@ -665,6 +803,29 @@ fn configure_tcp_keepalive(
 }
 
 impl ClientInner {
+    fn ensure_address_profile(&self, device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        let actual = device.plc_profile();
+        let expected = self.options.plc_profile;
+        if actual != expected {
+            return Err(SlmpError::new(format!(
+                "device address profile mismatch: address={} client={}",
+                actual.canonical_name(),
+                expected.canonical_name()
+            )));
+        }
+        Ok(())
+    }
+
+    fn ensure_address_profiles<'a>(
+        &self,
+        devices: impl IntoIterator<Item = &'a SlmpDeviceAddress>,
+    ) -> Result<(), SlmpError> {
+        for device in devices {
+            self.ensure_address_profile(*device)?;
+        }
+        Ok(())
+    }
+
     async fn read_type_name(&mut self) -> Result<SlmpTypeNameInfo, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::TypeName)?;
         let payload = self
@@ -691,7 +852,10 @@ impl ClientInner {
 
     async fn read_cpu_operation_state(&mut self) -> Result<SlmpCpuOperationState, SlmpError> {
         let status_word = self
-            .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::SD, 203), 1)
+            .read_words_raw(
+                SlmpDeviceAddress::new(SlmpDeviceCode::SD, 203, self.options.plc_profile),
+                1,
+            )
             .await?
             .into_iter()
             .next()
@@ -700,13 +864,14 @@ impl ClientInner {
     }
 
     async fn read_latest_self_diagnosis_error_code(&mut self) -> Result<u16, SlmpError> {
-        self.read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::SD, 0), 1)
-            .await?
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                SlmpError::new("read_latest_self_diagnosis_error_code expected one word")
-            })
+        self.read_words_raw(
+            SlmpDeviceAddress::new(SlmpDeviceCode::SD, 0, self.options.plc_profile),
+            1,
+        )
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| SlmpError::new("read_latest_self_diagnosis_error_code expected one word"))
     }
 
     async fn read_words_raw(
@@ -884,7 +1049,6 @@ impl ClientInner {
         &mut self,
         device: SlmpQualifiedDeviceAddress,
         points: u16,
-        extension: SlmpExtensionSpec,
     ) -> Result<Vec<u16>, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
@@ -894,7 +1058,7 @@ impl ClientInner {
             "read_words_ext",
             self.options.plc_profile,
         )?;
-        let extension = Self::resolve_effective_extension(device, extension)?;
+        let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_word_read(device.device, points)?;
@@ -926,7 +1090,6 @@ impl ClientInner {
         &mut self,
         device: SlmpQualifiedDeviceAddress,
         values: &[u16],
-        extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
@@ -936,7 +1099,7 @@ impl ClientInner {
             "write_words_ext",
             self.options.plc_profile,
         )?;
-        let extension = Self::resolve_effective_extension(device, extension)?;
+        let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_word_write(device.device, self.options.plc_profile)?;
@@ -967,7 +1130,6 @@ impl ClientInner {
         &mut self,
         device: SlmpQualifiedDeviceAddress,
         points: u16,
-        extension: SlmpExtensionSpec,
     ) -> Result<Vec<bool>, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
@@ -977,7 +1139,7 @@ impl ClientInner {
             "read_bits_ext",
             self.options.plc_profile,
         )?;
-        let extension = Self::resolve_effective_extension(device, extension)?;
+        let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_bit_read(device.device)?;
@@ -1003,7 +1165,6 @@ impl ClientInner {
         &mut self,
         device: SlmpQualifiedDeviceAddress,
         values: &[bool],
-        extension: SlmpExtensionSpec,
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
@@ -1013,7 +1174,7 @@ impl ClientInner {
             "write_bits_ext",
             self.options.plc_profile,
         )?;
-        let extension = Self::resolve_effective_extension(device, extension)?;
+        let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
         if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_bit_write(device.device, self.options.plc_profile)?;
@@ -1112,8 +1273,8 @@ impl ClientInner {
 
     async fn read_random_ext(
         &mut self,
-        word_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
-        dword_devices: &[(SlmpQualifiedDeviceAddress, SlmpExtensionSpec)],
+        word_devices: &[SlmpQualifiedDeviceAddress],
+        dword_devices: &[SlmpQualifiedDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
@@ -1128,18 +1289,18 @@ impl ClientInner {
             "read_random_ext",
         )?;
 
-        let word_refs: Vec<_> = word_devices.iter().map(|entry| entry.0.device).collect();
-        let dword_refs: Vec<_> = dword_devices.iter().map(|entry| entry.0.device).collect();
+        let word_refs: Vec<_> = word_devices.iter().map(|entry| entry.device).collect();
+        let dword_refs: Vec<_> = dword_devices.iter().map(|entry| entry.device).collect();
         rules::validate_random_read_devices(&word_refs, &dword_refs, true)?;
 
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
-        for (device, extension) in word_devices {
-            let extension = Self::resolve_effective_extension(*device, *extension)?;
+        for device in word_devices {
+            let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
         }
-        for (device, extension) in dword_devices {
-            let extension = Self::resolve_effective_extension(*device, *extension)?;
+        for device in dword_devices {
+            let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
         }
@@ -1237,8 +1398,8 @@ impl ClientInner {
 
     async fn write_random_words_ext(
         &mut self,
-        word_entries: &[(SlmpQualifiedDeviceAddress, u16, SlmpExtensionSpec)],
-        dword_entries: &[(SlmpQualifiedDeviceAddress, u32, SlmpExtensionSpec)],
+        word_entries: &[(SlmpQualifiedDeviceAddress, u16)],
+        dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
         if word_entries.len() > 0xFF || dword_entries.len() > 0xFF {
@@ -1269,14 +1430,14 @@ impl ClientInner {
         )?;
 
         let mut payload = vec![word_entries.len() as u8, dword_entries.len() as u8];
-        for (device, value, extension) in word_entries {
-            let extension = Self::resolve_effective_extension(*device, *extension)?;
+        for (device, value) in word_entries {
+            let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
             payload.extend_from_slice(&value.to_le_bytes());
         }
-        for (device, value, extension) in dword_entries {
-            let extension = Self::resolve_effective_extension(*device, *extension)?;
+        for (device, value) in dword_entries {
+            let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
             payload.extend_from_slice(&value.to_le_bytes());
@@ -1353,7 +1514,7 @@ impl ClientInner {
 
     async fn write_random_bits_ext(
         &mut self,
-        bit_entries: &[(SlmpQualifiedDeviceAddress, bool, SlmpExtensionSpec)],
+        bit_entries: &[(SlmpQualifiedDeviceAddress, bool)],
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
         if bit_entries.len() > 0xFF {
@@ -1382,8 +1543,8 @@ impl ClientInner {
         };
         let mut payload = Vec::with_capacity(bit_entries.len() * (13 + bit_value_size) + 1);
         payload.push(bit_entries.len() as u8);
-        for (device, value, extension) in bit_entries {
-            let extension = Self::resolve_effective_extension(*device, *extension)?;
+        for (device, value) in bit_entries {
+            let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload.extend_from_slice(&self.encode_extended_device_spec(device.device, extension));
             if matches!(
@@ -1481,16 +1642,10 @@ impl ClientInner {
         &mut self,
         word_blocks: &[SlmpBlockWrite],
         bit_blocks: &[SlmpBlockWrite],
-        options: SlmpBlockWriteOptions,
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Block)?;
         rules::validate_block_route_for_profile(self.options.plc_profile, "Write Block (0x1406)")?;
         rules::validate_no_lcs_lcc_block_write(word_blocks, bit_blocks, self.options.plc_profile)?;
-        if options.split_mixed_blocks && !word_blocks.is_empty() && !bit_blocks.is_empty() {
-            self.write_block_once(word_blocks, &[]).await?;
-            self.write_block_once(&[], bit_blocks).await?;
-            return Ok(());
-        }
         self.write_block_once(word_blocks, bit_blocks).await
     }
 
@@ -1545,16 +1700,17 @@ impl ClientInner {
         Ok(())
     }
 
-    async fn remote_run(&mut self, force: bool, clear_mode: u16) -> Result<(), SlmpError> {
-        if clear_mode > 2 {
-            return Err(SlmpError::new("remote run clear_mode must be 0, 1, or 2."));
-        }
-
-        let mode = if force { 0x03 } else { 0x01 };
+    async fn remote_run(
+        &mut self,
+        mode: SlmpRemoteMode,
+        clear_mode: SlmpRemoteClearMode,
+    ) -> Result<(), SlmpError> {
+        let mode = mode.wire_value();
+        let clear_mode = clear_mode.wire_value();
         let payload = [
-            mode,
-            0x00,
-            (clear_mode & 0xFF) as u8,
+            mode as u8,
+            (mode >> 8) as u8,
+            clear_mode as u8,
             (clear_mode >> 8) as u8,
         ];
         self.request(SlmpCommand::RemoteRun, 0x0000, &payload, true)
@@ -1568,9 +1724,9 @@ impl ClientInner {
         Ok(())
     }
 
-    async fn remote_pause(&mut self, force: bool) -> Result<(), SlmpError> {
-        let mode = if force { 0x03 } else { 0x01 };
-        self.request(SlmpCommand::RemotePause, 0x0000, &[mode, 0x00], true)
+    async fn remote_pause(&mut self, mode: SlmpRemoteMode) -> Result<(), SlmpError> {
+        let mode = mode.wire_value().to_le_bytes();
+        self.request(SlmpCommand::RemotePause, 0x0000, &mode, true)
             .await?;
         Ok(())
     }
@@ -1581,14 +1737,9 @@ impl ClientInner {
         Ok(())
     }
 
-    async fn remote_reset(&mut self, expect_response: bool) -> Result<(), SlmpError> {
-        self.request(
-            SlmpCommand::RemoteReset,
-            0x0000,
-            &[0x01, 0x00],
-            expect_response,
-        )
-        .await?;
+    async fn remote_reset(&mut self) -> Result<(), SlmpError> {
+        self.request(SlmpCommand::RemoteReset, 0x0000, &[0x01, 0x00], false)
+            .await?;
         Ok(())
     }
 
@@ -1993,7 +2144,7 @@ impl ClientInner {
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let words = self
             .read_words_raw(
-                SlmpDeviceAddress::new(SlmpDeviceCode::LTN, head_no),
+                SlmpDeviceAddress::new(SlmpDeviceCode::LTN, head_no, self.options.plc_profile),
                 (points * 4) as u16,
             )
             .await?;
@@ -2007,7 +2158,7 @@ impl ClientInner {
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let words = self
             .read_words_raw(
-                SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, head_no),
+                SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, head_no, self.options.plc_profile),
                 (points * 4) as u16,
             )
             .await?;
@@ -2078,8 +2229,12 @@ impl ClientInner {
         };
         let tx_len = self.last_request_frame.len() as u64;
 
-        match &mut self.transport {
-            Transport::Tcp(stream) => {
+        // Keep the client in Closed while an exchange is in flight. If this future is
+        // externally cancelled, the local socket is dropped and cannot leak a partial or
+        // delayed response into a later request. Restore it only after a complete exchange.
+        let transport = std::mem::replace(&mut self.transport, Transport::Closed);
+        match transport {
+            Transport::Tcp(mut stream) => {
                 let io_result = async {
                     timeout(
                         self.options.timeout,
@@ -2095,7 +2250,7 @@ impl ClientInner {
                     }
                     loop {
                         Self::receive_tcp_frame(
-                            stream,
+                            &mut stream,
                             self.options.frame_type,
                             self.options.timeout,
                             &mut self.last_response_frame,
@@ -2119,56 +2274,63 @@ impl ClientInner {
                 }
                 .await;
                 if let Err(error) = io_result {
-                    let transport = std::mem::replace(&mut self.transport, Transport::Closed);
-                    if let Transport::Tcp(mut broken_stream) = transport {
-                        let _ = broken_stream.shutdown().await;
-                    }
+                    let _ = stream.shutdown().await;
                     return Err(error);
                 }
+                self.transport = Transport::Tcp(stream);
                 if !expect_response {
                     return Ok(Vec::new());
                 }
                 Self::parse_response(command, subcommand, &self.last_response_frame)
             }
             Transport::Udp(socket) => {
-                timeout(self.options.timeout, socket.send(&self.last_request_frame))
-                    .await
-                    .map_err(|_| SlmpError::new("udp send timed out"))??;
-                self.traffic_stats.request_count += 1;
-                self.traffic_stats.tx_bytes += tx_len;
-                if !expect_response {
-                    self.last_response_frame.clear();
-                    return Ok(Vec::new());
+                let io_result = async {
+                    timeout(self.options.timeout, socket.send(&self.last_request_frame))
+                        .await
+                        .map_err(|_| SlmpError::new("udp send timed out"))??;
+                    self.traffic_stats.request_count += 1;
+                    self.traffic_stats.tx_bytes += tx_len;
+                    if !expect_response {
+                        self.last_response_frame.clear();
+                        return Ok::<(), SlmpError>(());
+                    }
+                    // A failed UDP exchange invalidates the socket. Closing it prevents a delayed
+                    // datagram from being consumed as the response to a later 3E request.
+                    loop {
+                        self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
+                        let received = timeout(
+                            self.options.timeout,
+                            socket.recv(&mut self.last_response_frame),
+                        )
+                        .await
+                        .map_err(|_| SlmpError::new("udp receive timed out"))??;
+                        self.last_response_frame.truncate(received);
+                        self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                        if !Self::has_expected_response_frame_type(
+                            self.options.frame_type,
+                            &self.last_response_frame,
+                        ) {
+                            return Err(SlmpError::new("unexpected response frame type"));
+                        }
+                        if Self::has_expected_response_serial(
+                            &self.last_response_frame,
+                            expected_serial,
+                        ) {
+                            break;
+                        }
+                    }
+                    Ok(())
                 }
-                // UDP datagrams cannot be continued by another recv call.
-                // Keep the buffer large enough for a full datagram to avoid truncating PLC responses.
-                loop {
-                    self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
-                    let received = timeout(
-                        self.options.timeout,
-                        socket.recv(&mut self.last_response_frame),
-                    )
-                    .await
-                    .map_err(|_| SlmpError::new("udp receive timed out"))??;
-                    self.last_response_frame.truncate(received);
-                    self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
-                    if !Self::has_expected_response_frame_type(
-                        self.options.frame_type,
-                        &self.last_response_frame,
-                    ) {
-                        return Err(SlmpError::new("unexpected response frame type"));
-                    }
-                    if Self::has_expected_response_serial(
-                        &self.last_response_frame,
-                        expected_serial,
-                    ) {
-                        break;
-                    }
+                .await;
+                io_result?;
+                self.transport = Transport::Udp(socket);
+                if !expect_response {
+                    return Ok(Vec::new());
                 }
                 Self::parse_response(command, subcommand, &self.last_response_frame)
             }
             Transport::Closed => Err(SlmpError::new(
-                "transport is closed after a previous TCP failure",
+                "transport is closed after a previous transport failure",
             )),
         }
     }
@@ -2492,14 +2654,39 @@ impl ClientInner {
 
     fn resolve_effective_extension(
         device: SlmpQualifiedDeviceAddress,
-        extension: SlmpExtensionSpec,
+        plc_profile: SlmpPlcProfile,
     ) -> Result<SlmpExtensionSpec, SlmpError> {
-        let mut result = extension;
+        let mut result = SlmpExtensionSpec::default();
         if let Some(extension_specification) = device.extension_specification {
             result.extension_specification = extension_specification;
         }
         if let Some(direct_memory_specification) = device.direct_memory_specification {
             result.direct_memory_specification = direct_memory_specification;
+        }
+        if device.direct_memory_specification == Some(0xF9) && device.modification.is_some() {
+            return Err(SlmpError::new(
+                "J-qualified link-direct devices do not support Z, LZ, or indirect modification",
+            ));
+        }
+        match device.modification {
+            None => {}
+            Some(SlmpDeviceModification::IndexZ(index)) => {
+                result.device_modification_index = index;
+                result.device_modification_flags = 0x40;
+            }
+            Some(SlmpDeviceModification::IndexLz(index)) => {
+                if !plc_profile.uses_iqr_protocol() {
+                    return Err(SlmpError::new(format!(
+                        "LZ index modification is not supported for plc_profile '{}'",
+                        plc_profile.canonical_name()
+                    )));
+                }
+                result.device_modification_index = index;
+                result.device_modification_flags = 0x80;
+            }
+            Some(SlmpDeviceModification::Indirect) => {
+                result.device_modification_flags = 0x08;
+            }
         }
         match device.device.code {
             SlmpDeviceCode::G => {
@@ -2635,7 +2822,10 @@ impl std::fmt::Debug for SlmpClient {
     }
 }
 
-pub fn encode_device_spec(mode: SlmpCompatibilityMode, device: SlmpDeviceAddress) -> Vec<u8> {
+pub fn encode_raw_device_spec(
+    mode: SlmpCompatibilityMode,
+    device: RawSlmpDeviceAddress,
+) -> Vec<u8> {
     let size = device_spec_size(mode);
     let mut output = vec![0u8; size];
     match mode {
@@ -2662,7 +2852,14 @@ mod tests {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         socket.connect("127.0.0.1:9").await.unwrap();
         ClientInner {
-            options: SlmpConnectionOptions::new("127.0.0.1", plc_profile).unwrap(),
+            options: SlmpConnectionOptions::new(
+                "127.0.0.1",
+                1025,
+                SlmpTransportMode::Tcp,
+                SlmpTargetAddress::default(),
+                plc_profile,
+            )
+            .unwrap(),
             transport: Transport::Udp(socket),
             serial: 0,
             last_request_frame: Vec::new(),
@@ -2674,7 +2871,7 @@ mod tests {
     #[tokio::test]
     async fn encode_extended_device_spec_uses_manual_ql_layout() {
         let inner = udp_inner(SlmpPlcProfile::QCpuQj71E71100).await;
-        let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100);
+        let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::QCpuQj71E71100);
 
         assert_eq!(
             inner.encode_extended_device_spec(device, SlmpExtensionSpec::default()),
@@ -2695,6 +2892,69 @@ mod tests {
             vec![
                 0x04, 0x40, 0x64, 0x00, 0x00, 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00
             ]
+        );
+    }
+
+    #[test]
+    fn semantic_extended_device_modifications_derive_wire_flags() {
+        let base = SlmpQualifiedDeviceAddress {
+            device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+            extension_specification: Some(1),
+            direct_memory_specification: None,
+            modification: None,
+        };
+
+        let z = ClientInner::resolve_effective_extension(
+            base.with_modification(SlmpDeviceModification::IndexZ(4)),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        assert_eq!(z.device_modification_index, 4);
+        assert_eq!(z.device_modification_flags, 0x40);
+
+        let lz = ClientInner::resolve_effective_extension(
+            base.with_modification(SlmpDeviceModification::IndexLz(2)),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        assert_eq!(lz.device_modification_index, 2);
+        assert_eq!(lz.device_modification_flags, 0x80);
+
+        let indirect = ClientInner::resolve_effective_extension(
+            base.with_modification(SlmpDeviceModification::Indirect),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        assert_eq!(indirect.device_modification_index, 0);
+        assert_eq!(indirect.device_modification_flags, 0x08);
+    }
+
+    #[test]
+    fn semantic_extended_device_rejects_invalid_modification_combinations() {
+        let link = SlmpQualifiedDeviceAddress {
+            device: SlmpDeviceAddress::new(SlmpDeviceCode::W, 10, SlmpPlcProfile::IqR),
+            extension_specification: Some(1),
+            direct_memory_specification: Some(0xF9),
+            modification: Some(SlmpDeviceModification::IndexZ(1)),
+        };
+        assert!(
+            ClientInner::resolve_effective_extension(link, SlmpPlcProfile::IqR)
+                .unwrap_err()
+                .message
+                .contains("link-direct")
+        );
+
+        let legacy = SlmpQualifiedDeviceAddress {
+            device: SlmpDeviceAddress::new(SlmpDeviceCode::D, 10, SlmpPlcProfile::QCpuQj71E71100),
+            extension_specification: Some(1),
+            direct_memory_specification: None,
+            modification: Some(SlmpDeviceModification::IndexLz(1)),
+        };
+        assert!(
+            ClientInner::resolve_effective_extension(legacy, SlmpPlcProfile::QCpuQj71E71100)
+                .unwrap_err()
+                .message
+                .contains("not supported")
         );
     }
 

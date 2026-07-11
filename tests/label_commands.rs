@@ -13,7 +13,7 @@ async fn read_random_labels_builds_utf16_payload_and_parses_response() {
     let client = connect(server.port).await;
 
     let labels = vec!["LabelW".to_string()];
-    let values = client.read_random_labels(&labels, &[]).await.unwrap();
+    let values = client.read_random_labels(&labels).await.unwrap();
 
     assert_eq!(values[0].read_data_length, 2);
     assert_eq!(values[0].data, vec![0x31, 0x00]);
@@ -33,25 +33,19 @@ async fn label_writes_build_expected_payloads() {
     let client = connect(server.port).await;
 
     client
-        .write_random_labels(
-            &[SlmpLabelRandomWritePoint {
-                label: "LabelW".into(),
-                data: vec![0x31, 0x00],
-            }],
-            &[],
-        )
+        .write_random_labels(&[SlmpLabelRandomWritePoint {
+            label: "LabelW".into(),
+            data: vec![0x31, 0x00],
+        }])
         .await
         .unwrap();
     client
-        .write_array_labels(
-            &[SlmpLabelArrayWritePoint {
-                label: "LabelW".into(),
-                unit_specification: 1,
-                array_data_length: 2,
-                data: vec![0xaa, 0xbb],
-            }],
-            &[],
-        )
+        .write_array_labels(&[SlmpLabelArrayWritePoint {
+            label: "LabelW".into(),
+            unit_specification: 1,
+            array_data_length: 2,
+            data: vec![0xaa, 0xbb],
+        }])
         .await
         .unwrap();
 
@@ -70,19 +64,23 @@ async fn label_writes_build_expected_payloads() {
 
 #[tokio::test]
 async fn oversized_label_payload_is_rejected_before_request_length_wraps() {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.transport_mode = SlmpTransportMode::Udp;
     options.port = 9;
     let client = SlmpClient::connect(options).await.unwrap();
 
     let err = client
-        .write_random_labels(
-            &[SlmpLabelRandomWritePoint {
-                label: "L".into(),
-                data: vec![0; 65_520],
-            }],
-            &[],
-        )
+        .write_random_labels(&[SlmpLabelRandomWritePoint {
+            label: "L".into(),
+            data: vec![0; 65_520],
+        }])
         .await
         .unwrap_err();
 
@@ -93,7 +91,14 @@ async fn oversized_label_payload_is_rejected_before_request_length_wraps() {
 }
 
 async fn connect(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

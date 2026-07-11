@@ -1,13 +1,12 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use common::{env_csv, env_string};
+use common::env_string;
 use plc_comm_slmp::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpClient, SlmpConnectionOptions,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile, SlmpTransportMode, SlmpValue,
-    read_dwords_chunked, read_dwords_single_request, read_typed, read_words_chunked,
-    read_words_single_request, write_dwords_chunked, write_dwords_single_request, write_typed,
-    write_words_chunked, write_words_single_request,
+    SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpConnectionOptions, SlmpDeviceAddress,
+    SlmpDeviceCode, SlmpPlcProfile, SlmpTransportMode, SlmpValue, parse_named_target,
+    read_dwords_single_request, read_typed, read_words_single_request, write_dwords_single_request,
+    write_typed, write_words_single_request,
 };
 use std::error::Error;
 use std::future::Future;
@@ -20,19 +19,51 @@ fn make_error(message: impl Into<String>) -> Box<dyn Error> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let host = env_string("SLMP_HOST", "192.168.250.100");
-    let tcp_port = env_string("SLMP_TCP_PORT", &env_string("SLMP_PORT", "1025")).parse::<u16>()?;
-    let udp_port = env_string("SLMP_UDP_PORT", "1035").parse::<u16>()?;
-    let transports = env_csv("SLMP_STRESS_TRANSPORTS", "tcp,udp");
+    let transports = required_env("SLMP_STRESS_TRANSPORTS")?
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if transports.is_empty() {
+        return Err(make_error("SLMP_STRESS_TRANSPORTS must not be empty"));
+    }
+    let uses_tcp = transports
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case("tcp"));
+    let uses_udp = transports
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case("udp"));
+    let tcp_port = uses_tcp
+        .then(|| required_port("SLMP_TCP_PORT"))
+        .transpose()?;
+    let udp_port = uses_udp
+        .then(|| required_port("SLMP_UDP_PORT"))
+        .transpose()?;
     let mut failures = Vec::new();
 
-    println!("iql_live_stress: host={host} tcp_port={tcp_port} udp_port={udp_port}");
+    println!("iql_live_stress: host={host} tcp_port={tcp_port:?} udp_port={udp_port:?}");
     for transport in transports {
         match transport.to_ascii_lowercase().as_str() {
             "tcp" => {
-                failures.extend(run_transport(&host, tcp_port, SlmpTransportMode::Tcp).await?);
+                failures.extend(
+                    run_transport(
+                        &host,
+                        tcp_port.expect("TCP port was validated"),
+                        SlmpTransportMode::Tcp,
+                    )
+                    .await?,
+                );
             }
             "udp" => {
-                failures.extend(run_transport(&host, udp_port, SlmpTransportMode::Udp).await?);
+                failures.extend(
+                    run_transport(
+                        &host,
+                        udp_port.expect("UDP port was validated"),
+                        SlmpTransportMode::Udp,
+                    )
+                    .await?,
+                );
             }
             other => failures.push(format!("unknown transport '{other}'")),
         }
@@ -67,14 +98,6 @@ async fn run_transport(
     .await;
     record_step(&mut failures, &label, "single direct max dwords", || {
         direct_dwords_roundtrip(&client)
-    })
-    .await;
-    record_step(&mut failures, &label, "chunked words ordering", || {
-        chunked_words_roundtrip(&client)
-    })
-    .await;
-    record_step(&mut failures, &label, "chunked dwords ordering", || {
-        chunked_dwords_roundtrip(&client)
     })
     .await;
     record_step(&mut failures, &label, "direct bit write/readback", || {
@@ -154,36 +177,6 @@ async fn direct_dwords_roundtrip(client: &SlmpClient) -> Result<(), Box<dyn Erro
     }
     .await;
     restore_dwords(client, start, &original).await?;
-    result
-}
-
-async fn chunked_words_roundtrip(client: &SlmpClient) -> Result<(), Box<dyn Error>> {
-    let start = device(SlmpDeviceCode::D, 16_000);
-    let count = 1_024;
-    let original = read_words_chunked(client, start, count, 128).await?;
-    let values = word_pattern(count, 0x2200);
-    let result = async {
-        write_words_chunked(client, start, &values, 128).await?;
-        let actual = read_words_chunked(client, start, count, 128).await?;
-        ensure_eq("chunked words readback", &values, &actual)
-    }
-    .await;
-    restore_words_chunked(client, start, &original, 128).await?;
-    result
-}
-
-async fn chunked_dwords_roundtrip(client: &SlmpClient) -> Result<(), Box<dyn Error>> {
-    let start = device(SlmpDeviceCode::D, 17_000);
-    let count = 512;
-    let original = read_dwords_chunked(client, start, count, 64).await?;
-    let values = dword_pattern(count, 0x2200_0000);
-    let result = async {
-        write_dwords_chunked(client, start, &values, 64).await?;
-        let actual = read_dwords_chunked(client, start, count, 64).await?;
-        ensure_eq("chunked dwords readback", &values, &actual)
-    }
-    .await;
-    restore_dwords_chunked(client, start, &original, 64).await?;
     result
 }
 
@@ -357,9 +350,6 @@ async fn block_roundtrip(client: &SlmpClient) -> Result<(), Box<dyn Error>> {
                     device: bit_blocks[0].device,
                     values: bit_values.clone(),
                 }],
-                Some(SlmpBlockWriteOptions {
-                    split_mixed_blocks: false,
-                }),
             )
             .await?;
         let actual = client.read_block(&word_blocks, &bit_blocks).await?;
@@ -377,9 +367,6 @@ async fn block_roundtrip(client: &SlmpClient) -> Result<(), Box<dyn Error>> {
                 device: bit_blocks[0].device,
                 values: original.bit_values.clone(),
             }],
-            Some(SlmpBlockWriteOptions {
-                split_mixed_blocks: false,
-            }),
         )
         .await?;
     let restored = client.read_block(&word_blocks, &bit_blocks).await?;
@@ -419,7 +406,6 @@ async fn observe_multi_word_block_candidate(client: &SlmpClient) {
                         },
                     ],
                     &[],
-                    None,
                 )
                 .await?;
             let actual_first = client.read_words_raw(first, 4).await?;
@@ -643,43 +629,33 @@ async fn restore_dwords(
     ensure_eq("direct dwords restore", original, &restored)
 }
 
-async fn restore_words_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    original: &[u16],
-    chunk: usize,
-) -> Result<(), Box<dyn Error>> {
-    write_words_chunked(client, start, original, chunk).await?;
-    let restored = read_words_chunked(client, start, original.len(), chunk).await?;
-    ensure_eq("chunked words restore", original, &restored)
-}
-
-async fn restore_dwords_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    original: &[u32],
-    chunk: usize,
-) -> Result<(), Box<dyn Error>> {
-    write_dwords_chunked(client, start, original, chunk).await?;
-    let restored = read_dwords_chunked(client, start, original.len(), chunk).await?;
-    ensure_eq("chunked dwords restore", original, &restored)
-}
-
 fn options(
     host: &str,
     port: u16,
     transport_mode: SlmpTransportMode,
     timeout_ms: u64,
 ) -> Result<SlmpConnectionOptions, Box<dyn Error>> {
-    let mut options = SlmpConnectionOptions::new(host, SlmpPlcProfile::IqL)?;
-    options.port = port;
-    options.transport_mode = transport_mode;
+    let target = parse_named_target(&required_env("SLMP_TARGET")?)?.target;
+    let mut options =
+        SlmpConnectionOptions::new(host, port, transport_mode, target, SlmpPlcProfile::IqL)?;
     options.timeout = Duration::from_millis(timeout_ms);
     Ok(options)
 }
 
+fn required_env(key: &str) -> Result<String, Box<dyn Error>> {
+    std::env::var(key).map_err(|_| make_error(format!("{key} is required")))
+}
+
+fn required_port(key: &str) -> Result<u16, Box<dyn Error>> {
+    let port = required_env(key)?.parse::<u16>()?;
+    if port == 0 {
+        return Err(make_error(format!("{key} must be in 1..=65535")));
+    }
+    Ok(port)
+}
+
 fn device(code: SlmpDeviceCode, number: u32) -> SlmpDeviceAddress {
-    SlmpDeviceAddress::new(code, number)
+    SlmpDeviceAddress::new(code, number, SlmpPlcProfile::IqL)
 }
 
 fn word_pattern(count: usize, seed: u16) -> Vec<u16> {

@@ -1,4 +1,4 @@
-use crate::error_codes::{end_code_message_en, end_code_name, is_remote_password_end_code};
+use crate::error_codes::{end_code_name, is_remote_password_end_code};
 use crate::model::SlmpCommand;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,6 @@ pub struct SlmpProfileFeatureErrorInfo {
     pub feature_key: String,
     pub state: String,
     pub evidence: Option<String>,
-    pub disable_hint: String,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -123,13 +122,12 @@ impl SlmpError {
         let profile_id = profile_id.into();
         let feature_key = feature_key.into();
         let state = state.into();
-        let disable_hint = "Set strict_profile=false to send the request anyway.".to_string();
         let evidence_text = evidence
             .as_ref()
             .map(|value| format!(" Evidence: {value}."))
             .unwrap_or_default();
         let message = format!(
-            "Feature '{feature_key}' is {state} for plc_profile '{profile_id}'.{evidence_text} {disable_hint}"
+            "Feature '{feature_key}' is {state} for plc_profile '{profile_id}'.{evidence_text}"
         );
         Self {
             kind: SlmpErrorKind::ProfileFeature,
@@ -143,7 +141,6 @@ impl SlmpError {
                 feature_key,
                 state,
                 evidence,
-                disable_hint,
             }),
         }
     }
@@ -154,10 +151,6 @@ impl SlmpError {
 
     pub fn end_code_name(&self) -> Option<&'static str> {
         self.end_code.map(end_code_name)
-    }
-
-    pub fn end_code_message(&self) -> Option<&'static str> {
-        self.end_code.and_then(end_code_message_en)
     }
 
     pub fn is_remote_password_error(&self) -> bool {

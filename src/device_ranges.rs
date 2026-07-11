@@ -127,7 +127,11 @@ pub(crate) async fn read_registers(
 
     let values = client
         .read_words_raw(
-            SlmpDeviceAddress::new(SlmpDeviceCode::SD, u32::from(profile.register_start)),
+            SlmpDeviceAddress::new(
+                SlmpDeviceCode::SD,
+                u32::from(profile.register_start),
+                client.plc_profile().await,
+            ),
             profile.register_count,
         )
         .await?;
