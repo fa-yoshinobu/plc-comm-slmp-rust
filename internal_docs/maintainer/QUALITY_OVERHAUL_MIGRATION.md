@@ -2,6 +2,10 @@
 
 This maintainer record maps the approved workspace decisions to the Rust implementation. It is not a user guide. Breaking compatibility is intentional where it conflicts with an explicit, profile-safe, single-request contract.
 
+The optional Node binding follows the same rule:
+`normalizeAddress(address, plcProfile)` requires the exact canonical PLC
+profile label. There is no profile-free compatibility overload.
+
 ## Per-decision target contracts
 
 Each item uses the following evidence boxes. A box may be checked only after the repository contains the implementation and executable evidence.

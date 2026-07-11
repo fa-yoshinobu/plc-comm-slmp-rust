@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### BREAKING
+- Node binding: `normalizeAddress` now requires the exact canonical PLC profile label as its second argument. Address radix and supported device families are never inferred by the binding.
 - Library: `SlmpConnectionOptions::new` now requires destination port, transport, complete target route, and canonical PLC profile. Port zero is rejected; no destination or transport is inferred.
 - Library: Address parsing, formatting, normalization, qualified-device parsing, and numeric semantic address construction are profile-bound. A semantic address from another profile is rejected before transport use.
 - Library: Removed public automatic chunking, mixed-block splitting, localized end-code messages, public strict-profile bypass, and the response-optional raw request surface. `raw_command` always requires command, subcommand, and payload and always returns the response bytes.
