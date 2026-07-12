@@ -26,12 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Library: Typed writes require the exact matching `SlmpValue` variant and finite float values; CLI/named scalar parsing rejects range overflow instead of truncating or saturating.
 - Library: Random and block writes reject duplicate or overlapping device spans before transport, including qualified Extended Device writes.
 - Library: Remote RESET closes the transport after its send-only exchange so a delayed 3E response cannot satisfy a later request.
-- Library: Qualified address wire fields are private and exposed read-only through validated semantic constructors; LZ index modification accepts only LZ0 and LZ1.
 - Library: `write_named` batches one compatible random-write family into exactly one request and rejects mixed families or implicit bit-in-word read-modify-write sequences.
 - Library: `read_named` and each `poll_named` cycle accept only entries that fit one random-read request; direct/block/long-timer fallback routes are rejected before transport.
 - Node binding: `normalizeAddress` rejects abstract base-only profiles as well as non-canonical labels.
 
 ### BREAKING
+- Library: Qualified-address wire fields are private and exposed read-only through validated semantic constructors; `SlmpQualifiedDeviceAddress` no longer implements `serde::Deserialize`, because deserialization could bypass those constructors. Use `parse_qualified_device` or the validated semantic constructors. LZ index modification accepts only LZ0 and LZ1.
 - Node binding: `normalizeAddress` now requires the exact canonical PLC profile label as its second argument. Address radix and supported device families are never inferred by the binding.
 - Library: `SlmpConnectionOptions::new` now requires destination port, transport, complete target route, and canonical PLC profile. Port zero is rejected; no destination or transport is inferred.
 - Library: Address parsing, formatting, normalization, qualified-device parsing, and numeric semantic address construction are profile-bound. `SlmpDeviceAddress` now keeps its profile, code, and wire number in private immutable fields exposed through read-only accessors; a semantic address from another profile is rejected before transport use.

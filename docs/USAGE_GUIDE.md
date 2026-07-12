@@ -157,7 +157,9 @@ client.close().await?;
 For iQ-R multi-CPU `U3En\HG...` access, the qualified device never changes the
 SLMP request target automatically. Select the target CPU in
 `SlmpConnectionOptions` when a write must be reflected there; use a separate
-client for a different target. Cross-CPU reads remain valid. See the shared
+client for a different target. A write can return a normal end code without
+changing the intended CPU buffer when the selected request target identifies a
+different CPU or Own Station. Cross-CPU reads remain valid. See the shared
 [iQ-R target guidance](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/iq-r/#multi-cpu-cpu-buffer-target).
 
 ## Monitor, self-test, and Clear Error

@@ -182,7 +182,7 @@ Each item uses the following evidence boxes. A box may be checked only after the
 
 ### D-031 / D-032 / D-033 — Module and long-timer operands are required
 
-- Scope: CPU-buffer and long timer/retentive timer helpers.
+- Scope: Extend Unit and long timer/retentive timer helpers.
 - Target: module number, head number, and multi-point count are explicit; head zero is accepted only when explicitly supplied, while the count must be positive.
 - Validation: long-timer counts are multiplied by four with checked arithmetic and must fit both the protocol word-count field and the active profile's one-request direct-word limit; truncation or wraparound never creates a smaller request.
 - Compatibility: calls relying on module zero, head zero, or one-point defaults break.

@@ -462,33 +462,34 @@ pub(crate) fn validate_random_read_devices(
     word_devices: &[SlmpDeviceAddress],
     dword_devices: &[SlmpDeviceAddress],
     allow_qualified_only_devices: bool,
+    command_label: &str,
 ) -> Result<(), SlmpError> {
     for device in word_devices.iter().chain(dword_devices.iter()) {
         if !allow_qualified_only_devices && is_qualified_only_device(device.code()) {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support standalone G/HG. Use U-qualified extended access.",
-            ));
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support standalone G/HG. Use U-qualified extended access."
+            )));
         }
         // LTS/LTC/LSTS/LSTC can be written by random bit write, but they are
         // not readable by Read Random (0x0403); use status-block reads.
         if is_long_timer_state_device(device.code()) {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read.",
-            ));
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read."
+            )));
         }
 
         if matches!(device.code(), SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
-            ));
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected."
+            )));
         }
     }
     for device in word_devices {
         if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code())
         {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead.",
-            ));
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead."
+            )));
         }
     }
     Ok(())

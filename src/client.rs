@@ -1326,7 +1326,12 @@ impl ClientInner {
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
-        rules::validate_random_read_devices(word_devices, dword_devices, false)?;
+        rules::validate_random_read_devices(
+            word_devices,
+            dword_devices,
+            false,
+            "Read Random (0x0403)",
+        )?;
         if word_devices.len() > 0xFF || dword_devices.len() > 0xFF {
             return Err(SlmpError::new("random counts must be <= 255"));
         }
@@ -1409,7 +1414,7 @@ impl ClientInner {
 
         let word_refs: Vec<_> = word_devices.iter().map(|entry| entry.device()).collect();
         let dword_refs: Vec<_> = dword_devices.iter().map(|entry| entry.device()).collect();
-        rules::validate_random_read_devices(&word_refs, &dword_refs, true)?;
+        rules::validate_random_read_devices(&word_refs, &dword_refs, true, "Read Random (0x0403)")?;
 
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
         for device in word_devices {
@@ -1468,7 +1473,12 @@ impl ClientInner {
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Monitor)?;
-        rules::validate_random_read_devices(word_devices, dword_devices, false)?;
+        rules::validate_random_read_devices(
+            word_devices,
+            dword_devices,
+            false,
+            "Entry Monitor Device (0x0801)",
+        )?;
         rules::validate_random_read_like_counts(
             word_devices.len(),
             dword_devices.len(),
@@ -1519,7 +1529,12 @@ impl ClientInner {
         )?;
         let word_refs: Vec<_> = word_devices.iter().map(|entry| entry.device()).collect();
         let dword_refs: Vec<_> = dword_devices.iter().map(|entry| entry.device()).collect();
-        rules::validate_random_read_devices(&word_refs, &dword_refs, true)?;
+        rules::validate_random_read_devices(
+            &word_refs,
+            &dword_refs,
+            true,
+            "Entry Monitor Device (0x0801)",
+        )?;
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
         for device in word_devices.iter().chain(dword_devices.iter()) {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;

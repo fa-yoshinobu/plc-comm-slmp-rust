@@ -469,10 +469,85 @@ async fn monitor_semantic_apis_register_and_decode_three_cycles() {
         u16::from_le_bytes([requests[0][15], requests[0][16]]),
         0x0801
     );
+    assert_eq!(
+        &requests[0][19..33],
+        &[
+            0x01, 0x01, 0x78, 0x00, 0x00, 0x00, 0xA8, 0x00, 0xC8, 0x00, 0x00, 0x00, 0xA8, 0x00
+        ]
+    );
     for request in &requests[1..] {
         assert_eq!(u16::from_le_bytes([request[15], request[16]]), 0x0802);
         assert_eq!(request.len(), 19);
     }
+}
+
+#[tokio::test]
+async fn legacy_monitor_registration_pins_counts_and_device_order() {
+    let server = CapturingResponseServer::start(vec![(0x0000, vec![])])
+        .await
+        .unwrap();
+    let profile = SlmpPlcProfile::QnUQj71E71100;
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        profile,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    client
+        .register_monitor_devices(
+            &[SlmpDeviceAddress::new(SlmpDeviceCode::D, 120, profile)],
+            &[SlmpDeviceAddress::new(SlmpDeviceCode::D, 200, profile)],
+        )
+        .await
+        .unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        &requests[0][19..29],
+        &[0x01, 0x01, 0x78, 0x00, 0x00, 0xA8, 0xC8, 0x00, 0x00, 0xA8]
+    );
+}
+
+#[tokio::test]
+async fn monitor_registration_rejects_empty_over_limit_and_long_state_before_transport() {
+    let server = CapturingResponseServer::start(vec![]).await.unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    assert!(client.register_monitor_devices(&[], &[]).await.is_err());
+    assert!(client.register_monitor_devices_ext(&[], &[]).await.is_err());
+    let normal = (0..97)
+        .map(|number| SlmpDeviceAddress::new(SlmpDeviceCode::D, number, SlmpPlcProfile::IqR))
+        .collect::<Vec<_>>();
+    assert!(client.register_monitor_devices(&normal, &[]).await.is_err());
+    let extended = (0..97)
+        .map(|number| qualified_device_for(SlmpPlcProfile::IqR, SlmpDeviceCode::D, number))
+        .collect::<Vec<_>>();
+    assert!(
+        client
+            .register_monitor_devices_ext(&extended, &[])
+            .await
+            .is_err()
+    );
+    let long_state = SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 0, SlmpPlcProfile::IqR);
+    let error = client
+        .register_monitor_devices(&[long_state], &[])
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("0x0801"));
+    assert!(server.requests().await.is_empty());
 }
 
 #[tokio::test]
@@ -575,6 +650,27 @@ async fn monitor_semantic_api_propagates_plc_ng_without_fallback() {
 #[tokio::test]
 async fn monitor_semantic_api_rejects_response_size_mismatch() {
     let server = CapturingResponseServer::start(vec![(0x0000, vec![0x11])])
+        .await
+        .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error = client.run_monitor_cycle(1, 0).await.unwrap_err();
+
+    assert!(error.to_string().contains("monitor response size mismatch"));
+    assert_eq!(server.requests().await.len(), 1);
+}
+
+#[tokio::test]
+async fn monitor_semantic_api_rejects_trailing_response_bytes() {
+    let server = CapturingResponseServer::start(vec![(0x0000, vec![0x11, 0x11, 0x22])])
         .await
         .unwrap();
     let options = SlmpConnectionOptions::new(
