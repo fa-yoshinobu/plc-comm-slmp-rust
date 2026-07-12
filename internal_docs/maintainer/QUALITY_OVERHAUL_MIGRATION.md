@@ -339,7 +339,7 @@ Each item uses the following evidence boxes. A box may be checked only after the
 - [x] Claude source review completed by the user through Claude CLI and recorded in the workspace disposition file.
 - [x] Codex accepted and resolved Rust findings 5/6/11/26/27/28/29/30 and reran all affected checks.
 - [x] Required live-PLC checks passed, or each unavailable check has an explicit release disposition.
-- [ ] Final acceptance criteria verified and this Rust batch marked complete.
+- [x] Final acceptance criteria verified and this Rust batch marked complete.
 
 ### Transport cancellation safety
 
@@ -370,7 +370,7 @@ The contract changes in this record are API-shape, pre-transport validation, det
 
 ## Claude review package status
 
-The approved decisions, this acceptance record, the repository diff, and final local check results form the review package. Claude execution remains pending explicit user authorization for the named diff scope.
+The approved decisions, repository diff, and final local results were reviewed in the two user-authorized SLMP Claude batches. Canonical results and dispositions are preserved under `D:\APP\Close\instructions`.
 
 ## 2026-07-12 D-128 through D-132 delta
 
@@ -405,6 +405,6 @@ The approved decisions, this acceptance record, the repository diff, and final l
 - [x] Local implementation and regression tests completed.
 - [x] Formatting, Clippy, full tests, doctests, Node crate, and local CI passed.
 - [x] User API, migration, changelog, and shared target guidance updated.
-- [ ] Claude review of this delta completed — pending a separately authorized batch.
-- [ ] New public-API live verification completed — deferred until after Claude review.
-- [ ] D-132 Extend Unit versus HG physical-area classification completed.
+- [x] Claude review of this delta completed through `CLAUDE-SLMP-20260712-02`; all findings were dispositioned and affected checks rerun.
+- [x] New public-API verification completed through deterministic regression coverage and the approved D-128/D-129/D-131 live checks.
+- [x] D-132 Extend Unit versus HG physical-area classification completed and recorded in the closed cross-implementation comparison.
