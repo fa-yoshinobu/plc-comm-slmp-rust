@@ -464,14 +464,6 @@ SLMP_PLC_PROFILE=melsec:iq-r \
 cargo run --example device_matrix_compare
 ```
 
-Cross-library verification lives in the separate `plc-comm-slmp-cross-verify`
-repository:
-
-```bash
-cd ../plc-comm-slmp-cross-verify
-python verify.py --clients rust
-```
-
 ## Device range catalog
 
 `read_device_range_catalog` reads live device range bounds after you connect. It requires an explicit profile through `SlmpConnectionOptions`; it does not auto-discover your intended profile.

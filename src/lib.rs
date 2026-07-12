@@ -4,14 +4,14 @@
 //! Async Rust client for MELSEC SLMP Binary 3E and 4E.
 //!
 //! This crate follows the same operation semantics as the sibling
-//! `plc-comm-slmp-python`, `.NET`, `C++`, `Node-RED`, and `cross-verify`
-//! projects in the same family. The intended flow is:
+//! `plc-comm-slmp-python`, `.NET`, `C++`, and `Node-RED` libraries. The
+//! intended flow is:
 //!
 //! 1. connect with [`SlmpConnectionOptions`] and [`SlmpClient`]
 //! 2. use raw device APIs for low-level control
 //! 3. use helper APIs such as [`read_named`] and [`write_named`] for
 //!    application-facing snapshots and typed values
-//! 4. validate behavior through `plc-comm-slmp-cross-verify`
+//! 4. validate changes with this repository's Rust tests and examples
 //!
 //! # Quick Start
 //!
@@ -92,11 +92,6 @@
 //! - `advanced_operations`
 //!
 //! Run them with `cargo run --features cli --example <name>`.
-//!
-//! # Verification
-//!
-//! This crate is meant to participate in `plc-comm-slmp-cross-verify`.
-//! The canonical wrapper binary is `slmp_verify_client`.
 //!
 mod address;
 mod capability_profiles;

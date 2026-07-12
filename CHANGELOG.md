@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Tooling: Removed cross-repository verification artifacts and their dependent interactive wrapper. Independent cross-implementation checks are not part of this repository's package or release gate.
 - Library: Long-timer and long-retentive-timer helpers reject zero, one-request-limit overflow, arithmetic overflow, and `u16` truncation of the required point count before transport.
 - Library: Typed writes require the exact matching `SlmpValue` variant and finite float values; CLI/named scalar parsing rejects range overflow instead of truncating or saturating.
 - Library: Random and block writes reject duplicate or overlapping device spans before transport, including qualified Extended Device writes.
@@ -175,14 +176,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Library: Matched 4E responses by request serial and discarded mismatched D4 responses before parsing the response payload.
 - Library: `BIT_IN_WORD` now requires an explicit `.0` through `.F` bit index instead of treating a missing bit index as bit 0.
 - Library: Made the typed-read `U` branch explicit so future unsupported dtypes cannot fall through to `U16`.
-- Tooling: `slmp_verify_client` now rejects invalid numeric CLI input for ports, targets, counts, write values, block values, label byte values, and label array options instead of silently defaulting or narrowing them.
-- Tooling: `slmp_verify_client` now rejects out-of-range values before converting them to `u8`, `u16`, or `u32`.
-- Tooling: `slmp_verify_client` now accepts only `0` or `1` for bit write values.
 
 ### Tests
 - Tests: Added coverage for rejecting bit-in-word named addresses without an explicit bit index.
-- Tests: Updated high-level address parser and shared-spec vectors for explicit dtype requirements.
-- Tests: Added `slmp_verify_client` coverage for invalid target numbers, invalid count values, and out-of-range label byte values.
+- Tests: Updated high-level address parser tests for explicit dtype requirements.
 
 ## [1.0.1] - 2026-06-25
 
