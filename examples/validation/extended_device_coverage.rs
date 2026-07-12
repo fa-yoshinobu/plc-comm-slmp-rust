@@ -165,7 +165,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut rows = Vec::new();
     for device_text in &devices {
         let qualified = parse_qualified_device(device_text, client.plc_profile().await)?;
-        let unit = if is_bit_extended_device(qualified.device.code) {
+        let unit = if is_bit_extended_device(qualified.device.code()) {
             "bit"
         } else {
             "word"

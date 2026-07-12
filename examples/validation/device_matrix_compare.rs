@@ -40,7 +40,10 @@ struct RawExtensionSpec {
 }
 
 fn encode_device_spec(mode: SlmpCompatibilityMode, device: SlmpDeviceAddress) -> Vec<u8> {
-    encode_raw_device_spec(mode, RawSlmpDeviceAddress::new(device.code, device.number))
+    encode_raw_device_spec(
+        mode,
+        RawSlmpDeviceAddress::new(device.code(), device.number()),
+    )
 }
 
 fn make_error(message: impl Into<String>) -> Box<dyn Error> {
@@ -222,10 +225,10 @@ fn encode_extended_device_spec(
         return vec![
             0x00,
             0x00,
-            (device.number & 0xFF) as u8,
-            ((device.number >> 8) & 0xFF) as u8,
-            ((device.number >> 16) & 0xFF) as u8,
-            device.code.as_u8(),
+            (device.number() & 0xFF) as u8,
+            ((device.number() >> 8) & 0xFF) as u8,
+            ((device.number() >> 16) & 0xFF) as u8,
+            device.code().as_u8(),
             0x00,
             0x00,
             (extension.extension_specification & 0xFF) as u8,
@@ -234,7 +237,7 @@ fn encode_extended_device_spec(
         ];
     }
 
-    let capture_aligned = matches!(device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG)
+    let capture_aligned = matches!(device.code(), SlmpDeviceCode::G | SlmpDeviceCode::HG)
         && matches!(extension.direct_memory_specification, 0xF8 | 0xFA);
     let device_spec = encode_device_spec(mode, device);
 
@@ -423,21 +426,21 @@ fn ensure_all_equal<T: PartialEq + std::fmt::Debug>(
 }
 
 fn long_timer_state_base(device: SlmpDeviceAddress) -> Option<(SlmpDeviceAddress, bool)> {
-    match device.code {
+    match device.code() {
         SlmpDeviceCode::LTS => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number, device.plc_profile()),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number(), device.plc_profile()),
             true,
         )),
         SlmpDeviceCode::LTC => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number, device.plc_profile()),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LTN, device.number(), device.plc_profile()),
             false,
         )),
         SlmpDeviceCode::LSTS => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number, device.plc_profile()),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number(), device.plc_profile()),
             true,
         )),
         SlmpDeviceCode::LSTC => Some((
-            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number, device.plc_profile()),
+            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, device.number(), device.plc_profile()),
             false,
         )),
         _ => None,
@@ -477,9 +480,9 @@ async fn assert_long_timer_state_reads(
     let typed = read_typed(client, device, "BIT").await?.as_bool()?;
     let block_words = client.read_words_raw(base_device, 4).await?;
     let request_words = request_plain_read_words(client, mode, base_device, 4).await?;
-    let dedicated = match base_device.code {
+    let dedicated = match base_device.code() {
         SlmpDeviceCode::LTN => {
-            let result = client.read_long_timer(base_device.number, 1).await?;
+            let result = client.read_long_timer(base_device.number(), 1).await?;
             if contact {
                 result[0].contact
             } else {
@@ -488,7 +491,7 @@ async fn assert_long_timer_state_reads(
         }
         SlmpDeviceCode::LSTN => {
             let result = client
-                .read_long_retentive_timer(base_device.number, 1)
+                .read_long_retentive_timer(base_device.number(), 1)
                 .await?;
             if contact {
                 result[0].contact
@@ -534,10 +537,10 @@ async fn assert_long_timer_current_reads(
     };
     let block_words = client.read_words_raw(device, 4).await?;
     let request_words = request_plain_read_words(client, mode, device, 4).await?;
-    let dedicated = match device.code {
-        SlmpDeviceCode::LTN => client.read_long_timer(device.number, 1).await?[0].current_value,
+    let dedicated = match device.code() {
+        SlmpDeviceCode::LTN => client.read_long_timer(device.number(), 1).await?[0].current_value,
         SlmpDeviceCode::LSTN => {
-            client.read_long_retentive_timer(device.number, 1).await?[0].current_value
+            client.read_long_retentive_timer(device.number(), 1).await?[0].current_value
         }
         _ => {
             return Err(make_error(format!(
@@ -805,7 +808,7 @@ async fn compare_dword_device(
     named_address: &str,
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
-    if matches!(device.code, SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN) {
+    if matches!(device.code(), SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN) {
         let original = value_from_named_u32(
             &read_named(client, &[named_address.to_string()]).await?,
             named_address,

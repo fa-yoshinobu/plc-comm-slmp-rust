@@ -639,10 +639,20 @@ impl Default for SlmpTargetAddress {
     }
 }
 
+/// Immutable, profile-bound semantic device address.
+///
+/// The code, wire number, and PLC profile can be read through accessors but
+/// cannot be changed after construction.
+///
+/// ```compile_fail
+/// use plc_comm_slmp::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile};
+/// let mut address = SlmpDeviceAddress::new(SlmpDeviceCode::X, 8, SlmpPlcProfile::IqF);
+/// address.number = 16;
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SlmpDeviceAddress {
-    pub code: SlmpDeviceCode,
-    pub number: u32,
+    code: SlmpDeviceCode,
+    number: u32,
     plc_profile: SlmpPlcProfile,
 }
 
@@ -653,6 +663,14 @@ impl SlmpDeviceAddress {
             number,
             plc_profile,
         }
+    }
+
+    pub const fn code(self) -> SlmpDeviceCode {
+        self.code
+    }
+
+    pub const fn number(self) -> u32 {
+        self.number
     }
 
     pub const fn plc_profile(self) -> SlmpPlcProfile {

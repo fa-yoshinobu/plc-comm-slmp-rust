@@ -33,7 +33,7 @@ fn device_spec_vectors_match_shared_json() {
         };
         let actual = hex_upper(&encode_raw_device_spec(
             mode,
-            RawSlmpDeviceAddress::new(device.code, device.number),
+            RawSlmpDeviceAddress::new(device.code(), device.number()),
         ));
         assert_eq!(
             actual,
@@ -98,12 +98,17 @@ async fn frame_golden_vectors_match_shared_json() {
         let response_data = hex_decode(case["response_data_hex"].as_str().unwrap());
         let server = SingleShotServer::start(response_data).await.unwrap();
 
+        let plc_profile = match case["plc_profile"].as_str().unwrap_or("melsec:iq-r") {
+            "melsec:iq-r" => SlmpPlcProfile::IqR,
+            "melsec:qnu:qj71e71-100" => SlmpPlcProfile::QnUQj71E71100,
+            value => panic!("unsupported shared frame PLC profile {value}"),
+        };
         let mut options = SlmpConnectionOptions::new(
             "127.0.0.1",
             1025,
             plc_comm_slmp::SlmpTransportMode::Tcp,
             plc_comm_slmp::SlmpTargetAddress::default(),
-            SlmpPlcProfile::IqR,
+            plc_profile,
         )
         .unwrap();
         options.port = server.port;

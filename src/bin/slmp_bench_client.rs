@@ -411,7 +411,7 @@ impl BenchConfig {
         if plc_profile.is_base_profile() {
             return Err("melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.".to_string());
         }
-        let operation_timeout_ms: u64 = parse_option(&args, "--operation-timeout-ms", "2000")?;
+        let operation_timeout_ms: u64 = parse_option(&args, "--operation-timeout-ms", "3000")?;
 
         Ok(Self {
             host,

@@ -35,7 +35,7 @@ Each item uses the following evidence boxes. A box may be checked only after the
 - Scope: TCP and UDP connection options.
 - Target: omitted timeout is exactly 3 seconds; explicit zero is rejected before communication.
 - Compatibility: the previous timeout value, if different, changes.
-- Acceptance: option-construction test asserts 3 seconds and connect validation rejects zero.
+- Acceptance: option-construction test asserts 3 seconds and connect validation rejects zero. Benchmark configuration omission also selects 3000 ms; its intentional timeout-failure scenario may still set a shorter explicit duration.
 - [x] Implementation completed.
 - [x] Acceptance tests/checks completed.
 - [x] Documentation and migration note completed.
@@ -183,7 +183,8 @@ Each item uses the following evidence boxes. A box may be checked only after the
 ### D-031 / D-032 / D-033 — Module and long-timer operands are required
 
 - Scope: CPU-buffer and long timer/retentive timer helpers.
-- Target: module number, head number, and multi-point count are explicit; zero is accepted only when explicitly supplied and valid.
+- Target: module number, head number, and multi-point count are explicit; head zero is accepted only when explicitly supplied, while the count must be positive.
+- Validation: long-timer counts are multiplied by four with checked arithmetic and must fit both the protocol word-count field and the active profile's one-request direct-word limit; truncation or wraparound never creates a smaller request.
 - Compatibility: calls relying on module zero, head zero, or one-point defaults break.
 - Acceptance: signatures require the operands and range/zero-count checks run before transport.
 - [x] Implementation completed.
@@ -244,9 +245,9 @@ Each item uses the following evidence boxes. A box may be checked only after the
 ### D-047 — Semantic addresses are profile-bound; raw addresses are separate
 
 - Scope: `SlmpDeviceAddress`, qualified addresses, client entry points, and maintainer encoding.
-- Target: semantic addresses immutably retain their profile; a client rejects a mismatched profile before transport; profile-free wire numbers use `RawSlmpDeviceAddress` only with the raw encoder.
-- Compatibility: `SlmpDeviceAddress::new(code, number)` becomes `new(code, number, profile)`.
-- Acceptance: mismatch test records zero requests, matching iQ-F/iQ-R radix tests pass, and normal APIs do not accept the raw address type.
+- Target: semantic addresses immutably retain their profile, device code, and wire number; read-only `plc_profile()`, `code()`, and `number()` accessors expose those values. A client rejects a mismatched profile before transport; profile-free wire numbers use `RawSlmpDeviceAddress` only with the raw encoder.
+- Compatibility: `SlmpDeviceAddress::new(code, number)` becomes `new(code, number, profile)`. Direct field reads migrate to accessors, and direct field mutation is no longer possible; callers construct a new semantic address when any component changes.
+- Acceptance: mismatch test records zero requests, matching iQ-F/iQ-R radix tests pass, normal APIs do not accept the raw address type, and a compile-fail doctest proves the wire number cannot be mutated after construction.
 - [x] Implementation completed.
 - [x] Acceptance tests/checks completed.
 - [x] Documentation and migration note completed.

@@ -136,8 +136,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Interactive read/write walk for PLC monitoring."
     )
-    parser.add_argument("--host", default="192.168.250.100")
-    parser.add_argument("--port", type=int, default=1025)
+    parser.add_argument("--host", required=True)
+    parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--frame", default="4e", choices=["3e", "4e"])
     parser.add_argument("--series", default="iqr", choices=["legacy", "iqr"])
     parser.add_argument(

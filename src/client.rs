@@ -1060,7 +1060,7 @@ impl ClientInner {
         )?;
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
-        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+        if !matches!(device.device.code(), SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_word_read(device.device, points)?;
         }
         let payload =
@@ -1101,7 +1101,7 @@ impl ClientInner {
         )?;
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
-        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+        if !matches!(device.device.code(), SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_word_write(device.device, self.options.plc_profile)?;
         }
         let payload = self.build_read_write_payload_extended(
@@ -1141,7 +1141,7 @@ impl ClientInner {
         )?;
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
-        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+        if !matches!(device.device.code(), SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_bit_read(device.device)?;
         }
         let payload =
@@ -1176,7 +1176,7 @@ impl ClientInner {
         )?;
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
-        if !matches!(device.device.code, SlmpDeviceCode::G | SlmpDeviceCode::HG) {
+        if !matches!(device.device.code(), SlmpDeviceCode::G | SlmpDeviceCode::HG) {
             rules::validate_direct_bit_write(device.device, self.options.plc_profile)?;
         }
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
@@ -1939,6 +1939,7 @@ impl ClientInner {
             Self::append_label_name(&mut payload, label)?;
         }
         for point in points {
+            Self::validate_abbreviation_references(&point.label, abbreviation_labels.len())?;
             Self::append_label_name(&mut payload, &point.label)?;
             Self::label_array_data_bytes(point.unit_specification, point.array_data_length)?;
             payload.push(point.unit_specification);
@@ -1961,6 +1962,7 @@ impl ClientInner {
             Self::append_label_name(&mut payload, label)?;
         }
         for point in points {
+            Self::validate_abbreviation_references(&point.label, abbreviation_labels.len())?;
             let expected =
                 Self::label_array_data_bytes(point.unit_specification, point.array_data_length)?;
             if point.data.len() != expected {
@@ -1991,6 +1993,7 @@ impl ClientInner {
             Self::append_label_name(&mut payload, label)?;
         }
         for label in labels {
+            Self::validate_abbreviation_references(label, abbreviation_labels.len())?;
             Self::append_label_name(&mut payload, label)?;
         }
         Ok(payload)
@@ -2009,6 +2012,7 @@ impl ClientInner {
             Self::append_label_name(&mut payload, label)?;
         }
         for point in points {
+            Self::validate_abbreviation_references(&point.label, abbreviation_labels.len())?;
             rules::validate_u16_count(point.data.len(), "write data length")?;
             Self::append_label_name(&mut payload, &point.label)?;
             payload.extend_from_slice(&(point.data.len() as u16).to_le_bytes());
@@ -2112,7 +2116,7 @@ impl ClientInner {
     }
 
     fn append_label_name(payload: &mut Vec<u8>, label: &str) -> Result<(), SlmpError> {
-        if label.is_empty() {
+        if label.trim().is_empty() {
             return Err(SlmpError::new("label must not be empty"));
         }
         let utf16: Vec<u16> = label.encode_utf16().collect();
@@ -2120,6 +2124,40 @@ impl ClientInner {
         payload.extend_from_slice(&(utf16.len() as u16).to_le_bytes());
         for ch in utf16 {
             payload.extend_from_slice(&ch.to_le_bytes());
+        }
+        Ok(())
+    }
+
+    fn validate_abbreviation_references(
+        label: &str,
+        abbreviation_count: usize,
+    ) -> Result<(), SlmpError> {
+        if label.trim().is_empty() {
+            return Err(SlmpError::new("label must not be empty"));
+        }
+        let bytes = label.as_bytes();
+        let mut index = 0usize;
+        while index < bytes.len() {
+            if bytes[index] != b'%' {
+                index += 1;
+                continue;
+            }
+            let digit_start = index + 1;
+            let mut digit_end = digit_start;
+            let mut reference = 0usize;
+            while digit_end < bytes.len() && bytes[digit_end].is_ascii_digit() {
+                reference = reference
+                    .checked_mul(10)
+                    .and_then(|value| value.checked_add((bytes[digit_end] - b'0') as usize))
+                    .ok_or_else(|| SlmpError::new("abbreviation reference is too large"))?;
+                digit_end += 1;
+            }
+            if digit_end == digit_start || reference == 0 || reference > abbreviation_count {
+                return Err(SlmpError::new(format!(
+                    "label contains an invalid abbreviation reference; use %1 through %{abbreviation_count}"
+                )));
+            }
+            index = digit_end;
         }
         Ok(())
     }
@@ -2142,10 +2180,11 @@ impl ClientInner {
         head_no: u32,
         points: usize,
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
+        let word_points = Self::long_timer_word_points(points)?;
         let words = self
             .read_words_raw(
                 SlmpDeviceAddress::new(SlmpDeviceCode::LTN, head_no, self.options.plc_profile),
-                (points * 4) as u16,
+                word_points,
             )
             .await?;
         Ok(rules::parse_long_timer_words(&words, head_no, "LTN"))
@@ -2156,13 +2195,27 @@ impl ClientInner {
         head_no: u32,
         points: usize,
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
+        let word_points = Self::long_timer_word_points(points)?;
         let words = self
             .read_words_raw(
                 SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, head_no, self.options.plc_profile),
-                (points * 4) as u16,
+                word_points,
             )
             .await?;
         Ok(rules::parse_long_timer_words(&words, head_no, "LSTN"))
+    }
+
+    fn long_timer_word_points(points: usize) -> Result<u16, SlmpError> {
+        let word_points = points
+            .checked_mul(4)
+            .and_then(|value| u16::try_from(value).ok())
+            .ok_or_else(|| {
+                SlmpError::new("long timer points exceed the one-request word-count field")
+            })?;
+        if word_points == 0 {
+            return Err(SlmpError::new("long timer points must be at least 1"));
+        }
+        Ok(word_points)
     }
 
     fn ensure_profile_feature_allowed(&self, feature: SlmpProfileFeature) -> Result<(), SlmpError> {
@@ -2197,12 +2250,12 @@ impl ClientInner {
         if extension.direct_memory_specification == 0xF9 {
             return self.ensure_profile_feature_allowed(SlmpProfileFeature::ExtLinkDirect);
         }
-        if matches!(device.device.code, SlmpDeviceCode::HG)
+        if matches!(device.device.code(), SlmpDeviceCode::HG)
             || extension.direct_memory_specification == 0xFA
         {
             return self.ensure_profile_feature_allowed(SlmpProfileFeature::HgCpuBuffer);
         }
-        if matches!(device.device.code, SlmpDeviceCode::G)
+        if matches!(device.device.code(), SlmpDeviceCode::G)
             || extension.direct_memory_specification == 0xF8
         {
             return self.ensure_profile_feature_allowed(SlmpProfileFeature::ExtModuleAccess);
@@ -2590,15 +2643,15 @@ impl ClientInner {
     fn encode_device_spec(&self, device: SlmpDeviceAddress, output: &mut [u8]) -> usize {
         match self.options.compatibility_mode {
             SlmpCompatibilityMode::Legacy => {
-                output[0] = (device.number & 0xFF) as u8;
-                output[1] = ((device.number >> 8) & 0xFF) as u8;
-                output[2] = ((device.number >> 16) & 0xFF) as u8;
-                output[3] = device.code.as_u8();
+                output[0] = (device.number() & 0xFF) as u8;
+                output[1] = ((device.number() >> 8) & 0xFF) as u8;
+                output[2] = ((device.number() >> 16) & 0xFF) as u8;
+                output[3] = device.code().as_u8();
                 4
             }
             SlmpCompatibilityMode::Iqr => {
-                output[0..4].copy_from_slice(&device.number.to_le_bytes());
-                output[4..6].copy_from_slice(&device.code.as_u16().to_le_bytes());
+                output[0..4].copy_from_slice(&device.number().to_le_bytes());
+                output[4..6].copy_from_slice(&device.code().as_u16().to_le_bytes());
                 6
             }
         }
@@ -2688,7 +2741,7 @@ impl ClientInner {
                 result.device_modification_flags = 0x08;
             }
         }
-        match device.device.code {
+        match device.device.code() {
             SlmpDeviceCode::G => {
                 if device.extension_specification.is_none() {
                     return Err(SlmpError::new(
@@ -2773,10 +2826,10 @@ impl ClientInner {
             return vec![
                 0x00,
                 0x00,
-                (device.number & 0xFF) as u8,
-                ((device.number >> 8) & 0xFF) as u8,
-                ((device.number >> 16) & 0xFF) as u8,
-                device.code.as_u8(),
+                (device.number() & 0xFF) as u8,
+                ((device.number() >> 8) & 0xFF) as u8,
+                ((device.number() >> 16) & 0xFF) as u8,
+                device.code().as_u8(),
                 0x00,
                 0x00,
                 (extension.extension_specification & 0xFF) as u8,

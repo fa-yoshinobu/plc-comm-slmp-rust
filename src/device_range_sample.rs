@@ -548,7 +548,7 @@ async fn exercise_bit_block(
     }
     let value_a = original.iter().map(|value| !*value).collect::<Vec<_>>();
     let value_b = (0..original.len())
-        .map(|index| ((device.number as usize + index) % 2) == 0)
+        .map(|index| ((device.number() as usize + index) % 2) == 0)
         .collect::<Vec<_>>();
 
     let test_result: Result<(), SlmpError> = async {

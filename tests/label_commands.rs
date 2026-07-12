@@ -63,6 +63,49 @@ async fn label_writes_build_expected_payloads() {
 }
 
 #[tokio::test]
+async fn label_abbreviation_omission_and_references_are_validated() {
+    let server = SingleShotServer::start(vec![0x01, 0x00, 0x09, 0x00, 0x00, 0x00])
+        .await
+        .unwrap();
+    let client = connect(server.port).await;
+    client
+        .read_random_labels_with_abbreviations(
+            &["%2.Member".to_string()],
+            &["RootA".to_string(), "RootB".to_string()],
+        )
+        .await
+        .unwrap();
+    let request = server.take_request().await.unwrap();
+    assert_eq!(&request[19..23], &[1, 0, 2, 0]);
+
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        9,
+        SlmpTransportMode::Udp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.transport_mode = SlmpTransportMode::Udp;
+    let invalid_client = SlmpClient::connect(options).await.unwrap();
+    for label in ["%", "%0.Member", "%2.Member", "%x.Member"] {
+        let err = invalid_client
+            .read_random_labels_with_abbreviations(&[label.to_string()], &["Root".to_string()])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid abbreviation reference"));
+    }
+    let too_many = vec!["Root".to_string(); 65_536];
+    let err = invalid_client
+        .read_random_labels_with_abbreviations(&["FullLabel".to_string()], &too_many)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("abbreviation labels"));
+    assert!(invalid_client.last_request_frame().await.is_empty());
+    assert_eq!(invalid_client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
 async fn oversized_label_payload_is_rejected_before_request_length_wraps() {
     let mut options = SlmpConnectionOptions::new(
         "127.0.0.1",

@@ -70,6 +70,21 @@ async fn read_long_retentive_timer_uses_lstn_device_prefix() {
     assert!(values[0].coil);
 }
 
+#[tokio::test]
+async fn long_timer_count_rejects_zero_limit_overflow_and_truncation_before_transport() {
+    let server = ResponseServer::start(vec![word_payload(&[0, 0, 0, 0])])
+        .await
+        .unwrap();
+    let client = connect_client(server.port).await;
+
+    for points in [0, 241, 16_385, usize::MAX] {
+        assert!(client.read_long_timer(0, points).await.is_err());
+        assert!(client.read_long_retentive_timer(0, points).await.is_err());
+    }
+
+    assert!(server.requests().await.is_empty());
+}
+
 struct ResponseServer {
     port: u16,
     requests: Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,

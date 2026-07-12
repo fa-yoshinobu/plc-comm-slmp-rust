@@ -17,7 +17,7 @@ impl SlmpAddress {
 
     pub fn format(address: SlmpDeviceAddress) -> String {
         let number = format_number(address);
-        format!("{}{}", address.code.prefix(), number)
+        format!("{}{}", address.code().prefix(), number)
     }
 
     pub fn normalize(text: &str, plc_profile: SlmpPlcProfile) -> Result<String, SlmpError> {
@@ -216,10 +216,10 @@ fn parse_u32_with_radix(text: &str, radix: u32) -> Result<u32, std::num::ParseIn
 }
 
 fn format_number(address: SlmpDeviceAddress) -> String {
-    match device_radix(address.code, address.plc_profile()) {
-        8 => format!("{:o}", address.number).to_ascii_uppercase(),
-        16 => format!("{:X}", address.number),
-        _ => address.number.to_string(),
+    match device_radix(address.code(), address.plc_profile()) {
+        8 => format!("{:o}", address.number()).to_ascii_uppercase(),
+        16 => format!("{:X}", address.number()),
+        _ => address.number().to_string(),
     }
 }
 
@@ -252,7 +252,7 @@ pub fn parse_qualified_device(
         let extension_specification = u16::from_str_radix(extension, 16)
             .map_err(|_| SlmpError::new("Invalid extension specification."))?;
         let device = parse_device(device_text, plc_profile)?;
-        let direct_memory_specification = match device.code {
+        let direct_memory_specification = match device.code() {
             SlmpDeviceCode::G => Some(0xF8),
             SlmpDeviceCode::HG => {
                 if !matches!(extension_specification, 0x03E0..=0x03E3) {
@@ -475,8 +475,8 @@ mod tests {
     fn semantic_address_formats_with_its_bound_profile() {
         let iqf = parse_device("X10", SlmpPlcProfile::IqF).unwrap();
         let iqr = parse_device("X10", SlmpPlcProfile::IqR).unwrap();
-        assert_eq!(iqf.number, 8);
-        assert_eq!(iqr.number, 16);
+        assert_eq!(iqf.number(), 8);
+        assert_eq!(iqr.number(), 16);
         assert_eq!(iqf.to_string(), "X10");
         assert_eq!(iqr.to_string(), "X10");
     }
