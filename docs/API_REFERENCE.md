@@ -41,6 +41,7 @@ Optional Z, LZ, and indirect modification uses `SlmpDeviceModification`.
 | --- | --- |
 | Memory command words | `memory_read_words`, `memory_write_words` |
 | Extend-unit command words | `extend_unit_read_words`, `extend_unit_write_words` |
+| Monitor registration/cycle | `register_monitor_devices`, `register_monitor_devices_ext`, `run_monitor_cycle` |
 | Label array access | `read_array_labels`, `write_array_labels`; use the explicit `_with_abbreviations` variants when definitions are required |
 | Label random access | `read_random_labels`, `write_random_labels`; use the explicit `_with_abbreviations` variants when definitions are required |
 | Remote CPU control | `remote_run` with `SlmpRemoteMode` and `SlmpRemoteClearMode`, `remote_stop`, `remote_pause`, `remote_latch_clear`, `remote_reset` |
@@ -49,10 +50,10 @@ Optional Z, LZ, and indirect modification uses `SlmpDeviceModification`.
 | Self-diagnosis error code | `read_latest_self_diagnosis_error_code` |
 | Device range catalog | `read_device_range_catalog`, `read_device_range_catalog_for_plc_profile` |
 | Self-test loopback | `self_test_loopback` |
+| Clear PLC error | `clear_error` |
 
-Monitor registration/cycle APIs are not part of the current Rust user-facing
-client surface. CPU-buffer convenience helpers are also not separate methods;
-use the extended-device `U3E0\HG...` route where the selected profile supports
+CPU-buffer convenience helpers are not separate methods; use the
+extended-device `U3E0\HG...` route where the selected profile supports
 CPU-buffer access.
 
 ## High-Level Helpers

@@ -350,6 +350,250 @@ async fn self_test_loopback_rejects_manual_invalid_payloads_before_transport() {
 }
 
 #[tokio::test]
+async fn self_test_loopback_requires_exact_declared_length_size_and_echo() {
+    let server = CapturingResponseServer::start(vec![
+        (0x0000, vec![0x04, 0x00, b'A', b'1', b'B', b'2']),
+        (0x0000, vec![0x03, 0x00, b'A', b'1', b'B']),
+        (0x0000, vec![0x04, 0x00, b'A', b'1', b'B', b'2', b'F']),
+        (0x0000, vec![0x04, 0x00, b'A', b'1', b'B', b'3']),
+    ])
+    .await
+    .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    assert_eq!(client.self_test_loopback(b"A1B2").await.unwrap(), b"A1B2");
+
+    let declared = client.self_test_loopback(b"A1B2").await.unwrap_err();
+    assert!(declared.to_string().contains("declared length mismatch"));
+
+    let trailing = client.self_test_loopback(b"A1B2").await.unwrap_err();
+    assert!(trailing.to_string().contains("size mismatch"));
+
+    let payload = client.self_test_loopback(b"A1B2").await.unwrap_err();
+    assert!(payload.to_string().contains("payload mismatch"));
+
+    assert_eq!(server.requests().await.len(), 4);
+}
+
+#[tokio::test]
+async fn clear_error_sends_one_fixed_empty_command() {
+    let server = CapturingResponseServer::start(vec![(0x0000, vec![])])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    client.clear_error().await.unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        u16::from_le_bytes([requests[0][15], requests[0][16]]),
+        0x1617
+    );
+    assert_eq!(
+        u16::from_le_bytes([requests[0][17], requests[0][18]]),
+        0x0000
+    );
+    assert_eq!(requests[0].len(), 19);
+}
+
+#[tokio::test]
+async fn monitor_semantic_apis_register_and_decode_three_cycles() {
+    let monitor_data = vec![0x11, 0x11, 0x78, 0x56, 0x34, 0x12];
+    let server = CapturingResponseServer::start(vec![
+        (0x0000, vec![]),
+        (0x0000, monitor_data.clone()),
+        (0x0000, monitor_data.clone()),
+        (0x0000, monitor_data),
+    ])
+    .await
+    .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    let word = SlmpDeviceAddress::new(SlmpDeviceCode::D, 120, SlmpPlcProfile::IqR);
+    let dword = SlmpDeviceAddress::new(SlmpDeviceCode::D, 200, SlmpPlcProfile::IqR);
+
+    client
+        .register_monitor_devices(&[word], &[dword])
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        let result = client.run_monitor_cycle(1, 1).await.unwrap();
+        assert_eq!(result.word_values, vec![0x1111]);
+        assert_eq!(result.dword_values, vec![0x1234_5678]);
+    }
+    assert!(
+        client
+            .run_monitor_cycle(0, 0)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("out of range")
+    );
+    assert!(
+        client
+            .run_monitor_cycle(97, 0)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("out of range")
+    );
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 4);
+    assert_eq!(
+        u16::from_le_bytes([requests[0][15], requests[0][16]]),
+        0x0801
+    );
+    for request in &requests[1..] {
+        assert_eq!(u16::from_le_bytes([request[15], request[16]]), 0x0802);
+        assert_eq!(request.len(), 19);
+    }
+}
+
+#[tokio::test]
+async fn extended_monitor_registration_uses_qualified_subcommand() {
+    let server = CapturingResponseServer::start(vec![(0x0000, vec![])])
+        .await
+        .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    let hg = parse_qualified_device(r"U3E0\HG0", SlmpPlcProfile::IqR).unwrap();
+
+    client
+        .register_monitor_devices_ext(&[hg], &[])
+        .await
+        .unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        u16::from_le_bytes([requests[0][15], requests[0][16]]),
+        0x0801
+    );
+    assert_eq!(
+        u16::from_le_bytes([requests[0][17], requests[0][18]]),
+        0x0082
+    );
+}
+
+#[tokio::test]
+async fn hg_qualified_device_never_changes_user_selected_request_target() {
+    async fn write_once(target_module_io: u16) -> Vec<u8> {
+        let server = CapturingResponseServer::start(vec![(0x0000, vec![])])
+            .await
+            .unwrap();
+        let target = plc_comm_slmp::SlmpTargetAddress {
+            module_io: target_module_io,
+            ..Default::default()
+        };
+        let options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            server.port,
+            SlmpTransportMode::Tcp,
+            target,
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        let client = SlmpClient::connect(options).await.unwrap();
+        let hg = parse_qualified_device(r"U3E1\HG100", SlmpPlcProfile::IqR).unwrap();
+
+        client.write_words_extended(hg, &[0x1234]).await.unwrap();
+
+        server.requests().await.into_iter().next().unwrap()
+    }
+
+    let own_station = write_once(plc_comm_slmp::SlmpModuleIo::OWN_STATION).await;
+    let cpu_2 = write_once(plc_comm_slmp::SlmpModuleIo::MULTIPLE_CPU_2).await;
+
+    assert_eq!(u16::from_le_bytes([own_station[8], own_station[9]]), 0x03FF);
+    assert_eq!(u16::from_le_bytes([cpu_2[8], cpu_2[9]]), 0x03E1);
+    assert_eq!(
+        u16::from_le_bytes([own_station[15], own_station[16]]),
+        0x1401
+    );
+    assert_eq!(u16::from_le_bytes([cpu_2[15], cpu_2[16]]), 0x1401);
+}
+
+#[tokio::test]
+async fn monitor_semantic_api_propagates_plc_ng_without_fallback() {
+    let server = CapturingResponseServer::start(vec![(0xC051, vec![])])
+        .await
+        .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error = client.run_monitor_cycle(1, 0).await.unwrap_err();
+
+    assert_eq!(error.end_code, Some(0xC051));
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        u16::from_le_bytes([requests[0][15], requests[0][16]]),
+        0x0802
+    );
+}
+
+#[tokio::test]
+async fn monitor_semantic_api_rejects_response_size_mismatch() {
+    let server = CapturingResponseServer::start(vec![(0x0000, vec![0x11])])
+        .await
+        .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error = client.run_monitor_cycle(1, 0).await.unwrap_err();
+
+    assert!(error.to_string().contains("monitor response size mismatch"));
+    assert_eq!(server.requests().await.len(), 1);
+}
+
+#[tokio::test]
 async fn udp_read_words_accepts_manual_limit_datagram_response() {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let port = socket.local_addr().unwrap().port();

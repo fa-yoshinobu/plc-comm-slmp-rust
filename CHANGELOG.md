@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: Added public monitor registration/cycle and fixed Clear Error semantic APIs; each call sends exactly one request without registration fallback or retry.
+- Library: Monitor cycle expected counts must total at least one and stay within the selected profile's monitor-registration limit.
+- Library: Self-test loopback now rejects declared-length, actual-length, trailing-data, and echo mismatches.
+- Docs: Clarified explicit monitor counts and that `U3En\HG` never changes or retries the user-selected request target.
 - Tooling: Removed cross-repository verification artifacts and their dependent interactive wrapper. Independent cross-implementation checks are not part of this repository's package or release gate.
 - Library: Long-timer and long-retentive-timer helpers reject zero, one-request-limit overflow, arithmetic overflow, and `u16` truncation of the required point count before transport.
 - Library: Typed writes require the exact matching `SlmpValue` variant and finite float values; CLI/named scalar parsing rejects range overflow instead of truncating or saturating.

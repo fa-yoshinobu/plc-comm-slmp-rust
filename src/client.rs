@@ -415,6 +415,64 @@ impl SlmpClient {
         Ok(self.read_random_ext(&[], dword_devices).await?.dword_values)
     }
 
+    /// Registers Word and DWord devices with one Entry Monitor Device request.
+    ///
+    /// Registration state belongs to the PLC. The client does not silently
+    /// re-register, split, or retry this operation.
+    pub async fn register_monitor_devices(
+        &self,
+        word_devices: &[SlmpDeviceAddress],
+        dword_devices: &[SlmpDeviceAddress],
+    ) -> Result<(), SlmpError> {
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(word_devices.iter().chain(dword_devices))?;
+        inner
+            .register_monitor_devices(word_devices, dword_devices)
+            .await
+    }
+
+    /// Registers qualified Extended Devices with one Entry Monitor Device request.
+    pub async fn register_monitor_devices_ext(
+        &self,
+        word_devices: &[SlmpQualifiedDeviceAddress],
+        dword_devices: &[SlmpQualifiedDeviceAddress],
+    ) -> Result<(), SlmpError> {
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profiles(
+            word_devices
+                .iter()
+                .map(SlmpQualifiedDeviceAddress::device_ref)
+                .chain(
+                    dword_devices
+                        .iter()
+                        .map(SlmpQualifiedDeviceAddress::device_ref),
+                ),
+        )?;
+        inner
+            .register_monitor_devices_ext(word_devices, dword_devices)
+            .await
+    }
+
+    /// Executes one monitor cycle for the explicitly supplied registered counts.
+    ///
+    /// The combined count must be nonzero and within the active profile's
+    /// monitor-registration limit.
+    ///
+    /// This method sends one monitor request even when this client instance has
+    /// not registered devices. In that case the PLC response defines the result;
+    /// the client performs no implicit registration or fallback.
+    pub async fn run_monitor_cycle(
+        &self,
+        word_points: usize,
+        dword_points: usize,
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        self.inner
+            .lock()
+            .await
+            .run_monitor_cycle(word_points, dword_points)
+            .await
+    }
+
     pub async fn write_random_words(
         &self,
         word_entries: &[(SlmpDeviceAddress, u16)],
@@ -583,6 +641,11 @@ impl SlmpClient {
 
     pub async fn self_test_loopback(&self, data: &[u8]) -> Result<Vec<u8>, SlmpError> {
         self.inner.lock().await.self_test_loopback(data).await
+    }
+
+    /// Sends the fixed Clear Error command as exactly one request.
+    pub async fn clear_error(&self) -> Result<(), SlmpError> {
+        self.inner.lock().await.clear_error().await
     }
 
     pub async fn memory_read_words(
@@ -1399,6 +1462,128 @@ impl ClientInner {
         Ok(result)
     }
 
+    async fn register_monitor_devices(
+        &mut self,
+        word_devices: &[SlmpDeviceAddress],
+        dword_devices: &[SlmpDeviceAddress],
+    ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Monitor)?;
+        rules::validate_random_read_devices(word_devices, dword_devices, false)?;
+        rules::validate_random_read_like_counts(
+            word_devices.len(),
+            dword_devices.len(),
+            self.options.compatibility_mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::MonitorRegisterWord,
+            "register_monitor_devices",
+        )?;
+        let spec_size = device_spec_size(self.options.compatibility_mode);
+        let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
+        payload.resize(
+            2 + (word_devices.len() + dword_devices.len()) * spec_size,
+            0,
+        );
+        let mut offset = 2;
+        for device in word_devices {
+            offset += self.encode_device_spec(*device, &mut payload[offset..]);
+        }
+        for device in dword_devices {
+            offset += self.encode_device_spec(*device, &mut payload[offset..]);
+        }
+        let subcommand = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            0x0000
+        } else {
+            0x0002
+        };
+        self.request(SlmpCommand::MonitorRegister, subcommand, &payload, true)
+            .await?;
+        Ok(())
+    }
+
+    async fn register_monitor_devices_ext(
+        &mut self,
+        word_devices: &[SlmpQualifiedDeviceAddress],
+        dword_devices: &[SlmpQualifiedDeviceAddress],
+    ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Monitor)?;
+        rules::validate_random_read_like_counts(
+            word_devices.len(),
+            dword_devices.len(),
+            self.options.compatibility_mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::MonitorRegisterWordExt,
+            "register_monitor_devices_ext",
+        )?;
+        let word_refs: Vec<_> = word_devices.iter().map(|entry| entry.device()).collect();
+        let dword_refs: Vec<_> = dword_devices.iter().map(|entry| entry.device()).collect();
+        rules::validate_random_read_devices(&word_refs, &dword_refs, true)?;
+        let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
+        for device in word_devices.iter().chain(dword_devices.iter()) {
+            let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            payload
+                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
+        }
+        let subcommand = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            0x0080
+        } else {
+            0x0082
+        };
+        self.request(SlmpCommand::MonitorRegister, subcommand, &payload, true)
+            .await?;
+        Ok(())
+    }
+
+    async fn run_monitor_cycle(
+        &mut self,
+        word_points: usize,
+        dword_points: usize,
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Monitor)?;
+        rules::validate_random_read_like_counts(
+            word_points,
+            dword_points,
+            self.options.compatibility_mode,
+            self.options.plc_profile,
+            SlmpProfileLimit::MonitorRegisterWord,
+            "run_monitor_cycle",
+        )?;
+        let data = self
+            .request(SlmpCommand::Monitor, 0x0000, &[], true)
+            .await?;
+        let expected = word_points * 2 + dword_points * 4;
+        if data.len() != expected {
+            return Err(SlmpError::new(format!(
+                "monitor response size mismatch expected={expected} actual={}",
+                data.len()
+            )));
+        }
+        let mut cursor = 0;
+        let mut result = SlmpRandomReadResult::default();
+        for _ in 0..word_points {
+            result
+                .word_values
+                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+            cursor += 2;
+        }
+        for _ in 0..dword_points {
+            result.dword_values.push(u32::from_le_bytes([
+                data[cursor],
+                data[cursor + 1],
+                data[cursor + 2],
+                data[cursor + 3],
+            ]));
+            cursor += 4;
+        }
+        Ok(result)
+    }
+
     async fn write_random_words(
         &mut self,
         word_entries: &[(SlmpDeviceAddress, u16)],
@@ -1850,10 +2035,30 @@ impl ClientInner {
             return Err(SlmpError::new("self_test response too short"));
         }
         let length = u16::from_le_bytes([response[0], response[1]]) as usize;
-        if response.len() < length + 2 {
-            return Err(SlmpError::new("self_test response length mismatch"));
+        if length != data.len() {
+            return Err(SlmpError::new(format!(
+                "self_test response declared length mismatch: expected={}, declared={length}",
+                data.len()
+            )));
         }
-        Ok(response[2..2 + length].to_vec())
+        if response.len() != length + 2 {
+            return Err(SlmpError::new(format!(
+                "self_test response size mismatch: expected={}, actual={}",
+                length + 2,
+                response.len()
+            )));
+        }
+        let echo = &response[2..];
+        if echo != data {
+            return Err(SlmpError::new("self_test response payload mismatch"));
+        }
+        Ok(echo.to_vec())
+    }
+
+    async fn clear_error(&mut self) -> Result<(), SlmpError> {
+        self.request(SlmpCommand::ClearError, 0x0000, &[], true)
+            .await?;
+        Ok(())
     }
 
     async fn memory_read_words(

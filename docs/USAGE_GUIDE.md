@@ -154,6 +154,37 @@ let indexed_words = client.read_words_extended(indexed, 1).await?;
 client.close().await?;
 ```
 
+For iQ-R multi-CPU `U3En\HG...` access, the qualified device never changes the
+SLMP request target automatically. Select the target CPU in
+`SlmpConnectionOptions` when a write must be reflected there; use a separate
+client for a different target. Cross-CPU reads remain valid. See the shared
+[iQ-R target guidance](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/iq-r/#multi-cpu-cpu-buffer-target).
+
+## Monitor, self-test, and Clear Error
+
+Registration and every monitor cycle are separate one-request operations.
+`run_monitor_cycle` requires the registered Word and DWord counts every time;
+it does not auto-register, retry, or infer them. Calling it before monitor
+registration still sends one cycle request, so the PLC determines the returned
+error. The combined expected count must be nonzero and cannot exceed the
+selected profile's monitor-registration limit.
+
+```rust
+use plc_comm_slmp::parse_device;
+
+let word = parse_device("D120", SlmpPlcProfile::IqR)?;
+let dword = parse_device("D200", SlmpPlcProfile::IqR)?;
+client.register_monitor_devices(&[word], &[dword]).await?;
+let cycle = client.run_monitor_cycle(1, 1).await?;
+
+let echo = client.self_test_loopback(b"A1B2C3D4").await?;
+client.clear_error().await?;
+```
+
+Self-test accepts only 1–960 ASCII `0-9/A-F` bytes and requires exact declared
+length, actual length, and echo equality. `clear_error` has no wire-level
+arguments and always sends the fixed empty-payload command.
+
 ## PLC diagnostics
 
 `SlmpClient::read_latest_self_diagnosis_error_code` reads `SD0`, the latest PLC self-diagnosis error code, and returns the raw 16-bit value. Format it as hexadecimal when displaying it.

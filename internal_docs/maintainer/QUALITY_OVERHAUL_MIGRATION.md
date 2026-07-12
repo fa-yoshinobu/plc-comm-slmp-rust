@@ -371,3 +371,40 @@ The contract changes in this record are API-shape, pre-transport validation, det
 ## Claude review package status
 
 The approved decisions, this acceptance record, the repository diff, and final local check results form the review package. Claude execution remains pending explicit user authorization for the named diff scope.
+
+## 2026-07-12 D-128 through D-132 delta
+
+### D-128 — Public monitor APIs
+
+- Scope: `register_monitor_devices`, `register_monitor_devices_ext`, and `run_monitor_cycle`.
+- Target: Word/DWord registration and cycles are typed single requests with explicit, nonzero, profile-bounded cycle counts; no implicit registration, retry, split, or fallback occurs.
+- Compatibility: this is additive. Running before PLC registration sends one request and exposes the PLC result.
+- Acceptance: exact commands, qualified subcommand, zero/over-limit rejection, three cycles, PLC NG, and response-size mismatch are covered.
+
+### D-129 — Exact self-test echo
+
+- Scope: `self_test_loopback`.
+- Target: 1–960 ASCII `0-9/A-F`; declared length, exact response size, and echo must all match.
+- Compatibility: malformed echoes previously accepted through prefix decoding now fail.
+- Acceptance: valid, invalid input, declared-length, trailing-data, and payload mismatch cases are covered.
+
+### D-131 — Clear Error semantic API
+
+- Scope: `clear_error`.
+- Target: one fixed `0x1617/0x0000` empty-payload request with normal error propagation.
+- Compatibility: additive replacement for maintainer raw-command use.
+- Acceptance: exact request shape and single-request boundary are covered.
+
+### D-132 — HG target ownership
+
+- Scope: qualified Extended Device HG writes.
+- Target: preserve the connection target exactly; never derive it from `U3En`, retry another CPU, or read back automatically. Cross-CPU reads remain allowed.
+- Compatibility: applications create/select the client target explicitly when a write must reach another CPU.
+- Acceptance: Own Station remains `0x03FF` for `U3E1\HG`; only an explicitly CPU No.2 client emits `0x03E1`.
+
+- [x] Local implementation and regression tests completed.
+- [x] Formatting, Clippy, full tests, doctests, Node crate, and local CI passed.
+- [x] User API, migration, changelog, and shared target guidance updated.
+- [ ] Claude review of this delta completed — pending a separately authorized batch.
+- [ ] New public-API live verification completed — deferred until after Claude review.
+- [ ] D-132 Extend Unit versus HG physical-area classification completed.
