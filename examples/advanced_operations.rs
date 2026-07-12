@@ -3,31 +3,25 @@
 mod common;
 
 use common::{connect_from_env, env_csv, env_string, print_connection_banner};
-use plc_comm_slmp::{SlmpAddress, SlmpBlockRead, SlmpExtensionSpec, parse_qualified_device};
+use plc_comm_slmp::{SlmpAddress, SlmpBlockRead, SlmpPlcProfile, parse_qualified_device};
 use std::error::Error;
 
 fn parse_word_devices(
     key: &str,
     default: &str,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<Vec<plc_comm_slmp::SlmpDeviceAddress>, Box<dyn Error>> {
     env_csv(key, default)
         .into_iter()
-        .map(|device| Ok(SlmpAddress::parse(&device)?))
+        .map(|device| Ok(SlmpAddress::parse(&device, plc_profile)?))
         .collect()
-}
-
-fn build_extension_spec(device: &plc_comm_slmp::SlmpQualifiedDeviceAddress) -> SlmpExtensionSpec {
-    SlmpExtensionSpec {
-        extension_specification: device.extension_specification.unwrap_or(0),
-        direct_memory_specification: device.direct_memory_specification.unwrap_or(0),
-        ..Default::default()
-    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("advanced_operations")?;
     let client = connect_from_env().await?;
+    let plc_profile = client.plc_profile().await;
 
     // Type-name support is useful when the selected PLC route returns model text.
     let type_name = client.read_type_name().await?;
@@ -37,19 +31,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     // Random reads group unrelated word and dword devices into one request.
-    let word_devices = parse_word_devices("SLMP_RANDOM_WORDS", "D100,R10")?;
-    let dword_devices = parse_word_devices("SLMP_RANDOM_DWORDS", "D200,LTN10")?;
+    let word_devices = parse_word_devices("SLMP_RANDOM_WORDS", "D100,R10", plc_profile)?;
+    let dword_devices = parse_word_devices("SLMP_RANDOM_DWORDS", "D200,LTN10", plc_profile)?;
     let random = client.read_random(&word_devices, &dword_devices).await?;
     println!("random word values   -> {:?}", random.word_values);
     println!("random dword values  -> {:?}", random.dword_values);
 
     // Block reads return word values and packed bit-block words.
     let word_block = SlmpBlockRead {
-        device: SlmpAddress::parse(&env_string("SLMP_BLOCK_WORD_DEVICE", "D100"))?,
+        device: SlmpAddress::parse(&env_string("SLMP_BLOCK_WORD_DEVICE", "D100"), plc_profile)?,
         points: env_string("SLMP_BLOCK_WORD_POINTS", "4").parse()?,
     };
     let bit_block = SlmpBlockRead {
-        device: SlmpAddress::parse(&env_string("SLMP_BLOCK_BIT_DEVICE", "M10"))?,
+        device: SlmpAddress::parse(&env_string("SLMP_BLOCK_BIT_DEVICE", "M10"), plc_profile)?,
         points: env_string("SLMP_BLOCK_BIT_POINTS", "8").parse()?,
     };
     let block = client.read_block(&[word_block], &[bit_block]).await?;
@@ -57,14 +51,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("block packed bits    -> {:?}", block.bit_values);
 
     // Extended-device reads use a qualified address plus an extension spec.
-    let qualified = parse_qualified_device(&env_string("SLMP_EXT_DEVICE", "J1\\W10"))?;
-    let extension = build_extension_spec(&qualified);
+    let qualified = parse_qualified_device(&env_string("SLMP_EXT_DEVICE", "J1\\W10"), plc_profile)?;
     let ext_values = client
-        .read_words_extended(
-            qualified,
-            env_string("SLMP_EXT_POINTS", "1").parse()?,
-            extension,
-        )
+        .read_words_extended(qualified, env_string("SLMP_EXT_POINTS", "1").parse()?)
         .await?;
     println!("extended read        -> {:?}", ext_values);
 

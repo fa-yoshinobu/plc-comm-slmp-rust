@@ -4,20 +4,21 @@
 //! Async Rust client for MELSEC SLMP Binary 3E and 4E.
 //!
 //! This crate follows the same operation semantics as the sibling
-//! `plc-comm-slmp-python`, `.NET`, `C++`, `Node-RED`, and `cross-verify`
-//! projects in the same family. The intended flow is:
+//! `plc-comm-slmp-python`, `.NET`, `C++`, and `Node-RED` libraries. The
+//! intended flow is:
 //!
 //! 1. connect with [`SlmpConnectionOptions`] and [`SlmpClient`]
 //! 2. use raw device APIs for low-level control
 //! 3. use helper APIs such as [`read_named`] and [`write_named`] for
 //!    application-facing snapshots and typed values
-//! 4. validate behavior through `plc-comm-slmp-cross-verify`
+//! 4. validate changes with this repository's Rust tests and examples
 //!
 //! # Quick Start
 //!
 //! ```no_run
 //! use plc_comm_slmp::{
-//!     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
+//!     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpTargetAddress,
+//!     SlmpTransportMode,
 //! };
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,11 +26,10 @@
 //!     .enable_all()
 //!     .build()?;
 //! runtime.block_on(async {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-//!     options.port = 1025;
+//!     let options = SlmpConnectionOptions::new("192.168.250.100", 1025, SlmpTransportMode::Tcp, SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 //!
 //!     let client = SlmpClient::connect(options).await?;
-//!     let words = client.read_words_raw(SlmpAddress::parse("D100")?, 2).await?;
+//!     let words = client.read_words_raw(SlmpAddress::parse("D100", plc_comm_slmp::SlmpPlcProfile::IqR)?, 2).await?;
 //!     println!("{words:?}");
 //!     Ok(())
 //! })
@@ -41,7 +41,7 @@
 //! ```no_run
 //! use plc_comm_slmp::{
 //!     NamedAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpValue, read_named,
-//!     write_named,
+//!     SlmpTargetAddress, SlmpTransportMode, write_named,
 //! };
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -49,8 +49,7 @@
 //!     .enable_all()
 //!     .build()?;
 //! runtime.block_on(async {
-//!     let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqF)?;
-//!     options.port = 1025;
+//!     let options = SlmpConnectionOptions::new("192.168.250.100", 1025, SlmpTransportMode::Tcp, SlmpTargetAddress::default(), SlmpPlcProfile::IqF)?;
 //!     let client = SlmpClient::connect(options).await?;
 //!
 //!     let snapshot = read_named(
@@ -94,11 +93,6 @@
 //!
 //! Run them with `cargo run --features cli --example <name>`.
 //!
-//! # Verification
-//!
-//! This crate is meant to participate in `plc-comm-slmp-cross-verify`.
-//! The canonical wrapper binary is `slmp_verify_client`.
-//!
 mod address;
 mod capability_profiles;
 mod client;
@@ -112,10 +106,10 @@ mod model;
 mod route_validation;
 
 pub use address::{
-    SlmpAddress, normalize_named_address, parse_device_for_plc_profile, parse_named_address,
-    parse_named_target, parse_qualified_device, parse_target_auto_number,
+    SlmpAddress, normalize_named_address, parse_device, parse_named_address, parse_named_target,
+    parse_qualified_device, parse_target_auto_number,
 };
-pub use client::{SlmpClient, encode_device_spec};
+pub use client::{SlmpClient, encode_raw_device_spec};
 pub use device_range_sample::{
     SlmpDeviceRangeSampleDeviceReport, SlmpDeviceRangeSampleFailure, SlmpDeviceRangeSampleOptions,
     SlmpDeviceRangeSampleReport, SlmpDeviceRangeSampleSummary, SlmpDeviceRangeSampleValueKind,
@@ -125,26 +119,21 @@ pub use device_ranges::{
     SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeNotation,
 };
 pub use error::{SlmpError, SlmpErrorInfo, SlmpErrorKind, SlmpProfileFeatureErrorInfo};
-pub use error_codes::{
-    SlmpEndCodeLanguage, end_code_key, end_code_message, end_code_message_en, end_code_message_ja,
-    end_code_name, is_remote_password_end_code,
-};
+pub use error_codes::{end_code_key, end_code_name, is_remote_password_end_code};
 pub use helpers::{
-    NamedAddress, SlmpValue, parse_scalar_for_named, parse_scalar_for_named_with_family,
-    poll_named, read_dwords_chunked, read_dwords_single_request, read_named, read_typed,
-    read_words_chunked, read_words_single_request, write_bit_in_word, write_dwords_chunked,
-    write_dwords_single_request, write_named, write_typed, write_words_chunked,
-    write_words_single_request,
+    NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_dwords_single_request,
+    read_named, read_typed, read_words_single_request, write_bit_in_word,
+    write_dwords_single_request, write_named, write_typed, write_words_single_request,
 };
 pub use model::{
-    SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpBlockWriteOptions, SlmpCommand,
+    RawSlmpDeviceAddress, SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpCpuOperationStatus,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpExtensionSpec, SlmpFrameType, SlmpLabelArrayReadPoint,
-    SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint, SlmpLabelRandomReadResult,
-    SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpModuleIo, SlmpNamedTarget, SlmpPlcProfile,
-    SlmpPlcProfileDescriptor, SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpTargetAddress,
-    SlmpTraceDirection, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
-    plc_profile_descriptors,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpDeviceModification, SlmpFrameType,
+    SlmpLabelArrayReadPoint, SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint,
+    SlmpLabelRandomReadResult, SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpModuleIo,
+    SlmpNamedTarget, SlmpPlcProfile, SlmpPlcProfileDescriptor, SlmpQualifiedDeviceAddress,
+    SlmpRandomReadResult, SlmpRemoteClearMode, SlmpRemoteMode, SlmpTargetAddress, SlmpTrafficStats,
+    SlmpTransportMode, SlmpTypeNameInfo, plc_profile_descriptors,
 };
 pub use route_validation::{
     SlmpRouteValidationCase, SlmpRouteValidationOptions, SlmpRouteValidationReport,

@@ -1,4 +1,6 @@
-use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
+use plc_comm_slmp::{
+    SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpRemoteClearMode, SlmpRemoteMode,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -7,9 +9,12 @@ async fn cpu_operations_keep_remote_stop_on_manual_fixed_mode() {
     let server = MultiShotServer::start(3).await.unwrap();
     let client = connect(server.port).await;
 
-    client.remote_run(true, 0).await.unwrap();
+    client
+        .remote_run(SlmpRemoteMode::Force, SlmpRemoteClearMode::NoClear)
+        .await
+        .unwrap();
     client.remote_stop().await.unwrap();
-    client.remote_pause(true).await.unwrap();
+    client.remote_pause(SlmpRemoteMode::Force).await.unwrap();
 
     let requests = server.take_requests().await;
     assert_eq!(requests.len(), 3);
@@ -25,12 +30,30 @@ async fn cpu_operations_keep_remote_stop_on_manual_fixed_mode() {
 }
 
 #[tokio::test]
-async fn remote_run_rejects_invalid_clear_mode() {
-    let server = MultiShotServer::start(0).await.unwrap();
+async fn remote_run_clear_modes_have_distinct_wire_values() {
+    let server = MultiShotServer::start(3).await.unwrap();
     let client = connect(server.port).await;
 
-    let err = client.remote_run(false, 3).await.unwrap_err();
-    assert!(err.message.contains("clear_mode"));
+    client
+        .remote_run(SlmpRemoteMode::Normal, SlmpRemoteClearMode::NoClear)
+        .await
+        .unwrap();
+    client
+        .remote_run(
+            SlmpRemoteMode::Normal,
+            SlmpRemoteClearMode::ClearExceptLatch,
+        )
+        .await
+        .unwrap();
+    client
+        .remote_run(SlmpRemoteMode::Normal, SlmpRemoteClearMode::ClearAll)
+        .await
+        .unwrap();
+
+    let requests = server.take_requests().await;
+    assert_eq!(&requests[0][19..], &[0x01, 0x00, 0x00, 0x00]);
+    assert_eq!(&requests[1][19..], &[0x01, 0x00, 0x01, 0x00]);
+    assert_eq!(&requests[2][19..], &[0x01, 0x00, 0x02, 0x00]);
 }
 
 #[tokio::test]
@@ -38,17 +61,25 @@ async fn remote_reset_sends_fixed_reset_data() {
     let server = MultiShotServer::start(1).await.unwrap();
     let client = connect(server.port).await;
 
-    client.remote_reset(true).await.unwrap();
+    client.remote_reset().await.unwrap();
 
-    let requests = server.take_requests().await;
-    assert_eq!(requests.len(), 1);
-    assert_eq!(&requests[0][15..17], &[0x06, 0x10]);
-    assert_eq!(&requests[0][17..19], &[0x00, 0x00]);
-    assert_eq!(&requests[0][19..], &[0x01, 0x00]);
+    let request = client.last_request_frame().await;
+    assert_eq!(&request[15..17], &[0x06, 0x10]);
+    assert_eq!(&request[17..19], &[0x00, 0x00]);
+    assert_eq!(&request[19..], &[0x01, 0x00]);
+    let error = client.read_type_name().await.unwrap_err();
+    assert!(error.message.contains("transport is closed"));
 }
 
 async fn connect(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

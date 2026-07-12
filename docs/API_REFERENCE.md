@@ -17,17 +17,23 @@ The main async client type is `SlmpClient`.
 | Extended direct word read/write | `read_words_extended`, `write_words_extended` |
 | Extended direct bit read/write | `read_bits_extended`, `write_bits_extended` |
 | Random read | `read_random` |
+| Word-only / dword-only random read | `read_random_words`, `read_random_dwords` |
 | Extended random read | `read_random_ext` |
+| Extended word-only / dword-only random read | `read_random_words_extended`, `read_random_dwords_extended` |
 | Random word/dword write | `write_random_words` |
+| Word-only / dword-only random write | `write_random_u16s`, `write_random_u32s` |
 | Extended random word/dword write | `write_random_words_ext` |
+| Extended word-only / dword-only random write | `write_random_u16s_extended`, `write_random_u32s_extended` |
 | Random bit write | `write_random_bits` |
 | Extended random bit write | `write_random_bits_ext` |
 | Block read/write | `read_block`, `write_block` |
+| Single-kind block read/write | `read_word_blocks`, `read_bit_blocks`, `write_word_blocks`, `write_bit_blocks` |
 | Type name | `read_type_name` |
 
 Extended random APIs use the 008x subcommands. Use `parse_qualified_device`
-or `SlmpQualifiedDeviceAddress` with `SlmpExtensionSpec` for routed devices
-such as `U1\G0`, `U3E0\HG0`, or `J2\SW10`.
+or `SlmpQualifiedDeviceAddress` for routed devices such as `U1\G0`,
+`U3E0\HG0`, or `J2\SW10`. Route fields are derived from the qualified address.
+Optional Z, LZ, and indirect modification uses `SlmpDeviceModification`.
 
 ## Specialized Operations
 
@@ -35,18 +41,19 @@ such as `U1\G0`, `U3E0\HG0`, or `J2\SW10`.
 | --- | --- |
 | Memory command words | `memory_read_words`, `memory_write_words` |
 | Extend-unit command words | `extend_unit_read_words`, `extend_unit_write_words` |
-| Label array access | `read_array_labels`, `write_array_labels` |
-| Label random access | `read_random_labels`, `write_random_labels` |
-| Remote CPU control | `remote_run`, `remote_stop`, `remote_pause`, `remote_latch_clear`, `remote_reset` |
+| Monitor registration/cycle | `register_monitor_devices`, `register_monitor_devices_ext`, `run_monitor_cycle` |
+| Label array access | `read_array_labels`, `write_array_labels`; use the explicit `_with_abbreviations` variants when definitions are required |
+| Label random access | `read_random_labels`, `write_random_labels`; use the explicit `_with_abbreviations` variants when definitions are required |
+| Remote CPU control | `remote_run` with `SlmpRemoteMode` and `SlmpRemoteClearMode`, `remote_stop`, `remote_pause`, `remote_latch_clear`, `remote_reset` |
 | Remote password | `remote_password_unlock`, `remote_password_lock` |
 | CPU operation state | `read_cpu_operation_state` |
 | Self-diagnosis error code | `read_latest_self_diagnosis_error_code` |
 | Device range catalog | `read_device_range_catalog`, `read_device_range_catalog_for_plc_profile` |
 | Self-test loopback | `self_test_loopback` |
+| Clear PLC error | `clear_error` |
 
-Monitor registration/cycle APIs are not part of the current Rust user-facing
-client surface. CPU-buffer convenience helpers are also not separate methods;
-use the extended-device `U3E0\HG...` route where the selected profile supports
+CPU-buffer convenience helpers are not separate methods; use the
+extended-device `U3E0\HG...` route where the selected profile supports
 CPU-buffer access.
 
 ## High-Level Helpers
@@ -54,18 +61,18 @@ CPU-buffer access.
 | Operation | Public API |
 | --- | --- |
 | Connection options and profile descriptors | `SlmpConnectionOptions`, `plc_profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
-| Address parsing | `SlmpAddress::parse`, `SlmpAddress::parse_for_plc_profile`, `SlmpAddress::format`, `parse_device_for_plc_profile`, `parse_qualified_device` |
+| Address parsing | `SlmpAddress::parse`, `SlmpAddress::try_parse`, `SlmpAddress::format`, `SlmpAddress::normalize`, `parse_device`, `parse_qualified_device` (all parsing requires `SlmpPlcProfile`) |
 | Typed values | `read_typed`, `write_typed` |
-| Named mixed snapshots | `read_named`, `write_named`, `poll_named` |
-| Chunked word/dword reads | `read_words_single_request`, `read_words_chunked`, `read_dwords_single_request`, `read_dwords_chunked` |
+| Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection) |
+| Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
 | Bit-in-word write | `write_bit_in_word` |
-| Trace and diagnostics | `last_request_frame`, `last_response_frame`, `traffic_stats` |
+| Traffic counters | `traffic_stats` |
 
 ## Target Module I/O Constants
 
 `SlmpModuleIo` provides named request-header module I/O numbers for multi-CPU
 and routed CPU targets. Use these values in `SlmpTargetAddress.module_io`;
-`SlmpTargetAddress::default()` remains the own-station route `0x03FF`.
+`plc_comm_slmp::SlmpTargetAddress::default()` remains the own-station route `0x03FF`.
 
 | Constant | Value |
 | --- | --- |

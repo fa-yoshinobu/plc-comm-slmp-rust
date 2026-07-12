@@ -237,7 +237,41 @@ pub(crate) fn validate_block_write_limits(
             "write_block total device points out of range (<=960): weighted={weighted}, total_points={total_points}"
         )));
     }
+    validate_block_write_overlap(word_blocks, bit_blocks)?;
     Ok(())
+}
+
+fn validate_block_write_overlap(
+    word_blocks: &[SlmpBlockWrite],
+    bit_blocks: &[SlmpBlockWrite],
+) -> Result<(), SlmpError> {
+    let blocks: Vec<_> = word_blocks.iter().chain(bit_blocks.iter()).collect();
+    for (index, left) in blocks.iter().enumerate() {
+        let left_end = checked_span_end(left.device.number(), left.values.len(), "write_block")?;
+        for right in &blocks[index + 1..] {
+            if left.device.plc_profile() != right.device.plc_profile()
+                || left.device.code() != right.device.code()
+            {
+                continue;
+            }
+            let right_end =
+                checked_span_end(right.device.number(), right.values.len(), "write_block")?;
+            if left.device.number() <= right_end && right.device.number() <= left_end {
+                return Err(SlmpError::new(
+                    "write_block device ranges must not overlap within one request",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn checked_span_end(start: u32, points: usize, name: &str) -> Result<u32, SlmpError> {
+    let length = u32::try_from(points)
+        .map_err(|_| SlmpError::new(format!("{name} device span is too large")))?;
+    start
+        .checked_add(length.saturating_sub(1))
+        .ok_or_else(|| SlmpError::new(format!("{name} device span overflows u32")))
 }
 
 pub(crate) fn validate_memory_word_length(word_length: usize, name: &str) -> Result<(), SlmpError> {
@@ -309,14 +343,14 @@ fn validate_block_points(points: usize, name: &str) -> Result<usize, SlmpError> 
 }
 
 pub(crate) fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-    if is_qualified_only_device(device.code) {
+    if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
     // Long timer state bits are decoded from the LTN/LSTN 4-word status block.
     // Do not send direct bit read (0x0401) for these devices.
-    if is_long_timer_state_device(device.code) {
+    if is_long_timer_state_device(device.code()) {
         return Err(SlmpError::new(
             "Direct bit read is not supported for long timer state devices. Use read_typed/read_named or a 4-word current-value block read.",
         ));
@@ -328,17 +362,17 @@ pub(crate) fn validate_direct_bit_write(
     device: SlmpDeviceAddress,
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
-    if is_qualified_only_device(device.code) {
+    if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    if is_read_only_device(device.code, plc_profile) {
-        return Err(read_only_write_error(device.code, plc_profile));
+    if is_read_only_device(device.code(), plc_profile) {
+        return Err(read_only_write_error(device.code(), plc_profile));
     }
     // PLCs reject direct bit write (0x1401) for these state bits. The
     // supported write path is write_typed/write_named, which selects 0x1402.
-    if requires_random_bit_write(device.code) {
+    if requires_random_bit_write(device.code()) {
         return Err(SlmpError::new(
             "Direct bit write is not supported for long-family state devices. Use write_typed/write_named so random bit write (0x1402) is selected.",
         ));
@@ -350,12 +384,12 @@ pub(crate) fn validate_direct_word_read(
     device: SlmpDeviceAddress,
     points: u16,
 ) -> Result<(), SlmpError> {
-    if is_qualified_only_device(device.code) {
+    if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    match device.code {
+    match device.code() {
         code if is_random_dword_only_read_device(code) => Err(SlmpError::new(
             "Direct word read is not supported for LCN/LZ. Use read_typed/read_named for 32-bit access.",
         )),
@@ -374,15 +408,15 @@ pub(crate) fn validate_direct_word_write(
     device: SlmpDeviceAddress,
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
-    if is_qualified_only_device(device.code) {
+    if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    if is_read_only_device(device.code, plc_profile) {
-        return Err(read_only_write_error(device.code, plc_profile));
+    if is_read_only_device(device.code(), plc_profile) {
+        return Err(read_only_write_error(device.code(), plc_profile));
     }
-    if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+    if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code()) {
         return Err(SlmpError::new(
             "Direct word write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named with ':D' or ':L' instead.",
         ));
@@ -391,12 +425,12 @@ pub(crate) fn validate_direct_word_write(
 }
 
 pub(crate) fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-    if is_qualified_only_device(device.code) {
+    if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+    if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code()) {
         return Err(SlmpError::new(
             "Direct dword read is not supported for LTN/LSTN/LCN/LZ. Use read_typed/read_named or the supported long-family helper route.",
         ));
@@ -408,15 +442,15 @@ pub(crate) fn validate_direct_dword_write(
     device: SlmpDeviceAddress,
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
-    if is_qualified_only_device(device.code) {
+    if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
         ));
     }
-    if is_read_only_device(device.code, plc_profile) {
-        return Err(read_only_write_error(device.code, plc_profile));
+    if is_read_only_device(device.code(), plc_profile) {
+        return Err(read_only_write_error(device.code(), plc_profile));
     }
-    if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+    if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code()) {
         return Err(SlmpError::new(
             "Direct dword write is not supported for LTN/LSTN/LCN/LZ. Use write_typed/write_named so random dword write (0x1402) is selected.",
         ));
@@ -428,32 +462,34 @@ pub(crate) fn validate_random_read_devices(
     word_devices: &[SlmpDeviceAddress],
     dword_devices: &[SlmpDeviceAddress],
     allow_qualified_only_devices: bool,
+    command_label: &str,
 ) -> Result<(), SlmpError> {
     for device in word_devices.iter().chain(dword_devices.iter()) {
-        if !allow_qualified_only_devices && is_qualified_only_device(device.code) {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support standalone G/HG. Use U-qualified extended access.",
-            ));
+        if !allow_qualified_only_devices && is_qualified_only_device(device.code()) {
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support standalone G/HG. Use U-qualified extended access."
+            )));
         }
         // LTS/LTC/LSTS/LSTC can be written by random bit write, but they are
         // not readable by Read Random (0x0403); use status-block reads.
-        if is_long_timer_state_device(device.code) {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read.",
-            ));
+        if is_long_timer_state_device(device.code()) {
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read."
+            )));
         }
 
-        if matches!(device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
-            ));
+        if matches!(device.code(), SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected."
+            )));
         }
     }
     for device in word_devices {
-        if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
-            return Err(SlmpError::new(
-                "Read Random (0x0403) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead.",
-            ));
+        if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code())
+        {
+            return Err(SlmpError::new(format!(
+                "{command_label} does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead."
+            )));
         }
     }
     Ok(())
@@ -466,30 +502,51 @@ pub(crate) fn validate_random_write_word_devices(
     allow_qualified_only_devices: bool,
 ) -> Result<(), SlmpError> {
     for (device, _) in word_entries {
-        if is_read_only_device(device.code, plc_profile) {
+        if is_read_only_device(device.code(), plc_profile) {
             return Err(read_only_random_write_error(plc_profile));
         }
-        if !allow_qualified_only_devices && is_qualified_only_device(device.code) {
+        if !allow_qualified_only_devices && is_qualified_only_device(device.code()) {
             return Err(SlmpError::new(
                 "Write Random (0x1402) does not support standalone G/HG. Use U-qualified extended access.",
             ));
         }
     }
     for (device, _) in dword_entries {
-        if is_read_only_device(device.code, plc_profile) {
+        if is_read_only_device(device.code(), plc_profile) {
             return Err(read_only_random_write_error(plc_profile));
         }
-        if !allow_qualified_only_devices && is_qualified_only_device(device.code) {
+        if !allow_qualified_only_devices && is_qualified_only_device(device.code()) {
             return Err(SlmpError::new(
                 "Write Random (0x1402) does not support standalone G/HG. Use U-qualified extended access.",
             ));
         }
     }
     for (device, _) in word_entries {
-        if is_long_current_value_device(device.code) || is_dword_only_scalar_device(device.code) {
+        if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code())
+        {
             return Err(SlmpError::new(
                 "Write Random (0x1402) does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or write_typed/write_named with ':D' or ':L' instead.",
             ));
+        }
+    }
+    if !allow_qualified_only_devices {
+        let mut spans = Vec::with_capacity(word_entries.len() + dword_entries.len());
+        spans.extend(word_entries.iter().map(|(device, _)| (*device, 1usize)));
+        spans.extend(dword_entries.iter().map(|(device, _)| (*device, 2usize)));
+        for (index, (left, left_width)) in spans.iter().enumerate() {
+            let left_end = checked_span_end(left.number(), *left_width, "write_random_words")?;
+            for (right, right_width) in &spans[index + 1..] {
+                if left.plc_profile() != right.plc_profile() || left.code() != right.code() {
+                    continue;
+                }
+                let right_end =
+                    checked_span_end(right.number(), *right_width, "write_random_words")?;
+                if left.number() <= right_end && right.number() <= left_end {
+                    return Err(SlmpError::new(
+                        "write_random_words device ranges must not overlap within one request",
+                    ));
+                }
+            }
         }
     }
     Ok(())
@@ -498,12 +555,19 @@ pub(crate) fn validate_random_write_word_devices(
 pub(crate) fn validate_random_bit_write_devices(
     bit_entries: &[(SlmpDeviceAddress, bool)],
     plc_profile: SlmpPlcProfile,
+    validate_duplicates: bool,
 ) -> Result<(), SlmpError> {
+    let mut seen = std::collections::HashSet::new();
     for (device, _) in bit_entries {
-        if is_read_only_device(device.code, plc_profile) {
+        if validate_duplicates && !seen.insert(*device) {
+            return Err(SlmpError::new(
+                "write_random_bits devices must not be duplicated within one request",
+            ));
+        }
+        if is_read_only_device(device.code(), plc_profile) {
             return Err(read_only_random_write_error(plc_profile));
         }
-        if is_qualified_only_device(device.code) {
+        if is_qualified_only_device(device.code()) {
             return Err(SlmpError::new(
                 "Write Random (0x1402) does not support standalone G/HG bit entries. Use U-qualified word access.",
             ));
@@ -551,13 +615,13 @@ pub(crate) fn validate_no_lcs_lcc_block_read(
     bit_blocks: &[SlmpBlockRead],
 ) -> Result<(), SlmpError> {
     for block in word_blocks {
-        if is_qualified_only_device(block.device.code) {
+        if is_qualified_only_device(block.device.code()) {
             return Err(SlmpError::new(
                 "Read Block (0x0406) does not support standalone G/HG. Use U-qualified extended access.",
             ));
         }
         if matches!(
-            block.device.code,
+            block.device.code(),
             SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN
         ) && block.points % 4 != 0
         {
@@ -567,19 +631,22 @@ pub(crate) fn validate_no_lcs_lcc_block_read(
         }
     }
     for block in word_blocks.iter().chain(bit_blocks.iter()) {
-        if is_qualified_only_device(block.device.code) {
+        if is_qualified_only_device(block.device.code()) {
             return Err(SlmpError::new(
                 "Read Block (0x0406) does not support standalone G/HG. Use U-qualified extended access.",
             ));
         }
-        if is_random_dword_only_read_device(block.device.code) {
+        if is_random_dword_only_read_device(block.device.code()) {
             return Err(SlmpError::new(
                 "Read Block (0x0406) does not support LCN/LZ as word or bit blocks. Use read_typed/read_named so random dword read is selected.",
             ));
         }
     }
     for block in word_blocks.iter().chain(bit_blocks.iter()) {
-        if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+        if matches!(
+            block.device.code(),
+            SlmpDeviceCode::LCS | SlmpDeviceCode::LCC
+        ) {
             return Err(SlmpError::new(
                 "Read Block (0x0406) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
             ));
@@ -594,19 +661,19 @@ pub(crate) fn validate_no_lcs_lcc_block_write(
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
     for block in word_blocks.iter().chain(bit_blocks.iter()) {
-        if is_read_only_device(block.device.code, plc_profile) {
+        if is_read_only_device(block.device.code(), plc_profile) {
             return Err(SlmpError::new(format!(
                 "Write Block (0x1406) does not support read-only devices for plc_profile '{}'.",
                 plc_profile.canonical_name()
             )));
         }
-        if is_qualified_only_device(block.device.code) {
+        if is_qualified_only_device(block.device.code()) {
             return Err(SlmpError::new(
                 "Write Block (0x1406) does not support standalone G/HG. Use U-qualified extended access.",
             ));
         }
-        if is_long_current_value_device(block.device.code)
-            || is_dword_only_scalar_device(block.device.code)
+        if is_long_current_value_device(block.device.code())
+            || is_dword_only_scalar_device(block.device.code())
         {
             return Err(SlmpError::new(
                 "Write Block (0x1406) does not support LTN/LSTN/LCN/LZ as word or bit blocks. Use write_typed/write_named with ':D' or ':L' instead.",
@@ -614,7 +681,10 @@ pub(crate) fn validate_no_lcs_lcc_block_write(
         }
     }
     for block in word_blocks.iter().chain(bit_blocks.iter()) {
-        if matches!(block.device.code, SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
+        if matches!(
+            block.device.code(),
+            SlmpDeviceCode::LCS | SlmpDeviceCode::LCC
+        ) {
             return Err(SlmpError::new(
                 "Write Block (0x1406) does not support LCS/LCC. Use write_typed/write_named or other supported write routes.",
             ));

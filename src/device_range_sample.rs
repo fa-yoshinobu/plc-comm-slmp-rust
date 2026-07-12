@@ -201,8 +201,8 @@ pub async fn run_device_range_sample_compare(
         let kind = kind_for(&entry, code);
         device_report.value_kind = Some(kind);
         for number in sample_numbers(upper_bound, options.sample_points) {
-            let device = SlmpDeviceAddress::new(code, number);
-            let address = SlmpAddress::format_for_plc_profile(device, plc_profile);
+            let device = SlmpDeviceAddress::new(code, number, plc_profile);
+            let address = SlmpAddress::format(device);
             device_report.sample_addresses.push(address.clone());
 
             match exercise_point(client, device, &address, kind).await {
@@ -548,7 +548,7 @@ async fn exercise_bit_block(
     }
     let value_a = original.iter().map(|value| !*value).collect::<Vec<_>>();
     let value_b = (0..original.len())
-        .map(|index| ((device.number as usize + index) % 2) == 0)
+        .map(|index| ((device.number() as usize + index) % 2) == 0)
         .collect::<Vec<_>>();
 
     let test_result: Result<(), SlmpError> = async {

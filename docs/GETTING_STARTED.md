@@ -22,15 +22,15 @@ cargo add tokio --features macros,rt-multi-thread
 
 ## Choose your PLC profile
 
-`SlmpPlcProfile` is the only required selector. The library derives the SLMP frame and compatibility mode from it.
+The endpoint port, transport, target route, and exact `SlmpPlcProfile` are required.
+The library derives the SLMP frame and compatibility mode from the profile.
 
 ```rust
 use plc_comm_slmp::{SlmpConnectionOptions, SlmpPlcProfile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
     println!("{:?}", options.plc_profile());
 
     Ok(())
@@ -48,11 +48,10 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let value = read_typed(&client, SlmpAddress::parse("D100")?, "U").await?;
+    let value = read_typed(&client, SlmpAddress::parse("D100", SlmpPlcProfile::IqR)?, "U").await?;
     println!("{:?}", value);
     client.close().await?;
 
@@ -78,11 +77,10 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let address = SlmpAddress::parse("D600")?;
+    let address = SlmpAddress::parse("D600", SlmpPlcProfile::IqR)?;
 
     let original = read_typed(&client, address, "U").await?;
     write_typed(&client, address, "U", &SlmpValue::U16(42)).await?;

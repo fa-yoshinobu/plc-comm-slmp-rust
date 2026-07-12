@@ -7,16 +7,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-/// Language selector retained for source compatibility with older message
-/// lookup helpers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SlmpEndCodeLanguage {
-    /// English.
-    English,
-    /// Japanese.
-    Japanese,
-}
-
 static END_CODE_NAME_CACHE: OnceLock<Mutex<HashMap<u16, &'static str>>> = OnceLock::new();
 
 /// Return the stable catalog/resource key for an SLMP end code.
@@ -29,9 +19,8 @@ pub fn end_code_key(end_code: u16) -> String {
 
 /// Return a compact code-derived diagnostic label for an SLMP end code.
 ///
-/// The returned value is suitable as a resource key.  Localized message text is
-/// not stored in this crate; use [`end_code_message`] only as an optional hook
-/// and resolve the key in an application-owned catalog when text is needed.
+/// The returned value is suitable as a resource key. Localized message text is
+/// intentionally outside this communication crate.
 pub fn end_code_name(end_code: u16) -> &'static str {
     let cache = END_CODE_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(guard) = cache.lock() {
@@ -46,31 +35,6 @@ pub fn end_code_name(end_code: u16) -> &'static str {
     } else {
         generated
     }
-}
-
-/// Return the English error detail/cause message for an SLMP end code.
-///
-/// Message text is not embedded in this crate.  This function returns `None`
-/// unless an application layers its own catalog outside this crate.
-pub fn end_code_message_en(_end_code: u16) -> Option<&'static str> {
-    None
-}
-
-/// Return the Japanese error detail/cause message for an SLMP end code.
-///
-/// Message text is not embedded in this crate.  This function returns `None`
-/// unless an application layers its own catalog outside this crate.
-pub fn end_code_message_ja(_end_code: u16) -> Option<&'static str> {
-    None
-}
-
-/// Return the error detail/cause message for an SLMP end code.
-///
-/// Message text is not embedded in this crate.  The language parameter is kept
-/// for source compatibility; callers that need text should resolve
-/// [`end_code_key`] in an application-owned catalog.
-pub fn end_code_message(end_code: u16, _language: SlmpEndCodeLanguage) -> Option<&'static str> {
-    end_code_message_en(end_code)
 }
 
 /// Return whether the SLMP end code is related to remote password protection.

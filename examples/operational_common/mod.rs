@@ -2,7 +2,7 @@
 
 use plc_comm_slmp::{
     SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpError, SlmpErrorKind, SlmpPlcProfile,
-    SlmpTransportMode, read_typed,
+    SlmpTargetAddress, SlmpTransportMode, parse_named_target, read_typed,
 };
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
@@ -28,6 +28,7 @@ pub struct PlcEndpoint {
     pub plc_profile: String,
     pub port: u16,
     pub transport: String,
+    pub target: SlmpTargetAddress,
     pub timeout_ms: u64,
     pub interval: Duration,
 }
@@ -46,10 +47,10 @@ impl CsvWriter {
         }
     }
 
-    async fn write_snapshot(
+    async fn write_collection(
         &self,
         endpoint: &PlcEndpoint,
-        snapshot: &BTreeMap<String, String>,
+        values: &BTreeMap<String, String>,
     ) -> MonitorResult<()> {
         let _guard = self.lock.lock().await;
         if let Some(parent) = self.path.parent() {
@@ -71,7 +72,7 @@ impl CsvWriter {
             writeln!(file, "timestamp,plc,tag,value").map_err(|error| error.to_string())?;
         }
         let timestamp = timestamp();
-        for (tag, value) in snapshot {
+        for (tag, value) in values {
             writeln!(file, "{timestamp},{},{tag},{value}", endpoint.name)
                 .map_err(|error| error.to_string())?;
         }
@@ -105,37 +106,31 @@ pub fn parse_tag_spec(value: &str) -> MonitorResult<TagSpec> {
 
 pub fn parse_plc_spec(
     value: &str,
-    default_port: u16,
-    default_transport: &str,
     timeout_ms: u64,
     interval: Duration,
 ) -> MonitorResult<PlcEndpoint> {
     let Some((name, rest)) = value.split_once('=') else {
-        return Err("expected NAME=HOST,PROFILE[,PORT[,TRANSPORT]]".to_string());
+        return Err("expected NAME=HOST,PROFILE,PORT,TRANSPORT,TARGET".to_string());
     };
-    let parts = rest.split(',').map(str::trim).collect::<Vec<_>>();
-    if name.is_empty() || parts.len() < 2 || parts.len() > 4 {
-        return Err("expected NAME=HOST,PROFILE[,PORT[,TRANSPORT]]".to_string());
+    let parts = rest.splitn(5, ',').map(str::trim).collect::<Vec<_>>();
+    if name.is_empty() || parts.len() != 5 || parts.iter().any(|value| value.is_empty()) {
+        return Err("expected NAME=HOST,PROFILE,PORT,TRANSPORT,TARGET".to_string());
     }
-    let port = parts
-        .get(2)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.parse::<u16>())
-        .transpose()
+    let port = parts[2].parse::<u16>().map_err(|error| error.to_string())?;
+    if port == 0 {
+        return Err("port must be in 1..=65535".to_string());
+    }
+    let transport = parse_transport(parts[3])?;
+    let target = parse_named_target(parts[4])
         .map_err(|error| error.to_string())?
-        .unwrap_or(default_port);
-    let transport = parts
-        .get(3)
-        .filter(|value| !value.is_empty())
-        .map(|value| parse_transport(value))
-        .transpose()?
-        .unwrap_or_else(|| default_transport.to_string());
+        .target;
     Ok(PlcEndpoint {
         name: name.to_string(),
         host: parts[0].to_string(),
         plc_profile: parts[1].to_string(),
         port,
         transport,
+        target,
         timeout_ms,
         interval,
     })
@@ -201,11 +196,11 @@ pub async fn monitor_endpoint(
         }
 
         let active = client.as_ref().expect("client was just connected");
-        match read_snapshot(active, &tags).await {
-            Ok(snapshot) => {
-                log_state(&endpoint.name, "read", &format_snapshot(&snapshot));
+        match read_collection(active, &tags).await {
+            Ok(values) => {
+                log_state(&endpoint.name, "read", &format_collection(&values));
                 if let Some(csv_writer) = &writer {
-                    csv_writer.write_snapshot(&endpoint, &snapshot).await?;
+                    csv_writer.write_collection(&endpoint, &values).await?;
                 }
                 completed += 1;
                 if cycles.is_none_or(|limit| completed < limit) {
@@ -242,18 +237,24 @@ pub fn split_address(address: &str) -> MonitorResult<(&str, &str)> {
         }
         Ok((device, dtype))
     } else {
-        Ok((address, "U"))
+        Err(format!(
+            "address must explicitly specify DEVICE:DTYPE: {address}"
+        ))
     }
 }
 
 pub fn format_endpoint(endpoint: &PlcEndpoint) -> String {
     format!(
-        "{}: {} {}:{} profile={} interval={}s",
+        "{}: {} {}:{} profile={} target={:02X},{:02X},{:04X},{:02X} interval={}s",
         endpoint.name,
         endpoint.transport,
         endpoint.host,
         endpoint.port,
         endpoint.plc_profile,
+        endpoint.target.network,
+        endpoint.target.station,
+        endpoint.target.module_io,
+        endpoint.target.multidrop,
         endpoint.interval.as_secs_f64()
     )
 }
@@ -277,28 +278,39 @@ fn options_for(endpoint: &PlcEndpoint) -> MonitorResult<SlmpConnectionOptions> {
     if profile.is_base_profile() {
         return Err("melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.".into());
     }
-    let mut options = SlmpConnectionOptions::new(endpoint.host.clone(), profile)
-        .map_err(|error| error.to_string())?;
-    options.port = endpoint.port;
-    options.timeout = Duration::from_millis(endpoint.timeout_ms);
-    options.transport_mode = match endpoint.transport.as_str() {
+    let transport_mode = match endpoint.transport.as_str() {
         "udp" => SlmpTransportMode::Udp,
-        _ => SlmpTransportMode::Tcp,
+        "tcp" => SlmpTransportMode::Tcp,
+        _ => return Err("transport must be explicitly set to tcp or udp".into()),
     };
+    let mut options = SlmpConnectionOptions::new(
+        endpoint.host.clone(),
+        endpoint.port,
+        transport_mode,
+        endpoint.target,
+        profile,
+    )
+    .map_err(|error| error.to_string())?;
+    options.timeout = Duration::from_millis(endpoint.timeout_ms);
     Ok(options)
 }
 
-async fn read_snapshot(
+async fn read_collection(
     client: &SlmpClient,
     tags: &[TagSpec],
 ) -> Result<BTreeMap<String, String>, SlmpError> {
-    let mut snapshot = BTreeMap::new();
+    let mut values = BTreeMap::new();
     for tag in tags {
         let (device, dtype) = split_address(&tag.address).map_err(SlmpError::new)?;
-        let value = read_typed(client, SlmpAddress::parse(device)?, dtype).await?;
-        snapshot.insert(tag.name.clone(), format!("{value:?}"));
+        let value = read_typed(
+            client,
+            SlmpAddress::parse(device, client.plc_profile().await)?,
+            dtype,
+        )
+        .await?;
+        values.insert(tag.name.clone(), format!("{value:?}"));
     }
-    Ok(snapshot)
+    Ok(values)
 }
 
 fn is_retryable_slmp(error: &SlmpError) -> bool {
@@ -312,8 +324,8 @@ fn next_backoff(current: Duration, max: Duration) -> Duration {
     Duration::from_secs_f64((current.as_secs_f64() * 2.0).min(max.as_secs_f64()))
 }
 
-fn format_snapshot(snapshot: &BTreeMap<String, String>) -> String {
-    snapshot
+fn format_collection(values: &BTreeMap<String, String>) -> String {
+    values
         .iter()
         .map(|(tag, value)| format!("{tag}={value}"))
         .collect::<Vec<_>>()

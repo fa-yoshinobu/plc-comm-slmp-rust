@@ -4,16 +4,16 @@
 
 | Entry point | Use it for |
 | --- | --- |
-| `SlmpConnectionOptions::new(host, plc_profile)` | Creating a connection configuration with profile-derived defaults. |
+| `SlmpConnectionOptions::new(host, port, transport, target, plc_profile)` | Creating a connection configuration with an explicit endpoint, route, and profile; only timeout, monitoring timer, and keepalive use approved defaults. |
 | `SlmpClient::connect(options)` | Opening a TCP or UDP SLMP client. |
-| `SlmpAddress::parse("D100")` | Parsing a device address into `SlmpDeviceAddress`. |
+| `SlmpAddress::parse("D100", plc_profile)` | Parsing a profile-bound device address. |
 | `read_latest_self_diagnosis_error_code` | Reading the latest PLC self-diagnosis error code from `SD0`. |
 | `read_typed` and `write_typed` | Reading or writing one scalar value. |
-| `read_named` and `write_named` | Reading or writing a small mixed snapshot by address text. |
-| `read_words_single_request` and `read_words_chunked` | Reading contiguous word ranges. |
-| `read_dwords_single_request` and `read_dwords_chunked` | Reading contiguous 32-bit ranges. |
+| `read_named` and `write_named` | Reading or writing a small typed collection by address text. |
+| `read_words_single_request` | Reading one contiguous word range in one request. |
+| `read_dwords_single_request` | Reading one contiguous 32-bit range in one request. |
 | `write_bit_in_word` | Updating one bit inside a word register. |
-| `poll_named` | Repeating a named snapshot on an interval. |
+| `poll_named` | Repeating a named typed collection read on an interval. |
 | `parse_qualified_device` | Parsing extended device text such as `U3\G100`, `U3E0\HG0`, and `J2\SW10`. |
 | `read_words_extended` / `write_words_extended` | Reading or writing routed `U...` / `J...` word devices. |
 | `read_bits_extended` / `write_bits_extended` | Reading or writing routed `U...` / `J...` bit devices. |
@@ -25,11 +25,11 @@
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `host` | value passed to `new` | PLC host name or IP address. |
-| `port` | `1025` | TCP or UDP port. |
+| `port` | required argument | TCP or UDP destination port. |
 | `timeout` | 3 seconds | Socket read/write timeout. |
 | `tcp_keepalive` | 30 seconds | TCP keepalive idle time, or `None`. |
-| `target` | self CPU target | SLMP target address fields. |
-| `transport_mode` | `SlmpTransportMode::Tcp` | TCP or UDP. |
+| `target` | required argument | SLMP target address fields; pass `SlmpTargetAddress::default()` explicitly for the own station. |
+| `transport_mode` | required argument | TCP or UDP. |
 | `monitoring_timer` | `0x0010` | SLMP monitoring timer. |
 
 ```rust
@@ -41,10 +41,8 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let mut options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
     options.timeout = Duration::from_secs(3);
-    options.transport_mode = SlmpTransportMode::Tcp;
 
     let client = SlmpClient::connect(options).await?;
     println!("{:?}", client.plc_profile().await);
@@ -62,7 +60,7 @@ If your PLC route uses remote password protection, unlock after connecting and l
 
 ```rust
 client.remote_password_unlock("secret").await?;
-let value = read_typed(&client, SlmpAddress::parse("D100")?, "U").await?;
+let value = read_typed(&client, SlmpAddress::parse("D100", client.plc_profile().await)?, "U").await?;
 client.remote_password_lock("secret").await?;
 ```
 
@@ -70,11 +68,22 @@ For `C200`-series password end codes, see the shared
 [SLMP Troubleshooting & Codes](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/troubleshooting-codes/)
 page.
 
+## Remote CPU control
+
+`remote_run` and `remote_pause` require `SlmpRemoteMode::Normal` or
+`SlmpRemoteMode::Force`. `remote_run` also requires one explicit
+`SlmpRemoteClearMode`; no magic numeric fallback is used. `remote_reset()` sends
+the fixed RESET request and returns after the send completes because a successful
+RESET does not return the normal response. The client then closes its transport so
+a delayed RESET response cannot be consumed by another 3E request. Create a new
+client connection and confirm the PLC state when proof of the reset is required.
+
 ## Routing / target station
 
-Most applications keep the default target, which means the directly connected
-own station. Change the target only when your PLC network is
-configured for another station, multi-CPU module I/O, or multidrop access.
+Every connection explicitly selects its complete target route. For a directly
+connected own station, pass `SlmpTargetAddress::default()` deliberately. Use
+other values when the PLC network is configured for another station, multi-CPU
+module I/O, or multidrop access.
 
 `SlmpTargetAddress` controls the SLMP destination header. It is not a device
 family selector; routed devices such as `Un\Gn` and `Jn\...` still need their
@@ -83,17 +92,23 @@ own address syntax.
 ```rust
 use plc_comm_slmp::{SlmpConnectionOptions, SlmpModuleIo, SlmpPlcProfile, SlmpTargetAddress};
 
-let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-options.port = 1025;
-options.target = SlmpTargetAddress {
+let target = SlmpTargetAddress {
     network: 0x01,
     station: 0x02,
     module_io: SlmpModuleIo::OWN_STATION,
     multidrop: 0x00,
 };
+let options = SlmpConnectionOptions::new(
+    "192.168.250.100",
+    1025,
+    plc_comm_slmp::SlmpTransportMode::Tcp,
+    target,
+    SlmpPlcProfile::IqR,
+)?;
 ```
 
-Use the default target unless the PLC routing setup gives you specific values.
+Do not omit the target. `SlmpTargetAddress::default()` is only a convenient way
+to spell the explicit own-station route at the call site.
 
 ## Extended device access
 
@@ -112,30 +127,65 @@ the route is accepted.
 
 ```rust
 use plc_comm_slmp::{
-    parse_qualified_device, SlmpClient, SlmpConnectionOptions, SlmpExtensionSpec,
+    parse_qualified_device, SlmpClient, SlmpConnectionOptions, SlmpDeviceModification,
     SlmpPlcProfile,
 };
 
-let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-options.port = 1025;
+let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
 let client = SlmpClient::connect(options).await?;
-let ext = SlmpExtensionSpec::default();
 
-let module = parse_qualified_device(r"U3\G100")?;
-let module_words = client.read_words_extended(module.clone(), 4, ext).await?;
-client.write_words_extended(module, &[1, 2, 3, 4], ext).await?;
+let module = parse_qualified_device(r"U3\G100", SlmpPlcProfile::IqR)?;
+let module_words = client.read_words_extended(module, 4).await?;
+client.write_words_extended(module, &[1, 2, 3, 4]).await?;
 
-let cpu_buffer = parse_qualified_device(r"U3E0\HG0")?;
-let cpu_buffer_words = client.read_words_extended(cpu_buffer, 2, ext).await?;
+let cpu_buffer = parse_qualified_device(r"U3E0\HG0", SlmpPlcProfile::IqR)?;
+let cpu_buffer_words = client.read_words_extended(cpu_buffer, 2).await?;
 
-let link_word = parse_qualified_device(r"J2\SW10")?;
-let link_words = client.read_words_extended(link_word, 1, ext).await?;
+let link_word = parse_qualified_device(r"J2\SW10", SlmpPlcProfile::IqR)?;
+let link_words = client.read_words_extended(link_word, 1).await?;
 
-let link_bits = parse_qualified_device(r"J1\X10")?;
-let bits = client.read_bits_extended(link_bits, 16, ext).await?;
+let link_bits = parse_qualified_device(r"J1\X10", SlmpPlcProfile::IqR)?;
+let bits = client.read_bits_extended(link_bits, 16).await?;
+
+let indexed = parse_qualified_device(r"U3\D100", SlmpPlcProfile::IqR)?
+    .with_modification(SlmpDeviceModification::IndexZ(4))?;
+let indexed_words = client.read_words_extended(indexed, 1).await?;
 client.close().await?;
 ```
+
+For iQ-R multi-CPU `U3En\HG...` access, the qualified device never changes the
+SLMP request target automatically. Select the target CPU in
+`SlmpConnectionOptions` when a write must be reflected there; use a separate
+client for a different target. A write can return a normal end code without
+changing the intended CPU buffer when the selected request target identifies a
+different CPU or Own Station. Cross-CPU reads remain valid. See the shared
+[iQ-R target guidance](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/iq-r/#multi-cpu-cpu-buffer-target).
+
+## Monitor, self-test, and Clear Error
+
+Registration and every monitor cycle are separate one-request operations.
+`run_monitor_cycle` requires the registered Word and DWord counts every time;
+it does not auto-register, retry, or infer them. Calling it before monitor
+registration still sends one cycle request, so the PLC determines the returned
+error. The combined expected count must be nonzero and cannot exceed the
+selected profile's monitor-registration limit.
+
+```rust
+use plc_comm_slmp::parse_device;
+
+let word = parse_device("D120", SlmpPlcProfile::IqR)?;
+let dword = parse_device("D200", SlmpPlcProfile::IqR)?;
+client.register_monitor_devices(&[word], &[dword]).await?;
+let cycle = client.run_monitor_cycle(1, 1).await?;
+
+let echo = client.self_test_loopback(b"A1B2C3D4").await?;
+client.clear_error().await?;
+```
+
+Self-test accepts only 1–960 ASCII `0-9/A-F` bytes and requires exact declared
+length, actual length, and echo equality. `clear_error` has no wire-level
+arguments and always sends the fixed empty-payload command.
 
 ## PLC diagnostics
 
@@ -150,8 +200,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
     let error_code = client.read_latest_self_diagnosis_error_code().await?;
@@ -168,7 +217,11 @@ When the PLC returns a non-zero SLMP end code, high-level calls return `SlmpErro
 Read `end_code` for the PLC response code and `error_info` when the PLC returned the structured error-information block.
 
 ```rust
-match read_typed(&client, "D100", "U").await {
+match read_typed(
+    &client,
+    SlmpAddress::parse("D100", client.plc_profile().await)?,
+    "U",
+).await {
     Ok(value) => println!("D100 = {value:?}"),
     Err(error) => {
         if let Some(end_code) = error.end_code {
@@ -191,11 +244,10 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let value = read_typed(&client, SlmpAddress::parse("D100")?, "U").await?;
+    let value = read_typed(&client, SlmpAddress::parse("D100", SlmpPlcProfile::IqR)?, "U").await?;
     println!("{:?}", value);
     client.close().await?;
 
@@ -212,6 +264,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `F` | `SlmpValue::F32` | 32-bit float. |
 | `BIT` | `SlmpValue::Bool` | Bit device value. |
 
+`write_typed` requires the exact matching `SlmpValue` variant shown above. It
+does not coerce Boolean, floating-point, signed, unsigned, or differently sized
+values. `F32` values must also be finite. Text accepted by CLI helpers is range
+checked before it is converted into a `SlmpValue`.
+
 ## Write a single value
 
 ```rust
@@ -222,11 +279,10 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let device = SlmpAddress::parse("D600")?;
+    let device = SlmpAddress::parse("D600", SlmpPlcProfile::IqR)?;
 
     let original = read_typed(&client, device, "U").await?;
     write_typed(&client, device, "U", &SlmpValue::U16(42)).await?;
@@ -239,7 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Named snapshot
+## Named typed collection
 
 ```rust
 use plc_comm_slmp::{
@@ -248,8 +304,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
     let addresses = vec![
@@ -257,36 +312,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "D200:F".to_string(),
         "D50.3".to_string(),
         "M100:BIT".to_string(),
-        "LTN10:D".to_string(),
     ];
-    let snapshot = read_named(&client, &addresses).await?;
-    println!("{:?}", snapshot);
+    let values = read_named(&client, &addresses).await?;
+    println!("{:?}", values);
     client.close().await?;
 
     Ok(())
 }
 ```
 
-## Block reads
+`read_named` sends exactly one random-read request. An oversized batch or an
+entry that requires a direct, block, or long-timer helper route is rejected
+before transport. Use the explicit typed or long-device API when another
+command family is required.
+
+`write_named` sends exactly one random-write request. Word and DWord entries may
+share that request; bit entries form a separate request family. Mixing bit and
+word/DWord entries is rejected before transport, so the application must perform
+and account for the separate operations explicitly. Bit-in-word entries are also
+rejected here because they require a read-modify-write sequence; call
+`write_bit_in_word` explicitly when that non-atomic sequence is intended.
+
+## Single-request range reads
+
+The library rejects ranges above the protocol/profile limit. It does not split
+one logical read into multiple requests because the first and last values would
+then be sampled at different times. If multiple requests are intentional, build
+that sequence in the application and handle the temporal split explicitly.
 
 ```rust
 use plc_comm_slmp::{
-    read_words_chunked, read_words_single_request, SlmpAddress, SlmpClient,
-    SlmpConnectionOptions, SlmpPlcProfile,
+    read_words_single_request, SlmpAddress, SlmpClient, SlmpConnectionOptions,
+    SlmpPlcProfile,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let start = SlmpAddress::parse("D100")?;
+    let start = SlmpAddress::parse("D100", SlmpPlcProfile::IqR)?;
 
     let single = read_words_single_request(&client, start, 8).await?;
-    let chunked = read_words_chunked(&client, start, 128, 32).await?;
     println!("{:?}", single);
-    println!("{:?}", chunked);
     client.close().await?;
 
     Ok(())
@@ -305,11 +373,10 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let word = SlmpAddress::parse("D50")?;
+    let word = SlmpAddress::parse("D50", SlmpPlcProfile::IqR)?;
     let original = read_typed(&client, word, "U").await?;
     write_bit_in_word(&client, word, 3, true).await?;
 
@@ -335,8 +402,7 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
     let addresses = vec!["D100:U".to_string(), "M100:BIT".to_string(), "D50.3".to_string()];
@@ -366,18 +432,18 @@ available in the Python recipes; the Rust recipe intentionally accepts JSON.
 
 The repository examples are designed to run from environment variables.
 
-| Variable | Default | Meaning |
+| Variable | Requirement | Meaning |
 | --- | --- | --- |
-| `SLMP_HOST` | `127.0.0.1` | PLC or mock server host. |
-| `SLMP_PORT` | `1025` | TCP/UDP port. |
+| `SLMP_HOST` | optional; example host only | PLC or mock server host. |
+| `SLMP_PORT` | required | TCP/UDP destination port; zero is rejected. |
 | `SLMP_PLC_PROFILE` | required | Canonical profile such as `melsec:iq-r` or `melsec:iq-f`. |
-| `SLMP_TRANSPORT` | `tcp` | `tcp` or `udp`. |
-| `SLMP_TARGET` | unset | `SELF`, `SELF-MULTIPLE-CPU-1`, or `NAME,NET,ST,IO,MD`. |
-| `SLMP_NETWORK` / `SLMP_STATION` | unset | Other-station target, for example `SLMP_NETWORK=1 SLMP_STATION=2`. |
-| `SLMP_MODULE_IO` / `SLMP_MULTIDROP` | `0x03FF` / `0x00` | Optional fields used with `SLMP_NETWORK` / `SLMP_STATION`. |
-| `SLMP_TIMEOUT_MS` | `3000` | Socket timeout. |
-| `SLMP_MONITORING_TIMER` | `16` | SLMP monitoring timer. |
-| `SLMP_ENABLE_WRITES` | `0` | Set `1` to enable write examples. |
+| `SLMP_TRANSPORT` | required | Exactly `tcp` or `udp`. |
+| `SLMP_TARGET` | required unless all four route fields are present | `SELF`, `SELF-MULTIPLE-CPU-1`, or `NAME,NET,ST,IO,MD`. |
+| `SLMP_NETWORK` / `SLMP_STATION` | complete-set alternative | Both are required together with module I/O and multidrop. |
+| `SLMP_MODULE_IO` / `SLMP_MULTIDROP` | complete-set alternative | Both are required together with network and station. |
+| `SLMP_TIMEOUT_MS` | optional; `3000` | Socket timeout in milliseconds. |
+| `SLMP_MONITORING_TIMER` | optional; `16` | SLMP monitoring timer in 250 ms units (4 seconds). |
+| `SLMP_ENABLE_WRITES` | optional; `0` | Set `1` to enable write examples. |
 
 Raw read/write:
 
@@ -385,6 +451,8 @@ Raw read/write:
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
+SLMP_TRANSPORT=tcp \
+SLMP_TARGET=SELF \
 SLMP_PLC_PROFILE=melsec:iq-r \
 cargo run --example raw_read_write
 ```
@@ -394,6 +462,9 @@ Named helpers:
 ```bash
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_TRANSPORT=tcp \
+SLMP_TARGET=SELF \
 SLMP_PLC_PROFILE=melsec:iq-f \
 SLMP_NAMED_ADDRESSES='D100:U,D200:F,D50.3,LTN10:D,LTS10:BIT' \
 cargo run --example named_helpers
@@ -404,6 +475,9 @@ Advanced operations:
 ```bash
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
+SLMP_PORT=1025 \
+SLMP_TRANSPORT=tcp \
+SLMP_TARGET=SELF \
 SLMP_PLC_PROFILE=melsec:iq-r \
 SLMP_RANDOM_WORDS='D100,R10' \
 SLMP_RANDOM_DWORDS='D200,LTN10' \
@@ -417,16 +491,10 @@ Device matrix compare:
 cd plc-comm-slmp-rust
 SLMP_HOST=192.168.250.100 \
 SLMP_PORT=1025 \
+SLMP_TRANSPORT=tcp \
+SLMP_TARGET=SELF \
 SLMP_PLC_PROFILE=melsec:iq-r \
 cargo run --example device_matrix_compare
-```
-
-Cross-library verification lives in the separate `plc-comm-slmp-cross-verify`
-repository:
-
-```bash
-cd ../plc-comm-slmp-cross-verify
-python verify.py --clients rust
 ```
 
 ## Device range catalog
@@ -439,8 +507,7 @@ use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
     let catalog = client.read_device_range_catalog().await?;
@@ -465,13 +532,10 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
     let addresses = vec![
-        "LTN10:D".to_string(),
-        "LSTN20:L".to_string(),
         "LCN30:D".to_string(),
         "LZ0:D".to_string(),
     ];

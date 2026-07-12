@@ -1,5 +1,4 @@
-use crate::address::{parse_device_for_family_hint, parse_named_address};
-use crate::capability_profiles::{self, SlmpProfileLimit};
+use crate::address::{parse_device, parse_named_address};
 use crate::client::SlmpClient;
 use crate::error::SlmpError;
 use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile};
@@ -73,8 +72,17 @@ pub async fn read_typed(
     dtype: &str,
 ) -> Result<SlmpValue, SlmpError> {
     let normalized_dtype = require_dtype(dtype)?;
+    let client_profile = client.plc_profile().await;
+    if device.plc_profile() != client_profile {
+        return Err(SlmpError::new(format!(
+            "device plc_profile '{}' does not match client plc_profile '{}'",
+            device.plc_profile().canonical_name(),
+            client_profile.canonical_name()
+        )));
+    }
     validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
-    if matches!(device.code, SlmpDeviceCode::LZ) && matches!(normalized_dtype.as_str(), "D" | "L") {
+    if matches!(device.code(), SlmpDeviceCode::LZ) && matches!(normalized_dtype.as_str(), "D" | "L")
+    {
         let raw = read_random_dword_scalar(client, device).await?;
         return Ok(if normalized_dtype == "L" {
             SlmpValue::I32(raw as i32)
@@ -82,7 +90,7 @@ pub async fn read_typed(
             SlmpValue::U32(raw)
         });
     }
-    if let Some(spec) = long_timer_read_spec(device.code) {
+    if let Some(spec) = long_timer_read_spec(device.code()) {
         validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
         if matches!(spec.base_code, SlmpDeviceCode::LCN)
             && matches!(spec.kind, LongTimerReadKind::Current)
@@ -94,11 +102,11 @@ pub async fn read_typed(
                 SlmpValue::U32(raw)
             });
         }
-        if is_long_counter_state_device(device.code) {
+        if is_long_counter_state_device(device.code()) {
             return Ok(SlmpValue::Bool(client.read_bits(device, 1).await?[0]));
         }
 
-        let timer = read_long_like_point(client, spec.base_code, device.number).await?;
+        let timer = read_long_like_point(client, spec.base_code, device.number()).await?;
         return decode_long_like_value(&normalized_dtype, &spec, &timer);
     }
 
@@ -126,7 +134,7 @@ pub async fn write_typed(
     value: &SlmpValue,
 ) -> Result<(), SlmpError> {
     let normalized_dtype = require_dtype(dtype)?;
-    if long_timer_read_spec(device.code).is_some() {
+    if long_timer_read_spec(device.code()).is_some() {
         validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
     }
     validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
@@ -153,7 +161,12 @@ pub async fn write_typed(
             }
         }
         NamedWriteRoute::ContiguousWords => {
-            client.write_words(device, &[scalar_to_u16(value)?]).await
+            let raw = if normalized_dtype == "S" {
+                scalar_to_i16(value)? as u16
+            } else {
+                scalar_to_u16(value)?
+            };
+            client.write_words(device, &[raw]).await
         }
     }
 }
@@ -190,9 +203,18 @@ pub async fn read_dwords_single_request(
     start: SlmpDeviceAddress,
     count: usize,
 ) -> Result<Vec<u32>, SlmpError> {
-    if matches!(start.code, SlmpDeviceCode::LZ) {
+    if matches!(start.code(), SlmpDeviceCode::LZ) {
         validate_single_request_count(count, RANDOM_READ_BATCH_LIMIT)?;
-        return read_random_dwords_chunked(client, start, count, count).await;
+        let devices = (0..count)
+            .map(|index| {
+                SlmpDeviceAddress::new(
+                    start.code(),
+                    start.number() + index as u32,
+                    start.plc_profile(),
+                )
+            })
+            .collect::<Vec<_>>();
+        return Ok(client.read_random(&[], &devices).await?.dword_values);
     }
     validate_single_request_count(count, 480)?;
     client.read_dwords_raw(start, count as u16).await
@@ -216,142 +238,6 @@ pub async fn write_dwords_single_request(
     client.write_dwords(start, values).await
 }
 
-pub async fn read_words_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    count: usize,
-    max_words_per_request: usize,
-) -> Result<Vec<u16>, SlmpError> {
-    let chunk = (max_words_per_request / 2) * 2;
-    if chunk == 0 {
-        return Err(SlmpError::new("max_words_per_request must be at least 2."));
-    }
-    let mut remaining = count;
-    let mut offset = 0u32;
-    let mut result = Vec::with_capacity(count);
-    while remaining > 0 {
-        let next = remaining.min(chunk);
-        result.extend(
-            client
-                .read_words_raw(
-                    SlmpDeviceAddress::new(start.code, start.number + offset),
-                    next as u16,
-                )
-                .await?,
-        );
-        remaining -= next;
-        offset += next as u32;
-    }
-    Ok(result)
-}
-
-pub async fn read_dwords_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    count: usize,
-    max_dwords_per_request: usize,
-) -> Result<Vec<u32>, SlmpError> {
-    if max_dwords_per_request == 0 {
-        return Err(SlmpError::new("max_dwords_per_request must be at least 1."));
-    }
-    if matches!(start.code, SlmpDeviceCode::LZ) {
-        return read_random_dwords_chunked(
-            client,
-            start,
-            count,
-            max_dwords_per_request.min(RANDOM_READ_BATCH_LIMIT),
-        )
-        .await;
-    }
-    let mut remaining = count;
-    let mut offset = 0u32;
-    let mut result = Vec::with_capacity(count);
-    while remaining > 0 {
-        let next = remaining.min(max_dwords_per_request);
-        result.extend(
-            client
-                .read_dwords_raw(
-                    SlmpDeviceAddress::new(start.code, start.number + offset * 2),
-                    next as u16,
-                )
-                .await?,
-        );
-        remaining -= next;
-        offset += next as u32;
-    }
-    Ok(result)
-}
-
-async fn read_random_dwords_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    count: usize,
-    max_dwords_per_request: usize,
-) -> Result<Vec<u32>, SlmpError> {
-    if max_dwords_per_request == 0 {
-        return Err(SlmpError::new("max_dwords_per_request must be at least 1."));
-    }
-    let mut remaining = count;
-    let mut offset = 0u32;
-    let mut result = Vec::with_capacity(count);
-    while remaining > 0 {
-        let next = remaining.min(max_dwords_per_request);
-        let devices = (0..next)
-            .map(|index| SlmpDeviceAddress::new(start.code, start.number + offset + index as u32))
-            .collect::<Vec<_>>();
-        result.extend(client.read_random(&[], &devices).await?.dword_values);
-        remaining -= next;
-        offset += next as u32;
-    }
-    Ok(result)
-}
-
-pub async fn write_words_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    values: &[u16],
-    max_words_per_request: usize,
-) -> Result<(), SlmpError> {
-    if max_words_per_request == 0 {
-        return Err(SlmpError::new("chunk size must be positive."));
-    }
-    let mut offset = 0usize;
-    while offset < values.len() {
-        let end = (offset + max_words_per_request).min(values.len());
-        client
-            .write_words(
-                SlmpDeviceAddress::new(start.code, start.number + offset as u32),
-                &values[offset..end],
-            )
-            .await?;
-        offset = end;
-    }
-    Ok(())
-}
-
-pub async fn write_dwords_chunked(
-    client: &SlmpClient,
-    start: SlmpDeviceAddress,
-    values: &[u32],
-    max_dwords_per_request: usize,
-) -> Result<(), SlmpError> {
-    if max_dwords_per_request == 0 {
-        return Err(SlmpError::new("chunk size must be positive."));
-    }
-    let mut offset = 0usize;
-    while offset < values.len() {
-        let end = (offset + max_dwords_per_request).min(values.len());
-        client
-            .write_dwords(
-                SlmpDeviceAddress::new(start.code, start.number + (offset * 2) as u32),
-                &values[offset..end],
-            )
-            .await?;
-        offset = end;
-    }
-    Ok(())
-}
-
 pub async fn read_named(
     client: &SlmpClient,
     addresses: &[String],
@@ -361,23 +247,60 @@ pub async fn read_named(
 }
 
 pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<(), SlmpError> {
+    if updates.is_empty() {
+        return Err(SlmpError::new("write_named requires at least one update."));
+    }
     let plc_profile = client.plc_profile().await;
+    let mut bit_entries = Vec::new();
+    let mut word_entries = Vec::new();
+    let mut dword_entries = Vec::new();
     for (address, value) in updates {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
+        let device = parse_device(&parts.base, plc_profile)?;
         if parts.dtype == "BIT_IN_WORD" {
-            validate_bit_in_word_target(address, device)?;
-            let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
-            write_bit_in_word(client, device, bit_index, scalar_to_bool(value)?).await?;
-            continue;
+            return Err(SlmpError::new(format!(
+                "Address '{address}' requires a read-modify-write sequence. Use write_bit_in_word explicitly."
+            )));
         }
         let resolved_dtype =
             resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index)?;
         validate_named_device_dtype(address, device, &resolved_dtype)?;
         validate_long_timer_entry(address, device, &resolved_dtype)?;
-        write_typed(client, device, &resolved_dtype, value).await?;
+        validate_dword_only_entry(address, device, &resolved_dtype)?;
+        match resolve_write_route(device, &resolved_dtype) {
+            NamedWriteRoute::RandomBits | NamedWriteRoute::ContiguousBits => {
+                bit_entries.push((device, scalar_to_bool(value)?));
+            }
+            NamedWriteRoute::RandomDWords | NamedWriteRoute::ContiguousDWords => {
+                let raw = match resolved_dtype.as_str() {
+                    "F" => scalar_to_f32(value)?.to_bits(),
+                    "L" => scalar_to_i32(value)? as u32,
+                    _ => scalar_to_u32(value)?,
+                };
+                dword_entries.push((device, raw));
+            }
+            NamedWriteRoute::ContiguousWords => {
+                let raw = if resolved_dtype == "S" {
+                    scalar_to_i16(value)? as u16
+                } else {
+                    scalar_to_u16(value)?
+                };
+                word_entries.push((device, raw));
+            }
+        }
     }
-    Ok(())
+    if !bit_entries.is_empty() && (!word_entries.is_empty() || !dword_entries.is_empty()) {
+        return Err(SlmpError::new(
+            "write_named cannot combine bit and word/dword write families in one request. Split them explicitly.",
+        ));
+    }
+    if !bit_entries.is_empty() {
+        client.write_random_bits(&bit_entries).await
+    } else {
+        client
+            .write_random_words(&word_entries, &dword_entries)
+            .await
+    }
 }
 
 pub fn poll_named<'a>(
@@ -423,12 +346,12 @@ fn compile_read_plan(
     let mut seen_dword_devices = HashSet::with_capacity(addresses.len());
     for address in addresses {
         let parts = parse_named_address(address)?;
-        let device = parse_device_for_family_hint(&parts.base, Some(plc_profile))?;
+        let device = parse_device(&parts.base, plc_profile)?;
 
         let (dtype, bit_word_read) = if parts.dtype == "BIT_IN_WORD" {
             validate_bit_in_word_target(address, device)?;
             let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
-            if device.code.is_word_batchable() && seen_word_devices.insert(device) {
+            if device.code().is_word_batchable() && seen_word_devices.insert(device) {
                 word_devices.push(device);
             }
             (
@@ -448,12 +371,12 @@ fn compile_read_plan(
                 {
                     word_devices.push(read.device);
                 }
-            } else if matches!(dtype.as_str(), "U" | "S") && device.code.is_word_batchable() {
+            } else if matches!(dtype.as_str(), "U" | "S") && device.code().is_word_batchable() {
                 if seen_word_devices.insert(device) {
                     word_devices.push(device);
                 }
             } else if matches!(dtype.as_str(), "D" | "L" | "F")
-                && device.code.is_word_batchable()
+                && device.code().is_word_batchable()
                 && seen_dword_devices.insert(device)
             {
                 dword_devices.push(device);
@@ -466,8 +389,34 @@ fn compile_read_plan(
             device,
             dtype,
             bit_word_read,
-            long_timer_read: long_timer_read_spec(device.code),
+            long_timer_read: long_timer_read_spec(device.code()),
         });
+    }
+
+    let unsupported = entries
+        .iter()
+        .filter(|entry| {
+            let supported = if let Some(spec) = &entry.long_timer_read {
+                matches!(entry.device.code(), SlmpDeviceCode::LCN)
+                    && matches!(spec.kind, LongTimerReadKind::Current)
+                    && dword_devices.contains(&entry.device)
+            } else if let Some(read) = entry.bit_word_read {
+                word_devices.contains(&read.device)
+            } else {
+                match entry.dtype.as_str() {
+                    "U" | "S" => word_devices.contains(&entry.device),
+                    "D" | "L" | "F" => dword_devices.contains(&entry.device),
+                    _ => false,
+                }
+            };
+            !supported
+        })
+        .map(|entry| entry.address.as_str())
+        .collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        return Err(SlmpError::new(format!(
+            "read_named accepts only addresses that fit one random-read request; use explicit read calls for {unsupported:?}."
+        )));
     }
 
     Ok(NamedReadPlan {
@@ -502,15 +451,15 @@ async fn read_named_compiled(
                 } else {
                     SlmpValue::U32(raw)
                 }
-            } else if is_long_counter_state_device(entry.device.code) {
+            } else if is_long_counter_state_device(entry.device.code()) {
                 SlmpValue::Bool(client.read_bits(entry.device, 1).await?[0])
             } else {
-                let key = (spec.base_code, entry.device.number);
+                let key = (spec.base_code, entry.device.number());
                 if let std::collections::hash_map::Entry::Vacant(vacant) =
                     long_timer_cache.entry(key)
                 {
                     let timer =
-                        read_long_like_point(client, spec.base_code, entry.device.number).await?;
+                        read_long_like_point(client, spec.base_code, entry.device.number()).await?;
                     vacant.insert(timer);
                 }
                 decode_long_like_value(&entry.dtype, spec, long_timer_cache.get(&key).unwrap())?
@@ -576,12 +525,16 @@ async fn read_named_compiled(
 }
 
 fn plain_bit_word_read(device: SlmpDeviceAddress) -> Option<BitWordRead> {
-    if !is_plain_bit_word_batchable(device.code) {
+    if !is_plain_bit_word_batchable(device.code()) {
         return None;
     }
-    let bit_index = (device.number % 16) as u8;
+    let bit_index = (device.number() % 16) as u8;
     Some(BitWordRead {
-        device: SlmpDeviceAddress::new(device.code, device.number - u32::from(bit_index)),
+        device: SlmpDeviceAddress::new(
+            device.code(),
+            device.number() - u32::from(bit_index),
+            device.plc_profile(),
+        ),
         bit_index,
     })
 }
@@ -619,54 +572,18 @@ async fn read_random_maps(
 > {
     let mut words = HashMap::with_capacity(word_devices.len());
     let mut dwords = HashMap::with_capacity(dword_devices.len());
-    let mut word_index = 0usize;
-    let mut dword_index = 0usize;
-    let batch_limit = random_read_batch_limit(client.plc_profile().await);
-
-    while word_index < word_devices.len() || dword_index < dword_devices.len() {
-        let word_take = word_devices
-            .len()
-            .saturating_sub(word_index)
-            .min(batch_limit);
-        let dword_limit = batch_limit.saturating_sub(word_take);
-        let dword_take = dword_devices
-            .len()
-            .saturating_sub(dword_index)
-            .min(dword_limit);
-        let word_end = word_index + word_take;
-        let dword_end = dword_index + dword_take;
-        let random = client
-            .read_random(
-                &word_devices[word_index..word_end],
-                &dword_devices[dword_index..dword_end],
-            )
-            .await?;
-        for (device, value) in word_devices[word_index..word_end]
-            .iter()
-            .copied()
-            .zip(random.word_values)
-        {
-            words.insert(device, value);
-        }
-        for (device, value) in dword_devices[dword_index..dword_end]
-            .iter()
-            .copied()
-            .zip(random.dword_values)
-        {
-            dwords.insert(device, value);
-        }
-        word_index = word_end;
-        dword_index = dword_end;
+    if word_devices.is_empty() && dword_devices.is_empty() {
+        return Ok((words, dwords));
+    }
+    let random = client.read_random(word_devices, dword_devices).await?;
+    for (device, value) in word_devices.iter().copied().zip(random.word_values) {
+        words.insert(device, value);
+    }
+    for (device, value) in dword_devices.iter().copied().zip(random.dword_values) {
+        dwords.insert(device, value);
     }
 
     Ok((words, dwords))
-}
-
-fn random_read_batch_limit(plc_profile: SlmpPlcProfile) -> usize {
-    capability_profiles::profile_limit(plc_profile, SlmpProfileLimit::RandomReadWord)
-        .map(|limit| limit.max)
-        .filter(|max| *max > 0)
-        .unwrap_or(RANDOM_READ_BATCH_LIMIT)
 }
 
 async fn read_random_dword_scalar(
@@ -715,7 +632,7 @@ fn decode_long_like_value(
 }
 
 fn validate_bit_in_word_target(address: &str, device: SlmpDeviceAddress) -> Result<(), SlmpError> {
-    if !device.code.is_word_device() {
+    if !device.code().is_word_device() {
         return Err(SlmpError::new(format!(
             "Address '{address}' uses '.bit' notation, which is only valid for word devices."
         )));
@@ -753,12 +670,12 @@ fn validate_named_device_dtype(
     device: SlmpDeviceAddress,
     dtype: &str,
 ) -> Result<(), SlmpError> {
-    if device.code.is_bit_device() && dtype != "BIT" {
+    if device.code().is_bit_device() && dtype != "BIT" {
         return Err(SlmpError::new(format!(
             "Address '{address}' is a bit device and requires ':BIT'."
         )));
     }
-    if !device.code.is_bit_device() && dtype == "BIT" {
+    if !device.code().is_bit_device() && dtype == "BIT" {
         return Err(SlmpError::new(format!(
             "Address '{address}' uses ':BIT', which is only valid for bit devices. Use '.bit' notation for a bit inside a word device."
         )));
@@ -787,7 +704,7 @@ fn resolve_write_route(device: SlmpDeviceAddress, dtype: &str) -> NamedWriteRout
         // Direct bit write (0x1401) is guarded in the low-level client.
         "BIT"
             if matches!(
-                device.code,
+                device.code(),
                 SlmpDeviceCode::LTS
                     | SlmpDeviceCode::LTC
                     | SlmpDeviceCode::LSTS
@@ -801,7 +718,7 @@ fn resolve_write_route(device: SlmpDeviceAddress, dtype: &str) -> NamedWriteRout
         "BIT" => NamedWriteRoute::ContiguousBits,
         "D" | "L"
             if matches!(
-                device.code,
+                device.code(),
                 SlmpDeviceCode::LTN
                     | SlmpDeviceCode::LSTN
                     | SlmpDeviceCode::LCN
@@ -840,7 +757,7 @@ fn validate_long_timer_entry(
     device: SlmpDeviceAddress,
     dtype: &str,
 ) -> Result<(), SlmpError> {
-    let Some(spec) = long_timer_read_spec(device.code) else {
+    let Some(spec) = long_timer_read_spec(device.code()) else {
         return Ok(());
     };
     if matches!(spec.kind, LongTimerReadKind::Current) {
@@ -864,7 +781,7 @@ fn validate_dword_only_entry(
     device: SlmpDeviceAddress,
     dtype: &str,
 ) -> Result<(), SlmpError> {
-    if !matches!(device.code, SlmpDeviceCode::LZ) {
+    if !matches!(device.code(), SlmpDeviceCode::LZ) {
         return Ok(());
     }
     if dtype != "D" && dtype != "L" {
@@ -878,55 +795,43 @@ fn validate_dword_only_entry(
 fn scalar_to_bool(value: &SlmpValue) -> Result<bool, SlmpError> {
     match value {
         SlmpValue::Bool(v) => Ok(*v),
-        SlmpValue::U16(v) => Ok(*v != 0),
-        SlmpValue::I16(v) => Ok(*v != 0),
-        SlmpValue::U32(v) => Ok(*v != 0),
-        SlmpValue::I32(v) => Ok(*v != 0),
-        SlmpValue::F32(v) => Ok(*v != 0.0),
+        _ => Err(SlmpError::new("BIT value must be SlmpValue::Bool.")),
     }
 }
 
 fn scalar_to_u16(value: &SlmpValue) -> Result<u16, SlmpError> {
     match value {
         SlmpValue::U16(v) => Ok(*v),
-        SlmpValue::I16(v) => Ok(*v as u16),
-        SlmpValue::Bool(v) => Ok(u16::from(*v)),
-        SlmpValue::U32(v) => Ok(*v as u16),
-        SlmpValue::I32(v) => Ok(*v as u16),
-        SlmpValue::F32(v) => Ok(*v as u16),
+        _ => Err(SlmpError::new("U value must be SlmpValue::U16.")),
+    }
+}
+
+fn scalar_to_i16(value: &SlmpValue) -> Result<i16, SlmpError> {
+    match value {
+        SlmpValue::I16(v) => Ok(*v),
+        _ => Err(SlmpError::new("S value must be SlmpValue::I16.")),
     }
 }
 
 fn scalar_to_u32(value: &SlmpValue) -> Result<u32, SlmpError> {
     match value {
         SlmpValue::U32(v) => Ok(*v),
-        SlmpValue::I32(v) => Ok(*v as u32),
-        SlmpValue::U16(v) => Ok(*v as u32),
-        SlmpValue::I16(v) => Ok(*v as u32),
-        SlmpValue::Bool(v) => Ok(u32::from(*v)),
-        SlmpValue::F32(v) => Ok(*v as u32),
+        _ => Err(SlmpError::new("D value must be SlmpValue::U32.")),
     }
 }
 
 fn scalar_to_i32(value: &SlmpValue) -> Result<i32, SlmpError> {
     match value {
         SlmpValue::I32(v) => Ok(*v),
-        SlmpValue::U32(v) => Ok(*v as i32),
-        SlmpValue::U16(v) => Ok(*v as i32),
-        SlmpValue::I16(v) => Ok(*v as i32),
-        SlmpValue::Bool(v) => Ok(i32::from(*v)),
-        SlmpValue::F32(v) => Ok(*v as i32),
+        _ => Err(SlmpError::new("L value must be SlmpValue::I32.")),
     }
 }
 
 fn scalar_to_f32(value: &SlmpValue) -> Result<f32, SlmpError> {
     match value {
-        SlmpValue::F32(v) => Ok(*v),
-        SlmpValue::U32(v) => Ok(*v as f32),
-        SlmpValue::I32(v) => Ok(*v as f32),
-        SlmpValue::U16(v) => Ok(*v as f32),
-        SlmpValue::I16(v) => Ok(*v as f32),
-        SlmpValue::Bool(v) => Ok(if *v { 1.0 } else { 0.0 }),
+        SlmpValue::F32(v) if v.is_finite() => Ok(*v),
+        SlmpValue::F32(_) => Err(SlmpError::new("F value must be finite.")),
+        _ => Err(SlmpError::new("F value must be SlmpValue::F32.")),
     }
 }
 
@@ -939,39 +844,33 @@ enum NamedWriteRoute {
     RandomDWords,
 }
 
-pub fn parse_scalar_for_named(address: &str, value: &str) -> Result<SlmpValue, SlmpError> {
-    parse_scalar_for_named_with_family(address, value, None)
-}
-
-pub fn parse_scalar_for_named_with_family(
+pub fn parse_scalar_for_named(
     address: &str,
     value: &str,
-    plc_profile: Option<SlmpPlcProfile>,
+    plc_profile: SlmpPlcProfile,
 ) -> Result<SlmpValue, SlmpError> {
     let parts = parse_named_address(address)?;
-    let device = parse_device_for_family_hint(&parts.base, plc_profile)?;
+    let device = parse_device(&parts.base, plc_profile)?;
     if parts.dtype == "BIT_IN_WORD" {
         require_bit_in_word_index(address, parts.bit_index)?;
-        return Ok(SlmpValue::Bool(matches!(
-            value,
-            "1" | "true" | "TRUE" | "True"
-        )));
+        return parse_bool_scalar(value);
     }
     let resolved_dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index)?;
     validate_named_device_dtype(address, device, &resolved_dtype)?;
     validate_long_timer_entry(address, device, &resolved_dtype)?;
     validate_dword_only_entry(address, device, &resolved_dtype)?;
     if resolved_dtype == "BIT" {
-        return Ok(SlmpValue::Bool(matches!(
-            value,
-            "1" | "true" | "TRUE" | "True"
-        )));
+        return parse_bool_scalar(value);
     }
     if resolved_dtype == "F" {
-        return value
+        let parsed = value
             .parse::<f32>()
-            .map(SlmpValue::F32)
             .map_err(|_| SlmpError::new("Invalid float value."));
+        return match parsed {
+            Ok(number) if number.is_finite() => Ok(SlmpValue::F32(number)),
+            Ok(_) => Err(SlmpError::new("Float value must be finite.")),
+            Err(error) => Err(error),
+        };
     }
     let parsed = if let Some(hex) = value
         .strip_prefix("0x")
@@ -983,10 +882,28 @@ pub fn parse_scalar_for_named_with_family(
             .parse::<i64>()
             .map_err(|_| SlmpError::new("Invalid integer value."))?
     };
-    Ok(match resolved_dtype.as_str() {
-        "L" => SlmpValue::I32(parsed as i32),
-        "D" => SlmpValue::U32(parsed as u32),
-        "S" => SlmpValue::I16(parsed as i16),
-        _ => SlmpValue::U16(parsed as u16),
-    })
+    match resolved_dtype.as_str() {
+        "L" => i32::try_from(parsed)
+            .map(SlmpValue::I32)
+            .map_err(|_| SlmpError::new("L value must be in range -2147483648..=2147483647.")),
+        "D" => u32::try_from(parsed)
+            .map(SlmpValue::U32)
+            .map_err(|_| SlmpError::new("D value must be in range 0..=4294967295.")),
+        "S" => i16::try_from(parsed)
+            .map(SlmpValue::I16)
+            .map_err(|_| SlmpError::new("S value must be in range -32768..=32767.")),
+        _ => u16::try_from(parsed)
+            .map(SlmpValue::U16)
+            .map_err(|_| SlmpError::new("U value must be in range 0..=65535.")),
+    }
+}
+
+fn parse_bool_scalar(value: &str) -> Result<SlmpValue, SlmpError> {
+    match value {
+        "1" | "true" | "TRUE" | "True" => Ok(SlmpValue::Bool(true)),
+        "0" | "false" | "FALSE" | "False" => Ok(SlmpValue::Bool(false)),
+        _ => Err(SlmpError::new(
+            "Boolean value must be 0, 1, false, or true.",
+        )),
+    }
 }

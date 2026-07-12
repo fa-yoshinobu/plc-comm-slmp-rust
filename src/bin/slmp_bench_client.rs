@@ -131,6 +131,8 @@ async fn run_operation_with_timeout(
 }
 
 async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<String, String> {
+    let parse_address = |value| parse_address_for_profile(value, config.plc_profile);
+    let parse_device_list = |value| parse_device_list_for_profile(value, config.plc_profile);
     match config.scenario.as_str() {
         "words" => {
             let values = client
@@ -250,7 +252,7 @@ async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<S
                 tokio::time::sleep(Duration::from_millis(config.idle_ms)).await;
             }
             let values = client
-                .read_words_raw(parse_address("D1000")?, 1)
+                .read_words_raw(parse_address_for_profile("D1000", config.plc_profile)?, 1)
                 .await
                 .map_err(err_msg)?;
             Ok(format!(
@@ -284,7 +286,7 @@ async fn timeout_once(config: &BenchConfig) -> Result<String, String> {
         Ok(Ok(client)) => {
             let read = timeout(
                 Duration::from_millis(750),
-                client.read_words_raw(parse_address("D1000")?, 1),
+                client.read_words_raw(parse_address_for_profile("D1000", config.plc_profile)?, 1),
             )
             .await;
             let _ = client.close().await;
@@ -303,16 +305,22 @@ fn pattern_words(count: usize, prefix: u16) -> Vec<u16> {
         .collect()
 }
 
-fn parse_address(value: &str) -> Result<SlmpDeviceAddress, String> {
-    SlmpAddress::parse(value).map_err(err_msg)
+fn parse_address_for_profile(
+    value: &str,
+    plc_profile: SlmpPlcProfile,
+) -> Result<SlmpDeviceAddress, String> {
+    SlmpAddress::parse(value, plc_profile).map_err(err_msg)
 }
 
-fn parse_device_list(value: &str) -> Result<Vec<SlmpDeviceAddress>, String> {
+fn parse_device_list_for_profile(
+    value: &str,
+    plc_profile: SlmpPlcProfile,
+) -> Result<Vec<SlmpDeviceAddress>, String> {
     value
         .split(',')
         .map(str::trim)
         .filter(|item| !item.is_empty())
-        .map(parse_address)
+        .map(|value| parse_address_for_profile(value, plc_profile))
         .collect()
 }
 
@@ -381,8 +389,7 @@ struct BenchConfig {
 impl BenchConfig {
     fn from_args(args: Vec<String>) -> Result<Self, String> {
         let host = option(&args, "--host").unwrap_or_else(|| "192.168.250.100".to_string());
-        let transport = match option(&args, "--transport")
-            .unwrap_or_else(|| "tcp".to_string())
+        let transport = match required_option(&args, "--transport")?
             .to_ascii_lowercase()
             .as_str()
         {
@@ -390,12 +397,12 @@ impl BenchConfig {
             "tcp" => SlmpTransportMode::Tcp,
             other => return Err(format!("unsupported transport: {other}")),
         };
-        let default_port = if matches!(transport, SlmpTransportMode::Udp) {
-            "1035"
-        } else {
-            "1025"
-        };
-        let port = parse_option(&args, "--port", default_port)?;
+        let port = required_option(&args, "--port")?
+            .parse::<u16>()
+            .map_err(|error| format!("--port: {error}"))?;
+        if port == 0 {
+            return Err("--port must be in 1..=65535".to_string());
+        }
         let plc_profile = SlmpPlcProfile::parse_label(
             &option(&args, "--plc-profile")
                 .ok_or_else(|| "--plc-profile is required".to_string())?,
@@ -404,7 +411,7 @@ impl BenchConfig {
         if plc_profile.is_base_profile() {
             return Err("melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.".to_string());
         }
-        let operation_timeout_ms: u64 = parse_option(&args, "--operation-timeout-ms", "2000")?;
+        let operation_timeout_ms: u64 = parse_option(&args, "--operation-timeout-ms", "3000")?;
 
         Ok(Self {
             host,
@@ -435,34 +442,34 @@ impl BenchConfig {
     }
 
     fn connection_options(&self) -> Result<SlmpConnectionOptions, String> {
-        let mut options = SlmpConnectionOptions::new(self.host.clone(), self.plc_profile)
-            .map_err(|error| error.message)?;
-        options.port = self.port;
-        options.transport_mode = self.transport;
-        options.target = self.target;
+        let mut options = SlmpConnectionOptions::new(
+            self.host.clone(),
+            self.port,
+            self.transport,
+            self.target,
+            self.plc_profile,
+        )
+        .map_err(|error| error.message)?;
         options.timeout = self.operation_timeout;
         Ok(options)
     }
 }
 
 fn target_from_args(args: &[String]) -> Result<SlmpTargetAddress, String> {
+    let network =
+        parse_target_auto_number(&required_option(args, "--network")?).map_err(err_msg)?;
+    let station =
+        parse_target_auto_number(&required_option(args, "--station")?).map_err(err_msg)?;
+    let module_io =
+        parse_target_auto_number(&required_option(args, "--module-io")?).map_err(err_msg)?;
+    let multidrop =
+        parse_target_auto_number(&required_option(args, "--multidrop")?).map_err(err_msg)?;
     Ok(SlmpTargetAddress {
-        network: parse_target_auto_number(
-            &option(args, "--network").unwrap_or_else(|| "0x00".to_string()),
-        )
-        .map_err(err_msg)? as u8,
-        station: parse_target_auto_number(
-            &option(args, "--station").unwrap_or_else(|| "0xFF".to_string()),
-        )
-        .map_err(err_msg)? as u8,
-        module_io: parse_target_auto_number(
-            &option(args, "--module-io").unwrap_or_else(|| "0x03FF".to_string()),
-        )
-        .map_err(err_msg)? as u16,
-        multidrop: parse_target_auto_number(
-            &option(args, "--multidrop").unwrap_or_else(|| "0x00".to_string()),
-        )
-        .map_err(err_msg)? as u8,
+        network: u8::try_from(network).map_err(|_| "--network must fit in u8".to_string())?,
+        station: u8::try_from(station).map_err(|_| "--station must fit in u8".to_string())?,
+        module_io: u16::try_from(module_io)
+            .map_err(|_| "--module-io must fit in u16".to_string())?,
+        multidrop: u8::try_from(multidrop).map_err(|_| "--multidrop must fit in u8".to_string())?,
     })
 }
 
@@ -470,6 +477,10 @@ fn option(args: &[String], name: &str) -> Option<String> {
     args.windows(2)
         .find(|pair| pair[0].eq_ignore_ascii_case(name))
         .map(|pair| pair[1].clone())
+}
+
+fn required_option(args: &[String], name: &str) -> Result<String, String> {
+    option(args, name).ok_or_else(|| format!("{name} is required"))
 }
 
 fn parse_option<T>(args: &[String], name: &str, default: &str) -> Result<T, String>

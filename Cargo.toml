@@ -30,11 +30,6 @@ default = []
 cli = ["dep:futures-util", "dep:serde_json", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 
 [[bin]]
-name = "slmp_verify_client"
-path = "src/bin/slmp_verify_client.rs"
-required-features = ["cli"]
-
-[[bin]]
 name = "slmp_bench_client"
 path = "src/bin/slmp_bench_client.rs"
 required-features = ["cli"]

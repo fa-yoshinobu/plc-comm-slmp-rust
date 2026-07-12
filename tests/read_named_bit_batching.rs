@@ -26,7 +26,11 @@ async fn read_named_batches_plain_bits_that_share_one_word() {
     assert_eq!(requests.len(), 1);
     assert_random_shape(
         &requests[0],
-        &[SlmpDeviceAddress::new(SlmpDeviceCode::M, 96)],
+        &[SlmpDeviceAddress::new(
+            SlmpDeviceCode::M,
+            96,
+            SlmpPlcProfile::IqR,
+        )],
         &[],
     );
 }
@@ -56,7 +60,11 @@ async fn read_named_preserves_plain_bit_values_for_representative_word_patterns(
         assert_eq!(requests.len(), 1);
         assert_random_shape(
             &requests[0],
-            &[SlmpDeviceAddress::new(SlmpDeviceCode::M, 96)],
+            &[SlmpDeviceAddress::new(
+                SlmpDeviceCode::M,
+                96,
+                SlmpPlcProfile::IqR,
+            )],
             &[],
         );
     }
@@ -80,8 +88,8 @@ async fn read_named_batches_plain_bits_across_words_and_iqf_octal_xy_boundaries(
     assert_random_shape(
         &requests[0],
         &[
-            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0),
-            SlmpDeviceAddress::new(SlmpDeviceCode::X, 16),
+            SlmpDeviceAddress::new(SlmpDeviceCode::X, 0, SlmpPlcProfile::IqR),
+            SlmpDeviceAddress::new(SlmpDeviceCode::X, 16, SlmpPlcProfile::IqR),
         ],
         &[],
     );
@@ -106,9 +114,9 @@ async fn read_named_batches_mixed_plain_bit_device_kinds() {
     assert_random_shape(
         &requests[0],
         &[
-            SlmpDeviceAddress::new(SlmpDeviceCode::M, 96),
-            SlmpDeviceAddress::new(SlmpDeviceCode::B, 0x10),
-            SlmpDeviceAddress::new(SlmpDeviceCode::SB, 0),
+            SlmpDeviceAddress::new(SlmpDeviceCode::M, 96, SlmpPlcProfile::IqR),
+            SlmpDeviceAddress::new(SlmpDeviceCode::B, 0x10, SlmpPlcProfile::IqR),
+            SlmpDeviceAddress::new(SlmpDeviceCode::SB, 0, SlmpPlcProfile::IqR),
         ],
         &[],
     );
@@ -121,15 +129,15 @@ async fn read_named_batches_each_supported_plain_bit_device_code() {
         "SB1F:BIT",
     ]);
     let expected_devices = [
-        SlmpDeviceAddress::new(SlmpDeviceCode::SM, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::X, 0),
-        SlmpDeviceAddress::new(SlmpDeviceCode::Y, 0),
-        SlmpDeviceAddress::new(SlmpDeviceCode::M, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::L, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::F, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::V, 16),
-        SlmpDeviceAddress::new(SlmpDeviceCode::B, 0x10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::SB, 0x10),
+        SlmpDeviceAddress::new(SlmpDeviceCode::SM, 16, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::X, 0, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::Y, 0, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::M, 16, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::L, 16, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::F, 16, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::V, 16, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::B, 0x10, SlmpPlcProfile::IqR),
+        SlmpDeviceAddress::new(SlmpDeviceCode::SB, 0x10, SlmpPlcProfile::IqR),
     ];
     let mut words = vec![0x0002; addresses.len()];
     words[7] = 0x8000;
@@ -153,7 +161,7 @@ async fn read_named_batches_each_supported_plain_bit_device_code() {
 }
 
 #[tokio::test]
-async fn read_named_uses_direct_bit_reads_for_live_sensitive_bit_devices() {
+async fn read_named_rejects_direct_bit_fallback_routes_before_transport() {
     let addresses = strings(&[
         "TS10:BIT",
         "TC10:BIT",
@@ -164,66 +172,29 @@ async fn read_named_uses_direct_bit_reads_for_live_sensitive_bit_devices() {
         "DX10:BIT",
         "DY10:BIT",
     ]);
-    let expected_devices = [
-        SlmpDeviceAddress::new(SlmpDeviceCode::TS, 10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::TC, 10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::STS, 10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::STC, 10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::CS, 10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::CC, 10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::DX, 0x10),
-        SlmpDeviceAddress::new(SlmpDeviceCode::DY, 0x10),
-    ];
-    let server = CapturingServer::start(vec![vec![0x10]; addresses.len()])
-        .await
-        .unwrap();
+    let server = CapturingServer::start(vec![]).await.unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
 
-    let values = read_named(&client, &addresses).await.unwrap();
-
-    assert!(
-        addresses
-            .iter()
-            .all(|address| values[address] == SlmpValue::Bool(true))
-    );
+    let error = read_named(&client, &addresses).await.unwrap_err();
 
     let requests = server.requests().await;
-    assert_eq!(requests.len(), expected_devices.len());
-    for (request, device) in requests.iter().zip(expected_devices) {
-        assert_direct_bit_read(request, device, 1);
-    }
+    assert!(error.message.contains("one random-read request"));
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]
-async fn read_named_chunks_more_than_96_batched_bit_words() {
-    let first_chunk = vec![0x0001; 96];
-    let second_chunk = vec![0x0001; 96];
-    let third_chunk = vec![0x0001; 64];
-    let server = CapturingServer::start(vec![
-        word_payload(&first_chunk),
-        word_payload(&second_chunk),
-        word_payload(&third_chunk),
-    ])
-    .await
-    .unwrap();
+async fn read_named_rejects_random_read_over_limit_without_chunking() {
+    let server = CapturingServer::start(vec![]).await.unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
-    let addresses: Vec<String> = (0..0x100)
+    let addresses: Vec<String> = (0..97)
         .map(|index| format!("M{}:BIT", index * 16))
         .collect();
 
-    let values = read_named(&client, &addresses).await.unwrap();
-
-    assert!(
-        addresses
-            .iter()
-            .all(|address| values[address] == SlmpValue::Bool(true))
-    );
+    let error = read_named(&client, &addresses).await.unwrap_err();
 
     let requests = server.requests().await;
-    assert_eq!(requests.len(), 3);
-    assert_random_counts(&requests[0], 96, 0);
-    assert_random_counts(&requests[1], 96, 0);
-    assert_random_counts(&requests[2], 64, 0);
+    assert!(error.message.contains("out of range"));
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]
@@ -254,22 +225,16 @@ async fn read_named_uses_profile_random_read_limit_for_ql_profiles() {
 }
 
 #[tokio::test]
-async fn read_named_keeps_long_counter_state_bits_on_direct_bit_fallback() {
-    let server = CapturingServer::start(vec![vec![0x10]]).await.unwrap();
+async fn read_named_rejects_long_counter_state_direct_bit_fallback() {
+    let server = CapturingServer::start(vec![]).await.unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
     let addresses = strings(&["LCS30:BIT"]);
 
-    let values = read_named(&client, &addresses).await.unwrap();
-
-    assert_eq!(values["LCS30:BIT"], SlmpValue::Bool(true));
+    let error = read_named(&client, &addresses).await.unwrap_err();
 
     let requests = server.requests().await;
-    assert_eq!(requests.len(), 1);
-    assert_direct_bit_read(
-        &requests[0],
-        SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 30),
-        1,
-    );
+    assert!(error.message.contains("one random-read request"));
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]
@@ -296,11 +261,15 @@ async fn read_named_mixes_plain_bits_bit_in_word_words_and_dwords_in_one_random_
     assert_random_shape(
         &requests[0],
         &[
-            SlmpDeviceAddress::new(SlmpDeviceCode::M, 96),
-            SlmpDeviceAddress::new(SlmpDeviceCode::D, 50),
-            SlmpDeviceAddress::new(SlmpDeviceCode::D, 51),
+            SlmpDeviceAddress::new(SlmpDeviceCode::M, 96, SlmpPlcProfile::IqR),
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 50, SlmpPlcProfile::IqR),
+            SlmpDeviceAddress::new(SlmpDeviceCode::D, 51, SlmpPlcProfile::IqR),
         ],
-        &[SlmpDeviceAddress::new(SlmpDeviceCode::D, 52)],
+        &[SlmpDeviceAddress::new(
+            SlmpDeviceCode::D,
+            52,
+            SlmpPlcProfile::IqR,
+        )],
     );
 }
 
@@ -359,7 +328,14 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
 }
 
 async fn connect_client(port: u16, plc_profile: SlmpPlcProfile) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", plc_profile).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        plc_profile,
+    )
+    .unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }
@@ -455,24 +431,6 @@ fn assert_random_shape(
     }
 }
 
-fn assert_direct_bit_read(request: &[u8], device: SlmpDeviceAddress, points: u16) {
-    let body = &request[header_size(request)..];
-    assert_eq!(
-        u16::from_le_bytes([body[2], body[3]]),
-        SlmpCommand::DeviceRead.as_u16()
-    );
-    assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0003);
-    let device_offset = header_size(request) + 6;
-    assert_eq!(
-        decode_iqr_device(&request[device_offset..device_offset + 6]),
-        device
-    );
-    assert_eq!(
-        u16::from_le_bytes([request[device_offset + 6], request[device_offset + 7]]),
-        points
-    );
-}
-
 fn decode_iqr_device(bytes: &[u8]) -> SlmpDeviceAddress {
     let number = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     let code = u16::from_le_bytes([bytes[4], bytes[5]]);
@@ -498,7 +456,7 @@ fn decode_iqr_device(bytes: &[u8]) -> SlmpDeviceAddress {
         value if value == SlmpDeviceCode::LCS.as_u16() => SlmpDeviceCode::LCS,
         other => panic!("unexpected device code 0x{other:04X}"),
     };
-    SlmpDeviceAddress::new(code, number)
+    SlmpDeviceAddress::new(code, number, SlmpPlcProfile::IqR)
 }
 
 fn decode_legacy_device(bytes: &[u8]) -> SlmpDeviceAddress {
@@ -525,5 +483,5 @@ fn decode_legacy_device(bytes: &[u8]) -> SlmpDeviceAddress {
         value if value == SlmpDeviceCode::LCS.as_u8() as u16 => SlmpDeviceCode::LCS,
         other => panic!("unexpected legacy device code 0x{other:02X}"),
     };
-    SlmpDeviceAddress::new(code, number)
+    SlmpDeviceAddress::new(code, number, SlmpPlcProfile::IqR)
 }

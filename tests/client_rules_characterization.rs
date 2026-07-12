@@ -14,7 +14,10 @@ async fn read_bits_unpacks_high_nibble_then_low_nibble_and_trims_odd_points() {
     let client = connect_client(server.port).await;
 
     let values = client
-        .read_bits(SlmpDeviceAddress::new(SlmpDeviceCode::M, 100), 5)
+        .read_bits(
+            SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, SlmpPlcProfile::IqR),
+            5,
+        )
         .await
         .unwrap();
 
@@ -67,6 +70,21 @@ async fn read_long_retentive_timer_uses_lstn_device_prefix() {
     assert!(values[0].coil);
 }
 
+#[tokio::test]
+async fn long_timer_count_rejects_zero_limit_overflow_and_truncation_before_transport() {
+    let server = ResponseServer::start(vec![word_payload(&[0, 0, 0, 0])])
+        .await
+        .unwrap();
+    let client = connect_client(server.port).await;
+
+    for points in [0, 241, 16_385, usize::MAX] {
+        assert!(client.read_long_timer(0, points).await.is_err());
+        assert!(client.read_long_retentive_timer(0, points).await.is_err());
+    }
+
+    assert!(server.requests().await.is_empty());
+}
+
 struct ResponseServer {
     port: u16,
     requests: Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
@@ -111,7 +129,14 @@ impl ResponseServer {
 }
 
 async fn connect_client(port: u16) -> SlmpClient {
-    let mut options = SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::IqR).unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
     options.port = port;
     SlmpClient::connect(options).await.unwrap()
 }

@@ -19,14 +19,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("polling_reconnect")?;
 
     let args = std::env::args().collect::<Vec<_>>();
-    let device = args
-        .get(1)
-        .cloned()
-        .unwrap_or_else(|| env_string("SLMP_POLL_DEVICE", "D100"));
-    let dtype = args
-        .get(2)
-        .cloned()
-        .unwrap_or_else(|| env_string("SLMP_POLL_DTYPE", "U"));
+    let device = args.get(1).cloned().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "device argument is required: polling_reconnect DEVICE DTYPE [INTERVAL_SECONDS]",
+        )
+    })?;
+    let dtype = args.get(2).cloned().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "dtype argument is required: polling_reconnect DEVICE DTYPE [INTERVAL_SECONDS]",
+        )
+    })?;
     let interval = Duration::from_secs_f64(
         args.get(3)
             .cloned()
@@ -116,7 +120,14 @@ async fn poll_step(
     }
 
     let active = state.client.as_ref().expect("client was just connected");
-    match read_typed(active, SlmpAddress::parse(&config.device)?, &config.dtype).await {
+    let plc_profile = active.plc_profile().await;
+    match read_typed(
+        active,
+        SlmpAddress::parse(&config.device, plc_profile)?,
+        &config.dtype,
+    )
+    .await
+    {
         Ok(value) => {
             log_state(
                 "read",

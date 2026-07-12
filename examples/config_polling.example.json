@@ -1,10 +1,7 @@
 {
   "defaults": {
-    "transport": "tcp",
-    "port": 1025,
     "timeout_ms": 3000,
-    "interval": 1.0,
-    "plc_profile": "melsec:iq-f"
+    "interval": 1.0
   },
   "cycles": 3,
   "initial_backoff": 1.0,
@@ -19,6 +16,7 @@
       "plc_profile": "melsec:iq-r",
       "port": 1035,
       "transport": "udp",
+      "target": "SELF",
       "tags": [
         {
           "name": "d100",
@@ -32,6 +30,7 @@
       "plc_profile": "melsec:iq-f",
       "port": 1025,
       "transport": "tcp",
+      "target": "SELF",
       "tags": [
         {
           "name": "d100",

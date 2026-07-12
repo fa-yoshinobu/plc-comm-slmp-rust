@@ -1,13 +1,13 @@
 //! Read-only multi-PLC monitor with reconnect state transitions.
 //!
 //! Dry-run validation:
-//!   cargo run --features cli --example multi_plc_monitor -- --plc line-a=192.168.250.101,melsec:iq-r,1035,udp --tag d100=D100:U --cycles 1 --dry-run
+//!   cargo run --features cli --example multi_plc_monitor -- --plc line-a=192.168.250.101,melsec:iq-r,1035,udp,SELF --tag d100=D100:U --cycles 1 --dry-run
 
 mod operational_common;
 
 use operational_common::{
     MonitorResult, TagSpec, format_endpoint, format_tags, monitor_endpoint, parse_plc_spec,
-    parse_tag_spec, parse_transport,
+    parse_tag_spec,
 };
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -16,8 +16,6 @@ use tokio::task::JoinSet;
 struct Args {
     plcs: Vec<String>,
     tags: Vec<String>,
-    port: u16,
-    transport: String,
     timeout_ms: u64,
     interval: Duration,
     cycles: Option<usize>,
@@ -39,15 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let endpoints = args
         .plcs
         .iter()
-        .map(|value| {
-            parse_plc_spec(
-                value,
-                args.port,
-                &args.transport,
-                args.timeout_ms,
-                args.interval,
-            )
-        })
+        .map(|value| parse_plc_spec(value, args.timeout_ms, args.interval))
         .collect::<MonitorResult<Vec<_>>>()
         .map_err(std::io::Error::other)?;
     let tags = parse_tags(&args.tags).map_err(std::io::Error::other)?;
@@ -84,8 +74,6 @@ fn parse_args() -> MonitorResult<Args> {
     let mut args = Args {
         plcs: Vec::new(),
         tags: Vec::new(),
-        port: 1025,
-        transport: "tcp".to_string(),
         timeout_ms: 3000,
         interval: Duration::from_secs(1),
         cycles: None,
@@ -99,14 +87,6 @@ fn parse_args() -> MonitorResult<Args> {
         match arg.as_str() {
             "--plc" => args.plcs.push(require_value(&mut iter, "--plc")?),
             "--tag" => args.tags.push(require_value(&mut iter, "--tag")?),
-            "--port" => {
-                args.port = require_value(&mut iter, "--port")?
-                    .parse()
-                    .map_err(|e| format!("{e}"))?
-            }
-            "--transport" => {
-                args.transport = parse_transport(&require_value(&mut iter, "--transport")?)?
-            }
             "--timeout-ms" => {
                 args.timeout_ms = require_value(&mut iter, "--timeout-ms")?
                     .parse()
@@ -154,7 +134,7 @@ fn parse_args() -> MonitorResult<Args> {
 
 fn parse_tags(raw_tags: &[String]) -> MonitorResult<Vec<TagSpec>> {
     if raw_tags.is_empty() {
-        return Ok(vec![parse_tag_spec("D100:U")?]);
+        return Err("at least one --tag NAME=DEVICE:DTYPE is required".to_string());
     }
     raw_tags.iter().map(|value| parse_tag_spec(value)).collect()
 }
@@ -165,5 +145,5 @@ fn require_value(iter: &mut impl Iterator<Item = String>, name: &str) -> Monitor
 }
 
 fn usage() -> String {
-    "Usage: cargo run --features cli --example multi_plc_monitor -- --plc NAME=HOST,PROFILE[,PORT[,TRANSPORT]] [--tag NAME=ADDRESS] [--cycles N] [--dry-run]".to_string()
+    "Usage: cargo run --features cli --example multi_plc_monitor -- --plc NAME=HOST,PROFILE,PORT,TRANSPORT,TARGET --tag NAME=DEVICE:DTYPE [--cycles N] [--dry-run]".to_string()
 }

@@ -8,9 +8,9 @@ use plc_comm_slmp::{NamedAddress, SlmpValue, poll_named, read_named, write_named
 use std::error::Error;
 use std::time::Duration;
 
-fn print_snapshot(label: &str, snapshot: &NamedAddress) {
+fn print_collection(label: &str, values: &NamedAddress) {
     println!("{label}");
-    for (address, value) in snapshot {
+    for (address, value) in values {
         println!("  {address:<12} {value:?}");
     }
 }
@@ -25,8 +25,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "SLMP_NAMED_ADDRESSES",
         "D100:U,D200:F,D50.3,LTN10:D,LTS10:BIT",
     );
-    let snapshot = read_named(&client, &addresses).await?;
-    print_snapshot("named snapshot", &snapshot);
+    let values = read_named(&client, &addresses).await?;
+    print_collection("named typed collection", &values);
 
     if env_bool("SLMP_ENABLE_WRITES") {
         let mut updates = NamedAddress::new();
@@ -51,8 +51,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &addresses,
         Duration::from_millis(interval_ms),
     ));
-    if let Some(snapshot) = stream.next().await.transpose()? {
-        print_snapshot("poll_named first tick", &snapshot);
+    if let Some(values) = stream.next().await.transpose()? {
+        print_collection("poll_named first tick", &values);
     }
     Ok(())
 }

@@ -22,7 +22,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             float_device: env_string("SLMP_ROUTE_FLOAT_DEVICE", "D9004"),
             bit_device: env_string("SLMP_ROUTE_BIT_DEVICE", "M100"),
             lz_device: env_string("SLMP_ROUTE_LZ_DEVICE", "LZ0"),
-            plc_profile: None,
             range_error_devices: env_csv("SLMP_ROUTE_RANGE_DEVICES", "X,Y,M,D,R,ZR,RD,LZ,SM,SD"),
         },
     )

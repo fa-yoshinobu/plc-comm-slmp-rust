@@ -35,11 +35,10 @@ use plc_comm_slmp::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = SlmpConnectionOptions::new("192.168.250.100", SlmpPlcProfile::IqR)?;
-    options.port = 1025;
+    let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let value = read_typed(&client, SlmpAddress::parse("D100")?, "U").await?;
+    let value = read_typed(&client, SlmpAddress::parse("D100", SlmpPlcProfile::IqR)?, "U").await?;
     println!("{:?}", value);
     client.close().await?;
 

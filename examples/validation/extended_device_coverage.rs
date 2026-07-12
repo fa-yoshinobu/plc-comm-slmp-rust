@@ -2,12 +2,11 @@
 mod common;
 
 use common::{
-    env_bool, env_csv, env_port_label, env_profile_label, env_string, options_from_env,
-    print_connection_banner,
+    env_bool, env_csv, env_port_label, env_profile_label, env_string, env_transport_label,
+    options_from_env, print_connection_banner,
 };
 use plc_comm_slmp::{
-    SlmpClient, SlmpDeviceCode, SlmpExtensionSpec, SlmpQualifiedDeviceAddress,
-    parse_qualified_device,
+    SlmpClient, SlmpDeviceCode, SlmpQualifiedDeviceAddress, parse_qualified_device,
 };
 use std::error::Error;
 use std::fs;
@@ -33,20 +32,6 @@ fn parse_auto_number(text: &str) -> Result<u32, Box<dyn Error>> {
     } else {
         Ok(trimmed.parse()?)
     }
-}
-
-fn effective_extension(
-    qualified: SlmpQualifiedDeviceAddress,
-    extension: SlmpExtensionSpec,
-) -> SlmpExtensionSpec {
-    let mut result = extension;
-    if let Some(value) = qualified.extension_specification {
-        result.extension_specification = value;
-    }
-    if let Some(value) = qualified.direct_memory_specification {
-        result.direct_memory_specification = value;
-    }
-    result
 }
 
 fn is_bit_extended_device(code: SlmpDeviceCode) -> bool {
@@ -78,12 +63,9 @@ async fn check_bit_device(
     device_text: &str,
     qualified: SlmpQualifiedDeviceAddress,
     points: u16,
-    extension: SlmpExtensionSpec,
     write_check: bool,
 ) -> Result<String, Box<dyn Error>> {
-    let before = client
-        .read_bits_extended(qualified, points, extension)
-        .await?;
+    let before = client.read_bits_extended(qualified, points).await?;
     if !write_check {
         return Ok(format!(
             "device={device_text}, points={points}, before=[{}], mode=read_only",
@@ -92,16 +74,9 @@ async fn check_bit_device(
     }
 
     let write = (0..points).map(|index| index % 2 == 0).collect::<Vec<_>>();
-    client
-        .write_bits_extended(qualified, &write, extension)
-        .await?;
-    let readback = client
-        .read_bits_extended(qualified, points, extension)
-        .await?;
-    let restore = match client
-        .write_bits_extended(qualified, &before, extension)
-        .await
-    {
+    client.write_bits_extended(qualified, &write).await?;
+    let readback = client.read_bits_extended(qualified, points).await?;
+    let restore = match client.write_bits_extended(qualified, &before).await {
         Ok(()) => "ok",
         Err(_) => "failed",
     };
@@ -124,12 +99,9 @@ async fn check_word_device(
     device_text: &str,
     qualified: SlmpQualifiedDeviceAddress,
     points: u16,
-    extension: SlmpExtensionSpec,
     write_check: bool,
 ) -> Result<String, Box<dyn Error>> {
-    let before = client
-        .read_words_extended(qualified, points, extension)
-        .await?;
+    let before = client.read_words_extended(qualified, points).await?;
     if !write_check {
         return Ok(format!(
             "device={device_text}, points={points}, before=[{}], mode=read_only",
@@ -140,16 +112,9 @@ async fn check_word_device(
     let write = (0..points)
         .map(|index| 0x001E_u16.wrapping_add(index))
         .collect::<Vec<_>>();
-    client
-        .write_words_extended(qualified, &write, extension)
-        .await?;
-    let readback = client
-        .read_words_extended(qualified, points, extension)
-        .await?;
-    let restore = match client
-        .write_words_extended(qualified, &before, extension)
-        .await
-    {
+    client.write_words_extended(qualified, &write).await?;
+    let readback = client.read_words_extended(qualified, points).await?;
+    let restore = match client.write_words_extended(qualified, &before).await {
         Ok(()) => "ok",
         Err(_) => "failed",
     };
@@ -185,101 +150,67 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .into_iter()
         .map(|value| Ok(parse_auto_number(&value)? as u16))
         .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
-    let direct_memories = env_csv("SLMP_EXT_DIRECT_MEMORIES", "0xF8")
-        .into_iter()
-        .map(|value| Ok(parse_auto_number(&value)? as u8))
-        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
-
     println!("=== Extended Device Coverage Sweep ===");
     println!(
-        "write_check={} devices=[{}] points=[{}] direct_memories=[{}]",
+        "write_check={} devices=[{}] points=[{}]",
         write_check,
         devices.join(", "),
         points
             .iter()
             .map(u16::to_string)
             .collect::<Vec<_>>()
-            .join(", "),
-        direct_memories
-            .iter()
-            .map(|value| format!("0x{value:02X}"))
-            .collect::<Vec<_>>()
             .join(", ")
     );
 
     let mut rows = Vec::new();
     for device_text in &devices {
-        let qualified = parse_qualified_device(device_text)?;
-        let unit = if is_bit_extended_device(qualified.device.code) {
+        let qualified = parse_qualified_device(device_text, client.plc_profile().await)?;
+        let unit = if is_bit_extended_device(qualified.device().code()) {
             "bit"
         } else {
             "word"
         };
-        for direct_memory in &direct_memories {
-            let extension = effective_extension(
-                qualified,
-                SlmpExtensionSpec {
-                    direct_memory_specification: *direct_memory,
-                    ..SlmpExtensionSpec::default()
-                },
-            );
-            for point_count in &points {
-                let result = if unit == "bit" {
-                    check_bit_device(
-                        &client,
-                        device_text,
-                        qualified,
-                        *point_count,
-                        extension,
-                        write_check,
-                    )
-                    .await
-                } else {
-                    check_word_device(
-                        &client,
-                        device_text,
-                        qualified,
-                        *point_count,
-                        extension,
-                        write_check,
-                    )
-                    .await
-                };
+        let direct_memory = qualified.direct_memory_specification().unwrap_or(0);
+        for point_count in &points {
+            let result = if unit == "bit" {
+                check_bit_device(&client, device_text, qualified, *point_count, write_check).await
+            } else {
+                check_word_device(&client, device_text, qualified, *point_count, write_check).await
+            };
 
-                match result {
-                    Ok(detail) => {
-                        let status = if detail.contains("readback_mismatch=yes") {
-                            "NG"
-                        } else {
-                            "OK"
-                        };
-                        println!(
-                            "[{status}] {device_text} points={point_count} unit={unit} direct=0x{:02X}: {detail}",
-                            extension.direct_memory_specification
-                        );
-                        rows.push(CoverageRow {
-                            device: device_text.clone(),
-                            points: *point_count,
-                            direct_memory: extension.direct_memory_specification,
-                            unit,
-                            status,
-                            detail,
-                        });
-                    }
-                    Err(error) => {
-                        println!(
-                            "[NG] {device_text} points={point_count} unit={unit} direct=0x{:02X}: {error}",
-                            extension.direct_memory_specification
-                        );
-                        rows.push(CoverageRow {
-                            device: device_text.clone(),
-                            points: *point_count,
-                            direct_memory: extension.direct_memory_specification,
-                            unit,
-                            status: "NG",
-                            detail: error.to_string(),
-                        });
-                    }
+            match result {
+                Ok(detail) => {
+                    let status = if detail.contains("readback_mismatch=yes") {
+                        "NG"
+                    } else {
+                        "OK"
+                    };
+                    println!(
+                        "[{status}] {device_text} points={point_count} unit={unit} direct=0x{:02X}: {detail}",
+                        direct_memory
+                    );
+                    rows.push(CoverageRow {
+                        device: device_text.clone(),
+                        points: *point_count,
+                        direct_memory,
+                        unit,
+                        status,
+                        detail,
+                    });
+                }
+                Err(error) => {
+                    println!(
+                        "[NG] {device_text} points={point_count} unit={unit} direct=0x{:02X}: {error}",
+                        direct_memory
+                    );
+                    rows.push(CoverageRow {
+                        device: device_text.clone(),
+                        points: *point_count,
+                        direct_memory,
+                        unit,
+                        status: "NG",
+                        detail: error.to_string(),
+                    });
                 }
             }
         }
@@ -294,12 +225,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "- Host: {}\n",
         env_string("SLMP_HOST", "192.168.250.100")
     ));
-    report.push_str(&format!("- Port: {}\n", env_port_label()));
+    report.push_str(&format!("- Port: {}\n", env_port_label()?));
     report.push_str(&format!("- PLC profile: {}\n", env_profile_label()?));
-    report.push_str(&format!(
-        "- Transport: {}\n",
-        env_string("SLMP_TRANSPORT", "tcp")
-    ));
+    report.push_str(&format!("- Transport: {}\n", env_transport_label()?));
     report.push_str(&format!("- Write check: {write_check}\n"));
     report.push_str("\n| Device | Points | Unit | Direct | Status | Detail |\n");
     report.push_str("|---|---:|---|---:|---|---|\n");

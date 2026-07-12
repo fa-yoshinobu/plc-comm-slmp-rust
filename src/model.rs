@@ -21,6 +21,38 @@ pub enum SlmpCompatibilityMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SlmpRemoteMode {
+    Normal,
+    Force,
+}
+
+impl SlmpRemoteMode {
+    pub const fn wire_value(self) -> u16 {
+        match self {
+            Self::Normal => 0x0001,
+            Self::Force => 0x0003,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SlmpRemoteClearMode {
+    NoClear,
+    ClearExceptLatch,
+    ClearAll,
+}
+
+impl SlmpRemoteClearMode {
+    pub const fn wire_value(self) -> u16 {
+        match self {
+            Self::NoClear => 0,
+            Self::ClearExceptLatch => 1,
+            Self::ClearAll => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SlmpPlcProfile {
     IqF,
     IqR,
@@ -286,12 +318,6 @@ mod plc_profile_descriptor_tests {
             assert_eq!(descriptor.base_profile, profile["base_profile"].as_str());
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum SlmpTraceDirection {
-    Send,
-    Receive,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -613,21 +639,72 @@ impl Default for SlmpTargetAddress {
     }
 }
 
+/// Immutable, profile-bound semantic device address.
+///
+/// The code, wire number, and PLC profile can be read through accessors but
+/// cannot be changed after construction.
+///
+/// ```compile_fail
+/// use plc_comm_slmp::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile};
+/// let mut address = SlmpDeviceAddress::new(SlmpDeviceCode::X, 8, SlmpPlcProfile::IqF);
+/// address.number = 16;
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SlmpDeviceAddress {
-    pub code: SlmpDeviceCode,
-    pub number: u32,
+    code: SlmpDeviceCode,
+    number: u32,
+    plc_profile: SlmpPlcProfile,
 }
 
 impl SlmpDeviceAddress {
-    pub const fn new(code: SlmpDeviceCode, number: u32) -> Self {
-        Self { code, number }
+    pub const fn new(code: SlmpDeviceCode, number: u32, plc_profile: SlmpPlcProfile) -> Self {
+        Self {
+            code,
+            number,
+            plc_profile,
+        }
+    }
+
+    pub const fn code(self) -> SlmpDeviceCode {
+        self.code
+    }
+
+    pub const fn number(self) -> u32 {
+        self.number
+    }
+
+    pub const fn plc_profile(self) -> SlmpPlcProfile {
+        self.plc_profile
     }
 }
 
 impl fmt::Display for SlmpDeviceAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.code, self.number)
+        let number = if matches!(self.code, SlmpDeviceCode::X | SlmpDeviceCode::Y)
+            && self.plc_profile.uses_iqf_xy_octal()
+        {
+            format!("{:o}", self.number).to_ascii_uppercase()
+        } else if self.code.is_hex_addressed() {
+            format!("{:X}", self.number)
+        } else {
+            self.number.to_string()
+        };
+        write!(f, "{}{number}", self.code)
+    }
+}
+
+/// Profile-independent wire address for maintainer probes and frame tests.
+///
+/// Normal client operations intentionally accept only [`SlmpDeviceAddress`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RawSlmpDeviceAddress {
+    pub code: SlmpDeviceCode,
+    pub number: u32,
+}
+
+impl RawSlmpDeviceAddress {
+    pub const fn new(code: SlmpDeviceCode, number: u32) -> Self {
+        Self { code, number }
     }
 }
 
@@ -663,11 +740,6 @@ pub struct SlmpBlockRead {
 pub struct SlmpBlockWrite {
     pub device: SlmpDeviceAddress,
     pub values: Vec<u16>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub struct SlmpBlockWriteOptions {
-    pub split_mixed_blocks: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -731,7 +803,7 @@ pub struct SlmpLongTimerResult {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct SlmpExtensionSpec {
+pub(crate) struct SlmpExtensionSpec {
     pub extension_specification: u16,
     pub extension_specification_modification: u8,
     pub device_modification_index: u8,
@@ -739,11 +811,120 @@ pub struct SlmpExtensionSpec {
     pub direct_memory_specification: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum SlmpDeviceModification {
+    IndexZ(u8),
+    IndexLz(u8),
+    Indirect,
+}
+
+/// Semantic qualified address. Wire-only extension fields are private so normal
+/// callers cannot construct contradictory route combinations.
+///
+/// ```compile_fail
+/// use plc_comm_slmp::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile, SlmpQualifiedDeviceAddress};
+/// let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
+/// let invalid = SlmpQualifiedDeviceAddress {
+///     device,
+///     extension_specification: Some(1),
+///     direct_memory_specification: Some(0x42),
+///     modification: None,
+/// };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct SlmpQualifiedDeviceAddress {
-    pub device: SlmpDeviceAddress,
-    pub extension_specification: Option<u16>,
-    pub direct_memory_specification: Option<u8>,
+    device: SlmpDeviceAddress,
+    extension_specification: Option<u16>,
+    direct_memory_specification: Option<u8>,
+    modification: Option<SlmpDeviceModification>,
+}
+
+impl SlmpQualifiedDeviceAddress {
+    pub const fn new(device: SlmpDeviceAddress) -> Self {
+        Self {
+            device,
+            extension_specification: None,
+            direct_memory_specification: None,
+            modification: None,
+        }
+    }
+
+    pub fn module_access(
+        device: SlmpDeviceAddress,
+        extension_specification: u16,
+    ) -> Result<Self, crate::error::SlmpError> {
+        let direct_memory_specification = match device.code() {
+            SlmpDeviceCode::G => Some(0xF8),
+            SlmpDeviceCode::HG => {
+                if !matches!(extension_specification, 0x03E0..=0x03E3) {
+                    return Err(crate::error::SlmpError::new(
+                        "HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG.",
+                    ));
+                }
+                Some(0xFA)
+            }
+            _ => None,
+        };
+        Ok(Self {
+            device,
+            extension_specification: Some(extension_specification),
+            direct_memory_specification,
+            modification: None,
+        })
+    }
+
+    pub const fn link_direct(device: SlmpDeviceAddress, network: u16) -> Self {
+        Self {
+            device,
+            extension_specification: Some(network),
+            direct_memory_specification: Some(0xF9),
+            modification: None,
+        }
+    }
+
+    pub fn with_modification(
+        mut self,
+        modification: SlmpDeviceModification,
+    ) -> Result<Self, crate::error::SlmpError> {
+        if self.direct_memory_specification == Some(0xF9) {
+            return Err(crate::error::SlmpError::new(
+                "J-qualified link-direct devices do not support Z, LZ, or indirect modification",
+            ));
+        }
+        if let SlmpDeviceModification::IndexLz(index) = modification {
+            if index > 1 {
+                return Err(crate::error::SlmpError::new("LZ index must be 0 or 1."));
+            }
+            if !self.device.plc_profile().uses_iqr_protocol() {
+                return Err(crate::error::SlmpError::new(format!(
+                    "LZ index modification is not supported for plc_profile '{}'",
+                    self.device.plc_profile().canonical_name()
+                )));
+            }
+        }
+        self.modification = Some(modification);
+        Ok(self)
+    }
+
+    pub const fn device(self) -> SlmpDeviceAddress {
+        self.device
+    }
+
+    pub const fn device_ref(&self) -> &SlmpDeviceAddress {
+        &self.device
+    }
+
+    pub const fn extension_specification(self) -> Option<u16> {
+        self.extension_specification
+    }
+
+    pub const fn direct_memory_specification(self) -> Option<u8> {
+        self.direct_memory_specification
+    }
+
+    pub const fn modification(self) -> Option<SlmpDeviceModification> {
+        self.modification
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -764,26 +945,34 @@ pub struct SlmpConnectionOptions {
     pub target: SlmpTargetAddress,
     pub transport_mode: SlmpTransportMode,
     pub monitoring_timer: u16,
-    pub strict_profile: bool,
+    pub(crate) strict_profile: bool,
 }
 
 impl SlmpConnectionOptions {
     pub fn new(
         host: impl Into<String>,
+        port: u16,
+        transport_mode: SlmpTransportMode,
+        target: SlmpTargetAddress,
         plc_profile: SlmpPlcProfile,
     ) -> Result<Self, crate::error::SlmpError> {
         plc_profile.validate_connection_selectable()?;
+        if port == 0 {
+            return Err(crate::error::SlmpError::new(
+                "port is required and must be in range 1..=65535",
+            ));
+        }
         let defaults = plc_profile.defaults();
         Ok(Self {
             host: host.into(),
-            port: 1025,
+            port,
             timeout: Duration::from_secs(3),
             tcp_keepalive: Some(Duration::from_secs(30)),
             plc_profile,
             frame_type: defaults.frame_type,
             compatibility_mode: defaults.compatibility_mode,
-            target: SlmpTargetAddress::default(),
-            transport_mode: SlmpTransportMode::Tcp,
+            target,
+            transport_mode,
             monitoring_timer: 0x0010,
             strict_profile: true,
         })
@@ -816,7 +1005,7 @@ impl SlmpConnectionOptions {
 
 #[cfg(test)]
 mod tests {
-    use super::SlmpPlcProfile;
+    use super::{SlmpPlcProfile, SlmpTargetAddress, SlmpTransportMode};
 
     #[test]
     fn plc_profile_parse_label_accepts_only_canonical_profile_text() {
@@ -874,6 +1063,52 @@ mod tests {
 
     #[test]
     fn connection_options_reject_base_qcpu_profile() {
-        assert!(super::SlmpConnectionOptions::new("127.0.0.1", SlmpPlcProfile::QCpu).is_err());
+        assert!(
+            super::SlmpConnectionOptions::new(
+                "127.0.0.1",
+                1025,
+                SlmpTransportMode::Tcp,
+                SlmpTargetAddress::default(),
+                SlmpPlcProfile::QCpu
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn connection_options_use_approved_time_defaults_and_reject_zero_port() {
+        let target = SlmpTargetAddress {
+            network: 1,
+            station: 2,
+            module_io: 0x03FF,
+            multidrop: 0,
+        };
+        let options = super::SlmpConnectionOptions::new(
+            "127.0.0.1",
+            1025,
+            SlmpTransportMode::Tcp,
+            target,
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+
+        assert_eq!(options.timeout, std::time::Duration::from_secs(3));
+        assert_eq!(options.monitoring_timer, 0x0010);
+        assert_eq!(
+            options.tcp_keepalive,
+            Some(std::time::Duration::from_secs(30))
+        );
+        assert_eq!(options.target, target);
+
+        assert!(
+            super::SlmpConnectionOptions::new(
+                "127.0.0.1",
+                0,
+                SlmpTransportMode::Tcp,
+                target,
+                SlmpPlcProfile::IqR,
+            )
+            .is_err()
+        );
     }
 }

@@ -1,7 +1,4 @@
-use plc_comm_slmp::{
-    SlmpEndCodeLanguage, SlmpError, end_code_key, end_code_message, end_code_message_en,
-    end_code_message_ja, end_code_name, is_remote_password_end_code,
-};
+use plc_comm_slmp::{SlmpError, end_code_key, end_code_name, is_remote_password_end_code};
 
 #[test]
 fn end_code_keys_and_names_are_code_derived() {
@@ -11,17 +8,6 @@ fn end_code_keys_and_names_are_code_derived() {
     assert_eq!(end_code_name(0xC201), "slmp_end_code_c201");
     assert_eq!(end_code_key(0xDEAD), "slmp_end_code_dead");
     assert_eq!(end_code_name(0xDEAD), "slmp_end_code_dead");
-}
-
-#[test]
-fn end_code_messages_are_not_embedded() {
-    assert_eq!(end_code_message_en(0x1080), None);
-    assert_eq!(end_code_message_ja(0x1080), None);
-    assert_eq!(end_code_message(0xC201, SlmpEndCodeLanguage::English), None);
-    assert_eq!(
-        end_code_message(0xC201, SlmpEndCodeLanguage::Japanese),
-        None
-    );
 }
 
 #[test]
@@ -36,11 +22,9 @@ fn remote_password_codes_are_classified() {
 fn slmp_error_end_code_helpers() {
     let error = SlmpError::with_context("SLMP error", Some(0xC201), None, None);
     assert_eq!(error.end_code_name(), Some("slmp_end_code_c201"));
-    assert_eq!(error.end_code_message(), None);
     assert!(error.is_remote_password_error());
 
     let without_code = SlmpError::new("no end code");
     assert_eq!(without_code.end_code_name(), None);
-    assert_eq!(without_code.end_code_message(), None);
     assert!(!without_code.is_remote_password_error());
 }

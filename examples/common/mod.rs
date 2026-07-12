@@ -2,7 +2,7 @@
 
 use plc_comm_slmp::{
     SlmpClient, SlmpConnectionOptions, SlmpPlcProfile, SlmpTargetAddress, SlmpTransportMode,
-    parse_named_target, parse_target_auto_number,
+    parse_named_target,
 };
 use std::env;
 use std::error::Error;
@@ -30,13 +30,22 @@ pub fn env_profile_label() -> Result<String, Box<dyn Error>> {
     })
 }
 
-pub fn env_transport_label() -> String {
-    env_string("SLMP_TRANSPORT", "tcp")
+fn required_env(key: &str) -> Result<String, Box<dyn Error>> {
+    env::var(key).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{key} is required"),
+        )
+        .into()
+    })
 }
 
-pub fn env_port_label() -> String {
-    let transport = env_transport_label();
-    env_string("SLMP_PORT", default_port_for_transport(&transport))
+pub fn env_transport_label() -> Result<String, Box<dyn Error>> {
+    required_env("SLMP_TRANSPORT")
+}
+
+pub fn env_port_label() -> Result<String, Box<dyn Error>> {
+    required_env("SLMP_PORT")
 }
 
 pub fn env_csv(key: &str, default: &str) -> Vec<String> {
@@ -51,19 +60,36 @@ pub fn env_csv(key: &str, default: &str) -> Vec<String> {
 pub fn options_from_env() -> Result<SlmpConnectionOptions, Box<dyn Error>> {
     let host = env_string("SLMP_HOST", "192.168.250.100");
     let plc_profile = parse_plc_profile(&env_profile_label()?)?;
-    let mut options = SlmpConnectionOptions::new(host, plc_profile)?;
-    let transport = env_transport_label();
-    options.port = env_port_label().parse()?;
-    options.transport_mode = match transport.to_ascii_lowercase().as_str() {
+    let transport = env_transport_label()?;
+    let transport_mode = match transport.as_str() {
+        "tcp" => SlmpTransportMode::Tcp,
         "udp" => SlmpTransportMode::Udp,
-        _ => SlmpTransportMode::Tcp,
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "SLMP_TRANSPORT must be exactly 'tcp' or 'udp'",
+            )
+            .into());
+        }
     };
+    let port: u16 = env_port_label()?.parse()?;
+    let target = parse_env_target()?;
+    let mut options = SlmpConnectionOptions::new(host, port, transport_mode, target, plc_profile)?;
     options.monitoring_timer = env_string("SLMP_MONITORING_TIMER", "16").parse()?;
     options.timeout =
         std::time::Duration::from_millis(env_string("SLMP_TIMEOUT_MS", "3000").parse()?);
-    let has_network_station_target =
-        env::var("SLMP_NETWORK").is_ok() || env::var("SLMP_STATION").is_ok();
-    if has_network_station_target {
+    Ok(options)
+}
+
+fn parse_env_target() -> Result<SlmpTargetAddress, Box<dyn Error>> {
+    let target_fields = [
+        "SLMP_NETWORK",
+        "SLMP_STATION",
+        "SLMP_MODULE_IO",
+        "SLMP_MULTIDROP",
+    ];
+    let has_target_field = target_fields.iter().any(|key| env::var(key).is_ok());
+    if has_target_field {
         if env::var("SLMP_TARGET").is_ok() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -71,25 +97,16 @@ pub fn options_from_env() -> Result<SlmpConnectionOptions, Box<dyn Error>> {
             )
             .into());
         }
-        let network = env_string("SLMP_NETWORK", "");
-        let station = env_string("SLMP_STATION", "");
-        if network.is_empty() || station.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "SLMP_NETWORK and SLMP_STATION must be specified together.",
-            )
-            .into());
-        }
-        options.target = SlmpTargetAddress {
-            network: parse_target_auto_number(&network)? as u8,
-            station: parse_target_auto_number(&station)? as u8,
-            module_io: parse_target_auto_number(&env_string("SLMP_MODULE_IO", "0x03FF"))? as u16,
-            multidrop: parse_target_auto_number(&env_string("SLMP_MULTIDROP", "0x00"))? as u8,
-        };
-    } else if let Ok(target) = env::var("SLMP_TARGET") {
-        options.target = parse_named_target(&target)?.target;
+        let network = required_env("SLMP_NETWORK")?;
+        let station = required_env("SLMP_STATION")?;
+        let module_io = required_env("SLMP_MODULE_IO")?;
+        let multidrop = required_env("SLMP_MULTIDROP")?;
+        return Ok(parse_named_target(&format!(
+            "ENV,{network},{station},{module_io},{multidrop}"
+        ))?
+        .target);
     }
-    Ok(options)
+    Ok(parse_named_target(&required_env("SLMP_TARGET")?)?.target)
 }
 
 pub async fn connect_from_env() -> Result<SlmpClient, Box<dyn Error>> {
@@ -102,7 +119,7 @@ pub fn print_connection_banner(example: &str) -> Result<(), Box<dyn Error>> {
     println!(
         "{example}: host={} port={} plc_profile={} frame={} compatibility={} transport={} target={}",
         env_string("SLMP_HOST", "192.168.250.100"),
-        env_port_label(),
+        env_port_label()?,
         plc_profile,
         profile
             .map(|profile| format!("{:?}", profile.frame_type))
@@ -110,29 +127,22 @@ pub fn print_connection_banner(example: &str) -> Result<(), Box<dyn Error>> {
         profile
             .map(|profile| format!("{:?}", profile.compatibility_mode))
             .unwrap_or_else(|| "unknown".to_string()),
-        env_transport_label(),
-        format_env_target()
+        env_transport_label()?,
+        format_env_target()?
     );
     Ok(())
 }
 
-fn format_env_target() -> String {
-    match (env::var("SLMP_NETWORK"), env::var("SLMP_STATION")) {
-        (Ok(network), Ok(station)) => match (
-            parse_target_auto_number(&network),
-            parse_target_auto_number(&station),
-            parse_target_auto_number(&env_string("SLMP_MODULE_IO", "0x03FF")),
-            parse_target_auto_number(&env_string("SLMP_MULTIDROP", "0x00")),
-        ) {
-            (Ok(network), Ok(station), Ok(module_io), Ok(multidrop)) => {
-                format!(
-                    "network={network} station={station} module_io=0x{module_io:04X} multidrop=0x{multidrop:02X}"
-                )
-            }
-            _ => format!("network={network} station={station}"),
-        },
-        _ => env::var("SLMP_TARGET").unwrap_or_else(|_| "default".to_string()),
+fn format_env_target() -> Result<String, Box<dyn Error>> {
+    if let Ok(target) = env::var("SLMP_TARGET") {
+        parse_named_target(&target)?;
+        return Ok(target);
     }
+    let target = parse_env_target()?;
+    Ok(format!(
+        "network={} station={} module_io=0x{:04X} multidrop=0x{:02X}",
+        target.network, target.station, target.module_io, target.multidrop
+    ))
 }
 
 fn parse_plc_profile(value: &str) -> Result<SlmpPlcProfile, Box<dyn Error>> {
@@ -150,12 +160,4 @@ fn parse_plc_profile(value: &str) -> Result<SlmpPlcProfile, Box<dyn Error>> {
         .into());
     }
     Ok(profile)
-}
-
-fn default_port_for_transport(transport: &str) -> &'static str {
-    if transport.eq_ignore_ascii_case("udp") {
-        "1035"
-    } else {
-        "1025"
-    }
 }

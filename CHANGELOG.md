@@ -17,6 +17,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: Added public monitor registration/cycle and fixed Clear Error semantic APIs; each call sends exactly one request without registration fallback or retry.
+- Library: Monitor cycle expected counts must total at least one and stay within the selected profile's monitor-registration limit.
+- Library: Self-test loopback now rejects declared-length, actual-length, trailing-data, and echo mismatches.
+- Docs: Clarified explicit monitor counts and that `U3En\HG` never changes or retries the user-selected request target.
+- Tooling: Removed cross-repository verification artifacts and their dependent interactive wrapper. Independent cross-implementation checks are not part of this repository's package or release gate.
+- Library: Long-timer and long-retentive-timer helpers reject zero, one-request-limit overflow, arithmetic overflow, and `u16` truncation of the required point count before transport.
+- Library: Typed writes require the exact matching `SlmpValue` variant and finite float values; CLI/named scalar parsing rejects range overflow instead of truncating or saturating.
+- Library: Random and block writes reject duplicate or overlapping device spans before transport, including qualified Extended Device writes.
+- Library: Remote RESET closes the transport after its send-only exchange so a delayed 3E response cannot satisfy a later request.
+- Library: `write_named` batches one compatible random-write family into exactly one request and rejects mixed families or implicit bit-in-word read-modify-write sequences.
+- Library: `read_named` and each `poll_named` cycle accept only entries that fit one random-read request; direct/block/long-timer fallback routes are rejected before transport.
+- Node binding: `normalizeAddress` rejects abstract base-only profiles as well as non-canonical labels.
+
+### BREAKING
+- Library: Qualified-address wire fields are private and exposed read-only through validated semantic constructors; `SlmpQualifiedDeviceAddress` no longer implements `serde::Deserialize`, because deserialization could bypass those constructors. Use `parse_qualified_device` or the validated semantic constructors. LZ index modification accepts only LZ0 and LZ1.
+- Node binding: `normalizeAddress` now requires the exact canonical PLC profile label as its second argument. Address radix and supported device families are never inferred by the binding.
+- Library: `SlmpConnectionOptions::new` now requires destination port, transport, complete target route, and canonical PLC profile. Port zero is rejected; no destination or transport is inferred.
+- Library: Address parsing, formatting, normalization, qualified-device parsing, and numeric semantic address construction are profile-bound. `SlmpDeviceAddress` now keeps its profile, code, and wire number in private immutable fields exposed through read-only accessors; a semantic address from another profile is rejected before transport use.
+- Library: Removed public automatic chunking, mixed-block splitting, localized end-code messages, public strict-profile bypass, and the response-optional raw request surface. `raw_command` always requires command, subcommand, and payload and always returns the response bytes.
+- Library: Extended Device operations derive wire fields from the qualified semantic address. Normal APIs no longer accept `SlmpExtensionSpec`; typed Z, LZ, and indirect modifiers remain explicit, and `with_modification` now returns `Result` after validating the combination.
+- Library: Remote RUN and PAUSE require typed mode values; Remote RUN also requires a typed clear mode. Remote RESET has fixed protocol data and no response-mode argument.
+- Library: Random and block aggregate APIs provide category-specific methods so unused categories can be omitted, while an all-empty aggregate request is rejected before transport.
+- Library: `read_named` no longer splits an oversized random-read batch into multiple requests. It reports the selected profile limit before sending, preventing a multi-time snapshot from being returned as one result.
+- Library: Standard label APIs no longer accept an abbreviation table. Use the explicitly named `*_with_abbreviations` variants when abbreviations are required.
+- Samples/Tooling: Executable environment, JSON, monitor, benchmark, and verification inputs require port, transport, target route, and profile instead of supplying runnable endpoint defaults. Named reads require an explicit dtype.
+- Tooling: The interactive read/write walk now requires explicit `--host` and `--port`; it no longer supplies a runnable PLC endpoint.
+
+### Changed
+- Library: The default communication timeout is 3 seconds, the monitoring timer is 4 seconds (`0x0010`), and TCP keepalive idle time is 30 seconds.
+- Tooling: The benchmark client's omitted operation/communication timeout now uses the same 3000 ms default instead of 2000 ms.
+- Library: 4E serial numbers are assigned under the client request lock and matched against responses. Timeout, receive failure, or external Rust future cancellation invalidates the in-flight TCP/UDP socket so partial or delayed data cannot satisfy a later request.
+- Docs: Updated migration, routing, single-request consistency, profile-bound address, Extended Device, remote-control, and executable-example guidance for the new contract.
+
+### Tests
+- Tests: Added concurrent request serialization/serial-number coverage, UDP timeout invalidation, external-cancellation invalidation, profile-mismatch pre-transport rejection (including long timers), aggregate empty-input rejection, strict typed write values, duplicate/overlap rejection, typed Extended Device modifiers and LZ bounds, RESET transport invalidation, single-request named writes, explicit remote-control wire values, and approved connection default checks.
+
 ## [3.1.0] - 2026-07-10
 
 ### Added
@@ -144,14 +180,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Library: Matched 4E responses by request serial and discarded mismatched D4 responses before parsing the response payload.
 - Library: `BIT_IN_WORD` now requires an explicit `.0` through `.F` bit index instead of treating a missing bit index as bit 0.
 - Library: Made the typed-read `U` branch explicit so future unsupported dtypes cannot fall through to `U16`.
-- Tooling: `slmp_verify_client` now rejects invalid numeric CLI input for ports, targets, counts, write values, block values, label byte values, and label array options instead of silently defaulting or narrowing them.
-- Tooling: `slmp_verify_client` now rejects out-of-range values before converting them to `u8`, `u16`, or `u32`.
-- Tooling: `slmp_verify_client` now accepts only `0` or `1` for bit write values.
 
 ### Tests
 - Tests: Added coverage for rejecting bit-in-word named addresses without an explicit bit index.
-- Tests: Updated high-level address parser and shared-spec vectors for explicit dtype requirements.
-- Tests: Added `slmp_verify_client` coverage for invalid target numbers, invalid count values, and out-of-range label byte values.
+- Tests: Updated high-level address parser tests for explicit dtype requirements.
 
 ## [1.0.1] - 2026-06-25
 
