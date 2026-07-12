@@ -204,10 +204,10 @@ Each item uses the following evidence boxes. A box may be checked only after the
 
 ### D-035 / D-036 — No automatic splitting or chunked API
 
-- Scope: continuous word/dword reads and writes.
+- Scope: continuous word/dword reads and writes, named reads/polls, and named writes.
 - Target: one call emits at most one request; counts above the profile limit fail before transport; no chunk helper is public.
 - Compatibility: chunked APIs and automatic-split options are removed.
-- Acceptance: public-surface scan finds no chunk methods; limit tests observe zero transport requests for 961 words / 481 dwords; `read_named` also rejects an oversized random batch instead of splitting it.
+- Acceptance: public-surface scan finds no chunk methods; limit tests observe zero transport requests for 961 words / 481 dwords; named reads/polls and writes emit one random request or reject the complete operation before transport.
 - [x] Implementation completed.
 - [x] Acceptance tests/checks completed.
 - [x] Documentation and migration note completed.
@@ -252,12 +252,92 @@ Each item uses the following evidence boxes. A box may be checked only after the
 - [x] Acceptance tests/checks completed.
 - [x] Documentation and migration note completed.
 
+### SLMP-C05 — Strict typed scalar writes
+
+- Scope: `write_typed`, named/CLI scalar parsing, and `SlmpValue` conversion.
+- Target: each dtype accepts only its exact `SlmpValue` variant; float values are finite and textual numbers are range checked before transport.
+- Compatibility: cross-type coercion, integer truncation, float saturation, and unknown Boolean text are rejected.
+- Acceptance: (1) U/S/D/L/F/BIT mismatches fail with request count 0; (2) all integer boundaries use checked conversion; (3) non-finite F and ambiguous Boolean text fail.
+- [x] Implementation completed.
+- [x] Tests added for every acceptance condition.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed; ordinary `cargo package` stopped only at its uncommitted-change guard.
+
+### SLMP-C06 — Send-only RESET invalidates transport
+
+- Scope: TCP/UDP `expect_response=false` exchange used by Remote RESET.
+- Target: after the RESET frame is sent, the client remains closed and cannot consume a delayed 3E response.
+- Compatibility: the same client cannot issue a later request; callers create a new connection and verify PLC state.
+- Acceptance: (1) fixed RESET frame is sent once; (2) the next request fails closed without another send; (3) TCP and UDP transports are not restored.
+- [x] Implementation completed.
+- [x] Regression test added for the public RESET path.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed.
+
+### SLMP-C11 — Ambiguous write ranges are rejected
+
+- Scope: regular/Extended random word and bit writes and block writes.
+- Target: duplicate addresses and overlapping word/DWord/block spans fail before transport.
+- Compatibility: last-writer-wins requests that were previously encoded are rejected.
+- Acceptance: (1) duplicate word/bit entries fail; (2) word-to-DWord and DWord-to-DWord overlap fails; (3) block overlap fails; (4) qualified route identity participates in Extended Device comparison.
+- [x] Implementation completed.
+- [x] Tests added for every range category.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed.
+
+### SLMP-C26 — Qualified wire fields are not publicly constructible
+
+- Scope: `SlmpQualifiedDeviceAddress`.
+- Target: semantic constructors derive private extension/direct-memory fields and read-only accessors expose them; raw contradictory struct literals are unavailable.
+- Compatibility: public field initialization and direct field reads migrate to constructors/accessors; `with_modification` returns `Result`.
+- Acceptance: (1) compile-fail coverage prevents a raw struct literal; (2) U/J constructors derive the expected fields; (3) invalid modification combinations fail before transport.
+- [x] Implementation completed.
+- [x] Compile-fail and runtime coverage added or updated.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed.
+
+### SLMP-C27 — Long-timer typed reads preserve profile binding
+
+- Scope: the long-timer fast path in `read_typed`.
+- Target: the supplied semantic address profile must equal the client profile before its number is reused by a specialized route.
+- Compatibility: cross-profile long-timer addresses are rejected instead of silently rebound.
+- Acceptance: a mismatched LTN address fails before transport with request count 0.
+- [x] Implementation completed.
+- [x] Regression test added.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed.
+
+### SLMP-C28 — Named writes are single-request-or-reject
+
+- Scope: `write_named`.
+- Target: one compatible random-write family is emitted as one request; mixed bit/word families and implicit bit-in-word RMW are rejected before transport.
+- Compatibility: callers explicitly sequence multiple families and call `write_bit_in_word` when RMW is intended.
+- Acceptance: (1) multiple same-family entries produce one request; (2) mixed families send zero requests; (3) bit-in-word sends zero requests.
+- [x] Implementation completed.
+- [x] Request-count regression tests added.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed.
+
+### SLMP-C29 — Node normalization rejects base-only profiles
+
+- Scope: `slmp-node` `normalizeAddress`.
+- Target: only canonical, connection-selectable profiles are accepted, matching the .NET contract.
+- Compatibility: `melsec:qcpu` is rejected; use its concrete module profile.
+- Acceptance: canonical concrete profile succeeds and base-only `melsec:qcpu` fails.
+- [x] Implementation completed.
+- [x] Node crate unit test updated.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed.
+
+### SLMP-C30 — LZ index is limited to LZ0/LZ1
+
+- Scope: qualified address modification construction and final wire resolution.
+- Target: LZ index 0 and 1 are accepted; index 2 or greater fails before transport.
+- Compatibility: invalid `IndexLz(2..=255)` operands no longer reach the PLC.
+- Acceptance: (1) LZ1 derives the correct flag/index; (2) LZ2 fails in the semantic constructor; (3) final resolver retains fail-closed validation.
+- [x] Implementation completed.
+- [x] Boundary regression coverage added.
+- [x] Local CI, Node tests, doctests, Clippy, and dirty-tree package verification passed.
+
 ## Batch verification and independent review
 
 - [x] Relevant formatting, Clippy, unit, integration, doctest, example, and package checks passed; exact commands/results recorded below.
 - [x] Codex self-review completed against the actual diff, public API surface, validation order, errors, transport state, timeout/cancellation behavior, tests, examples, generated documentation, packaging, and cross-language contract.
-- [ ] Claude source review completed and findings recorded. **Pending explicit user authorization; do not invoke automatically.**
-- [ ] Every Claude finding accepted, rejected with rationale, marked duplicate, or deferred with release disposition; accepted findings fixed and reverified.
+- [x] Claude source review completed by the user through Claude CLI and recorded in the workspace disposition file.
+- [x] Codex accepted and resolved Rust findings 5/6/11/26/27/28/29/30 and reran all affected checks.
 - [x] Required live-PLC checks passed, or each unavailable check has an explicit release disposition.
 - [ ] Final acceptance criteria verified and this Rust batch marked complete.
 

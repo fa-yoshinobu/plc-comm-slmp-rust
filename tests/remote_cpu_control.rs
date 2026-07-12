@@ -67,6 +67,8 @@ async fn remote_reset_sends_fixed_reset_data() {
     assert_eq!(&request[15..17], &[0x06, 0x10]);
     assert_eq!(&request[17..19], &[0x00, 0x00]);
     assert_eq!(&request[19..], &[0x01, 0x00]);
+    let error = client.read_type_name().await.unwrap_err();
+    assert!(error.message.contains("transport is closed"));
 }
 
 async fn connect(port: u16) -> SlmpClient {

@@ -165,12 +165,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut rows = Vec::new();
     for device_text in &devices {
         let qualified = parse_qualified_device(device_text, client.plc_profile().await)?;
-        let unit = if is_bit_extended_device(qualified.device.code()) {
+        let unit = if is_bit_extended_device(qualified.device().code()) {
             "bit"
         } else {
             "word"
         };
-        let direct_memory = qualified.direct_memory_specification.unwrap_or(0);
+        let direct_memory = qualified.direct_memory_specification().unwrap_or(0);
         for point_count in &points {
             let result = if unit == "bit" {
                 check_bit_device(&client, device_text, qualified, *point_count, write_check).await

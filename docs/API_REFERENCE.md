@@ -62,7 +62,7 @@ CPU-buffer access.
 | Connection options and profile descriptors | `SlmpConnectionOptions`, `plc_profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
 | Address parsing | `SlmpAddress::parse`, `SlmpAddress::try_parse`, `SlmpAddress::format`, `SlmpAddress::normalize`, `parse_device`, `parse_qualified_device` (all parsing requires `SlmpPlcProfile`) |
 | Typed values | `read_typed`, `write_typed` |
-| Named typed collections | `read_named`, `write_named`, `poll_named` |
+| Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection) |
 | Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
 | Bit-in-word write | `write_bit_in_word` |
 | Traffic counters | `traffic_stats` |

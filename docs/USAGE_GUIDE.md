@@ -74,8 +74,9 @@ page.
 `SlmpRemoteMode::Force`. `remote_run` also requires one explicit
 `SlmpRemoteClearMode`; no magic numeric fallback is used. `remote_reset()` sends
 the fixed RESET request and returns after the send completes because a successful
-RESET does not return the normal response. Confirm the PLC state after reconnecting
-when the application needs proof that the reset occurred.
+RESET does not return the normal response. The client then closes its transport so
+a delayed RESET response cannot be consumed by another 3E request. Create a new
+client connection and confirm the PLC state when proof of the reset is required.
 
 ## Routing / target station
 
@@ -148,7 +149,7 @@ let link_bits = parse_qualified_device(r"J1\X10", SlmpPlcProfile::IqR)?;
 let bits = client.read_bits_extended(link_bits, 16).await?;
 
 let indexed = parse_qualified_device(r"U3\D100", SlmpPlcProfile::IqR)?
-    .with_modification(SlmpDeviceModification::IndexZ(4));
+    .with_modification(SlmpDeviceModification::IndexZ(4))?;
 let indexed_words = client.read_words_extended(indexed, 1).await?;
 client.close().await?;
 ```
@@ -230,6 +231,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `F` | `SlmpValue::F32` | 32-bit float. |
 | `BIT` | `SlmpValue::Bool` | Bit device value. |
 
+`write_typed` requires the exact matching `SlmpValue` variant shown above. It
+does not coerce Boolean, floating-point, signed, unsigned, or differently sized
+values. `F32` values must also be finite. Text accepted by CLI helpers is range
+checked before it is converted into a `SlmpValue`.
+
 ## Write a single value
 
 ```rust
@@ -273,7 +279,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "D200:F".to_string(),
         "D50.3".to_string(),
         "M100:BIT".to_string(),
-        "LTN10:D".to_string(),
     ];
     let values = read_named(&client, &addresses).await?;
     println!("{:?}", values);
@@ -283,17 +288,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`read_named` does not split an oversized random-read batch. When the requested
-random word/dword set exceeds the selected profile limit, it fails before
-sending that batch. This prevents values from different PLC times being joined
-and presented as one random-read result. Named entries that require different
-protocol command families are separate operations; this helper is not an
-atomic PLC snapshot or transaction.
+`read_named` sends exactly one random-read request. An oversized batch or an
+entry that requires a direct, block, or long-timer helper route is rejected
+before transport. Use the explicit typed or long-device API when another
+command family is required.
 
-`write_named` may use more than one protocol command when entries require
-different write families. It is not a transaction and does not roll back an
-earlier successful write if a later write fails. Use explicit application
-sequencing when partial success must be handled.
+`write_named` sends exactly one random-write request. Word and DWord entries may
+share that request; bit entries form a separate request family. Mixing bit and
+word/DWord entries is rejected before transport, so the application must perform
+and account for the separate operations explicitly. Bit-in-word entries are also
+rejected here because they require a read-modify-write sequence; call
+`write_bit_in_word` explicitly when that non-atomic sequence is intended.
 
 ## Single-request range reads
 
@@ -506,8 +511,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = SlmpClient::connect(options).await?;
     let addresses = vec![
-        "LTN10:D".to_string(),
-        "LSTN20:L".to_string(),
         "LCN30:D".to_string(),
         "LZ0:D".to_string(),
     ];

@@ -18,13 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Library: Long-timer and long-retentive-timer helpers reject zero, one-request-limit overflow, arithmetic overflow, and `u16` truncation of the required point count before transport.
+- Library: Typed writes require the exact matching `SlmpValue` variant and finite float values; CLI/named scalar parsing rejects range overflow instead of truncating or saturating.
+- Library: Random and block writes reject duplicate or overlapping device spans before transport, including qualified Extended Device writes.
+- Library: Remote RESET closes the transport after its send-only exchange so a delayed 3E response cannot satisfy a later request.
+- Library: Qualified address wire fields are private and exposed read-only through validated semantic constructors; LZ index modification accepts only LZ0 and LZ1.
+- Library: `write_named` batches one compatible random-write family into exactly one request and rejects mixed families or implicit bit-in-word read-modify-write sequences.
+- Library: `read_named` and each `poll_named` cycle accept only entries that fit one random-read request; direct/block/long-timer fallback routes are rejected before transport.
+- Node binding: `normalizeAddress` rejects abstract base-only profiles as well as non-canonical labels.
 
 ### BREAKING
 - Node binding: `normalizeAddress` now requires the exact canonical PLC profile label as its second argument. Address radix and supported device families are never inferred by the binding.
 - Library: `SlmpConnectionOptions::new` now requires destination port, transport, complete target route, and canonical PLC profile. Port zero is rejected; no destination or transport is inferred.
 - Library: Address parsing, formatting, normalization, qualified-device parsing, and numeric semantic address construction are profile-bound. `SlmpDeviceAddress` now keeps its profile, code, and wire number in private immutable fields exposed through read-only accessors; a semantic address from another profile is rejected before transport use.
 - Library: Removed public automatic chunking, mixed-block splitting, localized end-code messages, public strict-profile bypass, and the response-optional raw request surface. `raw_command` always requires command, subcommand, and payload and always returns the response bytes.
-- Library: Extended Device operations derive wire fields from the qualified semantic address. Normal APIs no longer accept `SlmpExtensionSpec`; typed Z, LZ, and indirect modifiers remain explicit.
+- Library: Extended Device operations derive wire fields from the qualified semantic address. Normal APIs no longer accept `SlmpExtensionSpec`; typed Z, LZ, and indirect modifiers remain explicit, and `with_modification` now returns `Result` after validating the combination.
 - Library: Remote RUN and PAUSE require typed mode values; Remote RUN also requires a typed clear mode. Remote RESET has fixed protocol data and no response-mode argument.
 - Library: Random and block aggregate APIs provide category-specific methods so unused categories can be omitted, while an all-empty aggregate request is rejected before transport.
 - Library: `read_named` no longer splits an oversized random-read batch into multiple requests. It reports the selected profile limit before sending, preventing a multi-time snapshot from being returned as one result.
@@ -39,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docs: Updated migration, routing, single-request consistency, profile-bound address, Extended Device, remote-control, and executable-example guidance for the new contract.
 
 ### Tests
-- Tests: Added concurrent request serialization/serial-number coverage, UDP timeout invalidation, external-cancellation invalidation, profile-mismatch pre-transport rejection, aggregate empty-input rejection, typed Extended Device modifiers, explicit remote-control wire values, and approved connection default checks.
+- Tests: Added concurrent request serialization/serial-number coverage, UDP timeout invalidation, external-cancellation invalidation, profile-mismatch pre-transport rejection (including long timers), aggregate empty-input rejection, strict typed write values, duplicate/overlap rejection, typed Extended Device modifiers and LZ bounds, RESET transport invalidation, single-request named writes, explicit remote-control wire values, and approved connection default checks.
 
 ## [3.1.0] - 2026-07-10
 

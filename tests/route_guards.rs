@@ -1,8 +1,8 @@
 use plc_comm_slmp::{
-    SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCommand, SlmpConnectionOptions,
+    NamedAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCommand, SlmpConnectionOptions,
     SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpPlcProfile, SlmpQualifiedDeviceAddress,
-    SlmpTransportMode, SlmpValue, parse_qualified_device, read_dwords_single_request, read_named,
-    read_typed, write_typed,
+    SlmpTransportMode, SlmpValue, parse_qualified_device, parse_scalar_for_named,
+    read_dwords_single_request, read_named, read_typed, write_named, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
@@ -30,12 +30,7 @@ fn qualified_device_for(
     code: SlmpDeviceCode,
     number: u32,
 ) -> SlmpQualifiedDeviceAddress {
-    SlmpQualifiedDeviceAddress {
-        device: SlmpDeviceAddress::new(code, number, plc_profile),
-        extension_specification: None,
-        direct_memory_specification: None,
-        modification: None,
-    }
+    SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(code, number, plc_profile))
 }
 
 struct MultiResponseServer {
@@ -412,6 +407,167 @@ async fn profile_mismatch_is_rejected_before_transport() {
 }
 
 #[tokio::test]
+async fn long_timer_typed_read_rejects_profile_mismatch_before_transport() {
+    let client = udp_client_with_profile(SlmpPlcProfile::IqR).await;
+    let error = read_typed(
+        &client,
+        SlmpDeviceAddress::new(SlmpDeviceCode::LTN, 10, SlmpPlcProfile::IqF),
+        "D",
+    )
+    .await
+    .unwrap_err();
+
+    assert!(error.message.contains("does not match client"));
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn typed_writes_reject_cross_type_coercion_before_transport() {
+    let client = udp_client().await;
+    let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
+    let invalid = [
+        ("U", SlmpValue::U32(70_000)),
+        ("U", SlmpValue::I32(-1)),
+        ("U", SlmpValue::F32(1.0)),
+        ("D", SlmpValue::I32(-1)),
+        ("L", SlmpValue::U32(u32::MAX)),
+        ("F", SlmpValue::F32(f32::INFINITY)),
+        ("BIT", SlmpValue::U16(1)),
+    ];
+    for (dtype, value) in invalid {
+        assert!(write_typed(&client, device, dtype, &value).await.is_err());
+    }
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[test]
+fn named_scalar_parser_rejects_out_of_range_and_ambiguous_values() {
+    let profile = SlmpPlcProfile::IqR;
+    assert!(parse_scalar_for_named("D0:U", "70000", profile).is_err());
+    assert!(parse_scalar_for_named("D0:U", "-1", profile).is_err());
+    assert!(parse_scalar_for_named("D0:S", "32768", profile).is_err());
+    assert!(parse_scalar_for_named("D0:D", "4294967296", profile).is_err());
+    assert!(parse_scalar_for_named("D0:L", "2147483648", profile).is_err());
+    assert!(parse_scalar_for_named("D0:F", "inf", profile).is_err());
+    assert!(parse_scalar_for_named("M0:BIT", "yes", profile).is_err());
+}
+
+#[tokio::test]
+async fn named_write_batches_one_family_and_rejects_hidden_multi_request_routes() {
+    let server = CapturingResponseServer::start(vec![(0, Vec::new())])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+    let mut updates = NamedAddress::new();
+    updates.insert("D100:U".to_string(), SlmpValue::U16(1));
+    updates.insert("D101:U".to_string(), SlmpValue::U16(2));
+    write_named(&client, &updates).await.unwrap();
+    assert_eq!(server.requests().await.len(), 1);
+
+    let pretransport = udp_client().await;
+    let mut mixed = NamedAddress::new();
+    mixed.insert("D100:U".to_string(), SlmpValue::U16(1));
+    mixed.insert("M100:BIT".to_string(), SlmpValue::Bool(true));
+    assert!(write_named(&pretransport, &mixed).await.is_err());
+    let mut bit_in_word = NamedAddress::new();
+    bit_in_word.insert("D100.1".to_string(), SlmpValue::Bool(true));
+    assert!(write_named(&pretransport, &bit_in_word).await.is_err());
+    assert_eq!(pretransport.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn random_and_block_writes_reject_duplicate_or_overlapping_ranges() {
+    let client = udp_client().await;
+    let d100 = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
+    let d101 = SlmpDeviceAddress::new(SlmpDeviceCode::D, 101, SlmpPlcProfile::IqR);
+    let m100 = SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, SlmpPlcProfile::IqR);
+
+    assert!(
+        client
+            .write_random_u16s(&[(d100, 1), (d100, 2)])
+            .await
+            .is_err()
+    );
+    assert!(
+        client
+            .write_random_words(&[(d101, 1)], &[(d100, 2)])
+            .await
+            .is_err()
+    );
+    assert!(
+        client
+            .write_random_u32s(&[(d100, 1), (d101, 2)])
+            .await
+            .is_err()
+    );
+    assert!(
+        client
+            .write_random_bits(&[(m100, true), (m100, false)])
+            .await
+            .is_err()
+    );
+    assert!(
+        client
+            .write_word_blocks(&[
+                SlmpBlockWrite {
+                    device: d100,
+                    values: vec![1, 2]
+                },
+                SlmpBlockWrite {
+                    device: d101,
+                    values: vec![3]
+                },
+            ])
+            .await
+            .is_err()
+    );
+
+    let q100 = SlmpQualifiedDeviceAddress::module_access(d100, 1).unwrap();
+    let q101 = SlmpQualifiedDeviceAddress::module_access(d101, 1).unwrap();
+    assert!(
+        client
+            .write_random_words_ext(&[(q101, 1)], &[(q100, 2)])
+            .await
+            .is_err()
+    );
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn extended_random_overlap_identity_includes_the_qualified_route() {
+    let server = CapturingResponseServer::start(vec![(0, Vec::new())])
+        .await
+        .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
+    let unit1 = SlmpQualifiedDeviceAddress::module_access(device, 1).unwrap();
+    let unit2 = SlmpQualifiedDeviceAddress::module_access(device, 2).unwrap();
+
+    client
+        .write_random_u16s_extended(&[(unit1, 1), (unit2, 2)])
+        .await
+        .unwrap();
+    assert_eq!(server.requests().await.len(), 1);
+}
+
+#[tokio::test]
 async fn aggregate_operations_reject_all_empty_inputs_before_transport() {
     let client = udp_client().await;
 
@@ -648,12 +804,11 @@ async fn direct_extended_bit_write_rejects_long_timer_state_devices() {
     let client = udp_client().await;
     let err = client
         .write_bits_extended(
-            SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LSTS, 10, SlmpPlcProfile::IqR),
-                extension_specification: None,
-                direct_memory_specification: None,
-                modification: None,
-            },
+            SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+                SlmpDeviceCode::LSTS,
+                10,
+                SlmpPlcProfile::IqR,
+            )),
             &[true],
         )
         .await
@@ -669,12 +824,11 @@ async fn direct_extended_bit_write_rejects_long_counter_state_devices() {
     let client = udp_client().await;
     let err = client
         .write_bits_extended(
-            SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 10, SlmpPlcProfile::IqR),
-                extension_specification: None,
-                direct_memory_specification: None,
-                modification: None,
-            },
+            SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+                SlmpDeviceCode::LCS,
+                10,
+                SlmpPlcProfile::IqR,
+            )),
             &[true],
         )
         .await
@@ -690,12 +844,11 @@ async fn direct_extended_word_read_rejects_long_counter_current_devices() {
     let client = udp_client().await;
     let err = client
         .read_words_extended(
-            SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
-                extension_specification: None,
-                direct_memory_specification: None,
-                modification: None,
-            },
+            SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+                SlmpDeviceCode::LCN,
+                10,
+                SlmpPlcProfile::IqR,
+            )),
             4,
         )
         .await
@@ -711,12 +864,11 @@ async fn direct_extended_word_write_rejects_long_current_and_lz_devices() {
     let client = udp_client().await;
     let err = client
         .write_words_extended(
-            SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LTN, 10, SlmpPlcProfile::IqR),
-                extension_specification: None,
-                direct_memory_specification: None,
-                modification: None,
-            },
+            SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+                SlmpDeviceCode::LTN,
+                10,
+                SlmpPlcProfile::IqR,
+            )),
             &[1],
         )
         .await
@@ -728,12 +880,11 @@ async fn direct_extended_word_write_rejects_long_current_and_lz_devices() {
 
     let err = client
         .write_words_extended(
-            SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::LZ, 1, SlmpPlcProfile::IqR),
-                extension_specification: None,
-                direct_memory_specification: None,
-                modification: None,
-            },
+            SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+                SlmpDeviceCode::LZ,
+                1,
+                SlmpPlcProfile::IqR,
+            )),
             &[1],
         )
         .await
@@ -747,12 +898,12 @@ async fn direct_extended_word_write_rejects_long_current_and_lz_devices() {
 #[test]
 fn parse_qualified_device_rejects_hg_outside_iqr_cpu_range() {
     let g = parse_qualified_device(r"U1\G0", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap();
-    assert_eq!(g.extension_specification, Some(0x0001));
-    assert_eq!(g.direct_memory_specification, Some(0xF8));
+    assert_eq!(g.extension_specification(), Some(0x0001));
+    assert_eq!(g.direct_memory_specification(), Some(0xF8));
 
     let hg = parse_qualified_device(r"U3E0\HG0", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap();
-    assert_eq!(hg.extension_specification, Some(0x03E0));
-    assert_eq!(hg.direct_memory_specification, Some(0xFA));
+    assert_eq!(hg.extension_specification(), Some(0x03E0));
+    assert_eq!(hg.direct_memory_specification(), Some(0xFA));
 
     let err = parse_qualified_device(r"U1\HG0", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap_err();
     assert!(
@@ -767,12 +918,11 @@ async fn extended_g_hg_reject_unqualified_device_addresses() {
 
     let err = client
         .read_words_extended(
-            SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::G, 0, SlmpPlcProfile::IqR),
-                extension_specification: None,
-                direct_memory_specification: None,
-                modification: None,
-            },
+            SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+                SlmpDeviceCode::G,
+                0,
+                SlmpPlcProfile::IqR,
+            )),
             1,
         )
         .await
@@ -784,12 +934,11 @@ async fn extended_g_hg_reject_unqualified_device_addresses() {
 
     let err = client
         .read_words_extended(
-            SlmpQualifiedDeviceAddress {
-                device: SlmpDeviceAddress::new(SlmpDeviceCode::HG, 0, SlmpPlcProfile::IqR),
-                extension_specification: None,
-                direct_memory_specification: None,
-                modification: None,
-            },
+            SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+                SlmpDeviceCode::HG,
+                0,
+                SlmpPlcProfile::IqR,
+            )),
             1,
         )
         .await

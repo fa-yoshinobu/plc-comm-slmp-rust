@@ -207,10 +207,10 @@ fn effective_extension(
     extension: RawExtensionSpec,
 ) -> RawExtensionSpec {
     let mut result = extension;
-    if let Some(value) = qualified.extension_specification {
+    if let Some(value) = qualified.extension_specification() {
         result.extension_specification = value;
     }
-    if let Some(value) = qualified.direct_memory_specification {
+    if let Some(value) = qualified.direct_memory_specification() {
         result.direct_memory_specification = value;
     }
     result
@@ -329,7 +329,7 @@ async fn request_ext_read_bits(
     extension: RawExtensionSpec,
 ) -> Result<Vec<bool>, Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
-    let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
+    let mut payload = encode_extended_device_spec(mode, qualified.device(), extension);
     payload.extend_from_slice(&points.to_le_bytes());
     let raw = client
         .raw_command(
@@ -349,7 +349,7 @@ async fn request_ext_write_bits(
     extension: RawExtensionSpec,
 ) -> Result<(), Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
-    let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
+    let mut payload = encode_extended_device_spec(mode, qualified.device(), extension);
     payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
     payload.extend_from_slice(&pack_bits(values));
     let _ = client
@@ -370,7 +370,7 @@ async fn request_ext_read_words(
     extension: RawExtensionSpec,
 ) -> Result<Vec<u16>, Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
-    let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
+    let mut payload = encode_extended_device_spec(mode, qualified.device(), extension);
     payload.extend_from_slice(&points.to_le_bytes());
     let raw = client
         .raw_command(
@@ -390,7 +390,7 @@ async fn request_ext_write_words(
     extension: RawExtensionSpec,
 ) -> Result<(), Box<dyn Error>> {
     let extension = effective_extension(qualified, extension);
-    let mut payload = encode_extended_device_spec(mode, qualified.device, extension);
+    let mut payload = encode_extended_device_spec(mode, qualified.device(), extension);
     payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
     payload.extend_from_slice(&words_to_payload(values));
     let _ = client

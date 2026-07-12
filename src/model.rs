@@ -811,25 +811,119 @@ pub(crate) struct SlmpExtensionSpec {
     pub direct_memory_specification: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SlmpDeviceModification {
     IndexZ(u8),
     IndexLz(u8),
     Indirect,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// Semantic qualified address. Wire-only extension fields are private so normal
+/// callers cannot construct contradictory route combinations.
+///
+/// ```compile_fail
+/// use plc_comm_slmp::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile, SlmpQualifiedDeviceAddress};
+/// let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
+/// let invalid = SlmpQualifiedDeviceAddress {
+///     device,
+///     extension_specification: Some(1),
+///     direct_memory_specification: Some(0x42),
+///     modification: None,
+/// };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct SlmpQualifiedDeviceAddress {
-    pub device: SlmpDeviceAddress,
-    pub extension_specification: Option<u16>,
-    pub direct_memory_specification: Option<u8>,
-    pub modification: Option<SlmpDeviceModification>,
+    device: SlmpDeviceAddress,
+    extension_specification: Option<u16>,
+    direct_memory_specification: Option<u8>,
+    modification: Option<SlmpDeviceModification>,
 }
 
 impl SlmpQualifiedDeviceAddress {
-    pub const fn with_modification(mut self, modification: SlmpDeviceModification) -> Self {
+    pub const fn new(device: SlmpDeviceAddress) -> Self {
+        Self {
+            device,
+            extension_specification: None,
+            direct_memory_specification: None,
+            modification: None,
+        }
+    }
+
+    pub fn module_access(
+        device: SlmpDeviceAddress,
+        extension_specification: u16,
+    ) -> Result<Self, crate::error::SlmpError> {
+        let direct_memory_specification = match device.code() {
+            SlmpDeviceCode::G => Some(0xF8),
+            SlmpDeviceCode::HG => {
+                if !matches!(extension_specification, 0x03E0..=0x03E3) {
+                    return Err(crate::error::SlmpError::new(
+                        "HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG.",
+                    ));
+                }
+                Some(0xFA)
+            }
+            _ => None,
+        };
+        Ok(Self {
+            device,
+            extension_specification: Some(extension_specification),
+            direct_memory_specification,
+            modification: None,
+        })
+    }
+
+    pub const fn link_direct(device: SlmpDeviceAddress, network: u16) -> Self {
+        Self {
+            device,
+            extension_specification: Some(network),
+            direct_memory_specification: Some(0xF9),
+            modification: None,
+        }
+    }
+
+    pub fn with_modification(
+        mut self,
+        modification: SlmpDeviceModification,
+    ) -> Result<Self, crate::error::SlmpError> {
+        if self.direct_memory_specification == Some(0xF9) {
+            return Err(crate::error::SlmpError::new(
+                "J-qualified link-direct devices do not support Z, LZ, or indirect modification",
+            ));
+        }
+        if let SlmpDeviceModification::IndexLz(index) = modification {
+            if index > 1 {
+                return Err(crate::error::SlmpError::new("LZ index must be 0 or 1."));
+            }
+            if !self.device.plc_profile().uses_iqr_protocol() {
+                return Err(crate::error::SlmpError::new(format!(
+                    "LZ index modification is not supported for plc_profile '{}'",
+                    self.device.plc_profile().canonical_name()
+                )));
+            }
+        }
         self.modification = Some(modification);
-        self
+        Ok(self)
+    }
+
+    pub const fn device(self) -> SlmpDeviceAddress {
+        self.device
+    }
+
+    pub const fn device_ref(&self) -> &SlmpDeviceAddress {
+        &self.device
+    }
+
+    pub const fn extension_specification(self) -> Option<u16> {
+        self.extension_specification
+    }
+
+    pub const fn direct_memory_specification(self) -> Option<u8> {
+        self.direct_memory_specification
+    }
+
+    pub const fn modification(self) -> Option<SlmpDeviceModification> {
+        self.modification
     }
 }
 

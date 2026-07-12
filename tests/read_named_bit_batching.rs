@@ -161,7 +161,7 @@ async fn read_named_batches_each_supported_plain_bit_device_code() {
 }
 
 #[tokio::test]
-async fn read_named_uses_direct_bit_reads_for_live_sensitive_bit_devices() {
+async fn read_named_rejects_direct_bit_fallback_routes_before_transport() {
     let addresses = strings(&[
         "TS10:BIT",
         "TC10:BIT",
@@ -172,34 +172,14 @@ async fn read_named_uses_direct_bit_reads_for_live_sensitive_bit_devices() {
         "DX10:BIT",
         "DY10:BIT",
     ]);
-    let expected_devices = [
-        SlmpDeviceAddress::new(SlmpDeviceCode::TS, 10, SlmpPlcProfile::IqR),
-        SlmpDeviceAddress::new(SlmpDeviceCode::TC, 10, SlmpPlcProfile::IqR),
-        SlmpDeviceAddress::new(SlmpDeviceCode::STS, 10, SlmpPlcProfile::IqR),
-        SlmpDeviceAddress::new(SlmpDeviceCode::STC, 10, SlmpPlcProfile::IqR),
-        SlmpDeviceAddress::new(SlmpDeviceCode::CS, 10, SlmpPlcProfile::IqR),
-        SlmpDeviceAddress::new(SlmpDeviceCode::CC, 10, SlmpPlcProfile::IqR),
-        SlmpDeviceAddress::new(SlmpDeviceCode::DX, 0x10, SlmpPlcProfile::IqR),
-        SlmpDeviceAddress::new(SlmpDeviceCode::DY, 0x10, SlmpPlcProfile::IqR),
-    ];
-    let server = CapturingServer::start(vec![vec![0x10]; addresses.len()])
-        .await
-        .unwrap();
+    let server = CapturingServer::start(vec![]).await.unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
 
-    let values = read_named(&client, &addresses).await.unwrap();
-
-    assert!(
-        addresses
-            .iter()
-            .all(|address| values[address] == SlmpValue::Bool(true))
-    );
+    let error = read_named(&client, &addresses).await.unwrap_err();
 
     let requests = server.requests().await;
-    assert_eq!(requests.len(), expected_devices.len());
-    for (request, device) in requests.iter().zip(expected_devices) {
-        assert_direct_bit_read(request, device, 1);
-    }
+    assert!(error.message.contains("one random-read request"));
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]
@@ -245,22 +225,16 @@ async fn read_named_uses_profile_random_read_limit_for_ql_profiles() {
 }
 
 #[tokio::test]
-async fn read_named_keeps_long_counter_state_bits_on_direct_bit_fallback() {
-    let server = CapturingServer::start(vec![vec![0x10]]).await.unwrap();
+async fn read_named_rejects_long_counter_state_direct_bit_fallback() {
+    let server = CapturingServer::start(vec![]).await.unwrap();
     let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
     let addresses = strings(&["LCS30:BIT"]);
 
-    let values = read_named(&client, &addresses).await.unwrap();
-
-    assert_eq!(values["LCS30:BIT"], SlmpValue::Bool(true));
+    let error = read_named(&client, &addresses).await.unwrap_err();
 
     let requests = server.requests().await;
-    assert_eq!(requests.len(), 1);
-    assert_direct_bit_read(
-        &requests[0],
-        SlmpDeviceAddress::new(SlmpDeviceCode::LCS, 30, SlmpPlcProfile::IqR),
-        1,
-    );
+    assert!(error.message.contains("one random-read request"));
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]
@@ -455,24 +429,6 @@ fn assert_random_shape(
         assert_eq!(actual, *device);
         offset += spec_size;
     }
-}
-
-fn assert_direct_bit_read(request: &[u8], device: SlmpDeviceAddress, points: u16) {
-    let body = &request[header_size(request)..];
-    assert_eq!(
-        u16::from_le_bytes([body[2], body[3]]),
-        SlmpCommand::DeviceRead.as_u16()
-    );
-    assert_eq!(u16::from_le_bytes([body[4], body[5]]), 0x0003);
-    let device_offset = header_size(request) + 6;
-    assert_eq!(
-        decode_iqr_device(&request[device_offset..device_offset + 6]),
-        device
-    );
-    assert_eq!(
-        u16::from_le_bytes([request[device_offset + 6], request[device_offset + 7]]),
-        points
-    );
 }
 
 fn decode_iqr_device(bytes: &[u8]) -> SlmpDeviceAddress {

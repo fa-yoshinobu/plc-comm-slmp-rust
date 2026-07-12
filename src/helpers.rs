@@ -72,6 +72,14 @@ pub async fn read_typed(
     dtype: &str,
 ) -> Result<SlmpValue, SlmpError> {
     let normalized_dtype = require_dtype(dtype)?;
+    let client_profile = client.plc_profile().await;
+    if device.plc_profile() != client_profile {
+        return Err(SlmpError::new(format!(
+            "device plc_profile '{}' does not match client plc_profile '{}'",
+            device.plc_profile().canonical_name(),
+            client_profile.canonical_name()
+        )));
+    }
     validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
     if matches!(device.code(), SlmpDeviceCode::LZ) && matches!(normalized_dtype.as_str(), "D" | "L")
     {
@@ -153,7 +161,12 @@ pub async fn write_typed(
             }
         }
         NamedWriteRoute::ContiguousWords => {
-            client.write_words(device, &[scalar_to_u16(value)?]).await
+            let raw = if normalized_dtype == "S" {
+                scalar_to_i16(value)? as u16
+            } else {
+                scalar_to_u16(value)?
+            };
+            client.write_words(device, &[raw]).await
         }
     }
 }
@@ -234,23 +247,60 @@ pub async fn read_named(
 }
 
 pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<(), SlmpError> {
+    if updates.is_empty() {
+        return Err(SlmpError::new("write_named requires at least one update."));
+    }
     let plc_profile = client.plc_profile().await;
+    let mut bit_entries = Vec::new();
+    let mut word_entries = Vec::new();
+    let mut dword_entries = Vec::new();
     for (address, value) in updates {
         let parts = parse_named_address(address)?;
         let device = parse_device(&parts.base, plc_profile)?;
         if parts.dtype == "BIT_IN_WORD" {
-            validate_bit_in_word_target(address, device)?;
-            let bit_index = require_bit_in_word_index(address, parts.bit_index)?;
-            write_bit_in_word(client, device, bit_index, scalar_to_bool(value)?).await?;
-            continue;
+            return Err(SlmpError::new(format!(
+                "Address '{address}' requires a read-modify-write sequence. Use write_bit_in_word explicitly."
+            )));
         }
         let resolved_dtype =
             resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index)?;
         validate_named_device_dtype(address, device, &resolved_dtype)?;
         validate_long_timer_entry(address, device, &resolved_dtype)?;
-        write_typed(client, device, &resolved_dtype, value).await?;
+        validate_dword_only_entry(address, device, &resolved_dtype)?;
+        match resolve_write_route(device, &resolved_dtype) {
+            NamedWriteRoute::RandomBits | NamedWriteRoute::ContiguousBits => {
+                bit_entries.push((device, scalar_to_bool(value)?));
+            }
+            NamedWriteRoute::RandomDWords | NamedWriteRoute::ContiguousDWords => {
+                let raw = match resolved_dtype.as_str() {
+                    "F" => scalar_to_f32(value)?.to_bits(),
+                    "L" => scalar_to_i32(value)? as u32,
+                    _ => scalar_to_u32(value)?,
+                };
+                dword_entries.push((device, raw));
+            }
+            NamedWriteRoute::ContiguousWords => {
+                let raw = if resolved_dtype == "S" {
+                    scalar_to_i16(value)? as u16
+                } else {
+                    scalar_to_u16(value)?
+                };
+                word_entries.push((device, raw));
+            }
+        }
     }
-    Ok(())
+    if !bit_entries.is_empty() && (!word_entries.is_empty() || !dword_entries.is_empty()) {
+        return Err(SlmpError::new(
+            "write_named cannot combine bit and word/dword write families in one request. Split them explicitly.",
+        ));
+    }
+    if !bit_entries.is_empty() {
+        client.write_random_bits(&bit_entries).await
+    } else {
+        client
+            .write_random_words(&word_entries, &dword_entries)
+            .await
+    }
 }
 
 pub fn poll_named<'a>(
@@ -341,6 +391,32 @@ fn compile_read_plan(
             bit_word_read,
             long_timer_read: long_timer_read_spec(device.code()),
         });
+    }
+
+    let unsupported = entries
+        .iter()
+        .filter(|entry| {
+            let supported = if let Some(spec) = &entry.long_timer_read {
+                matches!(entry.device.code(), SlmpDeviceCode::LCN)
+                    && matches!(spec.kind, LongTimerReadKind::Current)
+                    && dword_devices.contains(&entry.device)
+            } else if let Some(read) = entry.bit_word_read {
+                word_devices.contains(&read.device)
+            } else {
+                match entry.dtype.as_str() {
+                    "U" | "S" => word_devices.contains(&entry.device),
+                    "D" | "L" | "F" => dword_devices.contains(&entry.device),
+                    _ => false,
+                }
+            };
+            !supported
+        })
+        .map(|entry| entry.address.as_str())
+        .collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        return Err(SlmpError::new(format!(
+            "read_named accepts only addresses that fit one random-read request; use explicit read calls for {unsupported:?}."
+        )));
     }
 
     Ok(NamedReadPlan {
@@ -719,55 +795,43 @@ fn validate_dword_only_entry(
 fn scalar_to_bool(value: &SlmpValue) -> Result<bool, SlmpError> {
     match value {
         SlmpValue::Bool(v) => Ok(*v),
-        SlmpValue::U16(v) => Ok(*v != 0),
-        SlmpValue::I16(v) => Ok(*v != 0),
-        SlmpValue::U32(v) => Ok(*v != 0),
-        SlmpValue::I32(v) => Ok(*v != 0),
-        SlmpValue::F32(v) => Ok(*v != 0.0),
+        _ => Err(SlmpError::new("BIT value must be SlmpValue::Bool.")),
     }
 }
 
 fn scalar_to_u16(value: &SlmpValue) -> Result<u16, SlmpError> {
     match value {
         SlmpValue::U16(v) => Ok(*v),
-        SlmpValue::I16(v) => Ok(*v as u16),
-        SlmpValue::Bool(v) => Ok(u16::from(*v)),
-        SlmpValue::U32(v) => Ok(*v as u16),
-        SlmpValue::I32(v) => Ok(*v as u16),
-        SlmpValue::F32(v) => Ok(*v as u16),
+        _ => Err(SlmpError::new("U value must be SlmpValue::U16.")),
+    }
+}
+
+fn scalar_to_i16(value: &SlmpValue) -> Result<i16, SlmpError> {
+    match value {
+        SlmpValue::I16(v) => Ok(*v),
+        _ => Err(SlmpError::new("S value must be SlmpValue::I16.")),
     }
 }
 
 fn scalar_to_u32(value: &SlmpValue) -> Result<u32, SlmpError> {
     match value {
         SlmpValue::U32(v) => Ok(*v),
-        SlmpValue::I32(v) => Ok(*v as u32),
-        SlmpValue::U16(v) => Ok(*v as u32),
-        SlmpValue::I16(v) => Ok(*v as u32),
-        SlmpValue::Bool(v) => Ok(u32::from(*v)),
-        SlmpValue::F32(v) => Ok(*v as u32),
+        _ => Err(SlmpError::new("D value must be SlmpValue::U32.")),
     }
 }
 
 fn scalar_to_i32(value: &SlmpValue) -> Result<i32, SlmpError> {
     match value {
         SlmpValue::I32(v) => Ok(*v),
-        SlmpValue::U32(v) => Ok(*v as i32),
-        SlmpValue::U16(v) => Ok(*v as i32),
-        SlmpValue::I16(v) => Ok(*v as i32),
-        SlmpValue::Bool(v) => Ok(i32::from(*v)),
-        SlmpValue::F32(v) => Ok(*v as i32),
+        _ => Err(SlmpError::new("L value must be SlmpValue::I32.")),
     }
 }
 
 fn scalar_to_f32(value: &SlmpValue) -> Result<f32, SlmpError> {
     match value {
-        SlmpValue::F32(v) => Ok(*v),
-        SlmpValue::U32(v) => Ok(*v as f32),
-        SlmpValue::I32(v) => Ok(*v as f32),
-        SlmpValue::U16(v) => Ok(*v as f32),
-        SlmpValue::I16(v) => Ok(*v as f32),
-        SlmpValue::Bool(v) => Ok(if *v { 1.0 } else { 0.0 }),
+        SlmpValue::F32(v) if v.is_finite() => Ok(*v),
+        SlmpValue::F32(_) => Err(SlmpError::new("F value must be finite.")),
+        _ => Err(SlmpError::new("F value must be SlmpValue::F32.")),
     }
 }
 
@@ -789,26 +853,24 @@ pub fn parse_scalar_for_named(
     let device = parse_device(&parts.base, plc_profile)?;
     if parts.dtype == "BIT_IN_WORD" {
         require_bit_in_word_index(address, parts.bit_index)?;
-        return Ok(SlmpValue::Bool(matches!(
-            value,
-            "1" | "true" | "TRUE" | "True"
-        )));
+        return parse_bool_scalar(value);
     }
     let resolved_dtype = resolve_dtype_for_address(address, device, &parts.dtype, parts.bit_index)?;
     validate_named_device_dtype(address, device, &resolved_dtype)?;
     validate_long_timer_entry(address, device, &resolved_dtype)?;
     validate_dword_only_entry(address, device, &resolved_dtype)?;
     if resolved_dtype == "BIT" {
-        return Ok(SlmpValue::Bool(matches!(
-            value,
-            "1" | "true" | "TRUE" | "True"
-        )));
+        return parse_bool_scalar(value);
     }
     if resolved_dtype == "F" {
-        return value
+        let parsed = value
             .parse::<f32>()
-            .map(SlmpValue::F32)
             .map_err(|_| SlmpError::new("Invalid float value."));
+        return match parsed {
+            Ok(number) if number.is_finite() => Ok(SlmpValue::F32(number)),
+            Ok(_) => Err(SlmpError::new("Float value must be finite.")),
+            Err(error) => Err(error),
+        };
     }
     let parsed = if let Some(hex) = value
         .strip_prefix("0x")
@@ -820,10 +882,28 @@ pub fn parse_scalar_for_named(
             .parse::<i64>()
             .map_err(|_| SlmpError::new("Invalid integer value."))?
     };
-    Ok(match resolved_dtype.as_str() {
-        "L" => SlmpValue::I32(parsed as i32),
-        "D" => SlmpValue::U32(parsed as u32),
-        "S" => SlmpValue::I16(parsed as i16),
-        _ => SlmpValue::U16(parsed as u16),
-    })
+    match resolved_dtype.as_str() {
+        "L" => i32::try_from(parsed)
+            .map(SlmpValue::I32)
+            .map_err(|_| SlmpError::new("L value must be in range -2147483648..=2147483647.")),
+        "D" => u32::try_from(parsed)
+            .map(SlmpValue::U32)
+            .map_err(|_| SlmpError::new("D value must be in range 0..=4294967295.")),
+        "S" => i16::try_from(parsed)
+            .map(SlmpValue::I16)
+            .map_err(|_| SlmpError::new("S value must be in range -32768..=32767.")),
+        _ => u16::try_from(parsed)
+            .map(SlmpValue::U16)
+            .map_err(|_| SlmpError::new("U value must be in range 0..=65535.")),
+    }
+}
+
+fn parse_bool_scalar(value: &str) -> Result<SlmpValue, SlmpError> {
+    match value {
+        "1" | "true" | "TRUE" | "True" => Ok(SlmpValue::Bool(true)),
+        "0" | "false" | "FALSE" | "False" => Ok(SlmpValue::Bool(false)),
+        _ => Err(SlmpError::new(
+            "Boolean value must be 0, 1, false, or true.",
+        )),
+    }
 }

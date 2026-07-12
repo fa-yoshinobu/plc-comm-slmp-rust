@@ -8,6 +8,9 @@ pub fn normalize_address(address: String, plc_profile: String) -> napi::Result<S
             "plc_profile must be an exact canonical profile label such as 'melsec:iq-r'",
         )
     })?;
+    plc_profile
+        .validate_connection_selectable()
+        .map_err(|error| napi::Error::from_reason(error.message))?;
     SlmpAddress::normalize(&address, plc_profile)
         .map_err(|error| napi::Error::from_reason(error.message))
 }
@@ -23,6 +26,7 @@ mod tests {
             "D100"
         );
         assert!(normalize_address("D100".to_owned(), "iqr".to_owned()).is_err());
+        assert!(normalize_address("D100".to_owned(), "melsec:qcpu".to_owned()).is_err());
     }
 
     #[test]

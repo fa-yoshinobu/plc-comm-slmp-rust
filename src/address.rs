@@ -238,12 +238,10 @@ pub fn parse_qualified_device(
         let network: u16 = network
             .parse()
             .map_err(|_| SlmpError::new("Invalid J-direct network."))?;
-        return Ok(SlmpQualifiedDeviceAddress {
-            device: parse_device(device_text, plc_profile)?,
-            extension_specification: Some(network),
-            direct_memory_specification: Some(0xF9),
-            modification: None,
-        });
+        return Ok(SlmpQualifiedDeviceAddress::link_direct(
+            parse_device(device_text, plc_profile)?,
+            network,
+        ));
     }
 
     if let Some(rest) = token.strip_prefix('U')
@@ -252,32 +250,13 @@ pub fn parse_qualified_device(
         let extension_specification = u16::from_str_radix(extension, 16)
             .map_err(|_| SlmpError::new("Invalid extension specification."))?;
         let device = parse_device(device_text, plc_profile)?;
-        let direct_memory_specification = match device.code() {
-            SlmpDeviceCode::G => Some(0xF8),
-            SlmpDeviceCode::HG => {
-                if !matches!(extension_specification, 0x03E0..=0x03E3) {
-                    return Err(SlmpError::new(
-                        "HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG.",
-                    ));
-                }
-                Some(0xFA)
-            }
-            _ => None,
-        };
-        return Ok(SlmpQualifiedDeviceAddress {
-            device,
-            extension_specification: Some(extension_specification),
-            direct_memory_specification,
-            modification: None,
-        });
+        return SlmpQualifiedDeviceAddress::module_access(device, extension_specification);
     }
 
-    Ok(SlmpQualifiedDeviceAddress {
-        device: parse_device(&token, plc_profile)?,
-        extension_specification: None,
-        direct_memory_specification: None,
-        modification: None,
-    })
+    Ok(SlmpQualifiedDeviceAddress::new(parse_device(
+        &token,
+        plc_profile,
+    )?))
 }
 
 fn split_slash(text: &str) -> Option<(&str, &str)> {

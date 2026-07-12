@@ -237,7 +237,41 @@ pub(crate) fn validate_block_write_limits(
             "write_block total device points out of range (<=960): weighted={weighted}, total_points={total_points}"
         )));
     }
+    validate_block_write_overlap(word_blocks, bit_blocks)?;
     Ok(())
+}
+
+fn validate_block_write_overlap(
+    word_blocks: &[SlmpBlockWrite],
+    bit_blocks: &[SlmpBlockWrite],
+) -> Result<(), SlmpError> {
+    let blocks: Vec<_> = word_blocks.iter().chain(bit_blocks.iter()).collect();
+    for (index, left) in blocks.iter().enumerate() {
+        let left_end = checked_span_end(left.device.number(), left.values.len(), "write_block")?;
+        for right in &blocks[index + 1..] {
+            if left.device.plc_profile() != right.device.plc_profile()
+                || left.device.code() != right.device.code()
+            {
+                continue;
+            }
+            let right_end =
+                checked_span_end(right.device.number(), right.values.len(), "write_block")?;
+            if left.device.number() <= right_end && right.device.number() <= left_end {
+                return Err(SlmpError::new(
+                    "write_block device ranges must not overlap within one request",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn checked_span_end(start: u32, points: usize, name: &str) -> Result<u32, SlmpError> {
+    let length = u32::try_from(points)
+        .map_err(|_| SlmpError::new(format!("{name} device span is too large")))?;
+    start
+        .checked_add(length.saturating_sub(1))
+        .ok_or_else(|| SlmpError::new(format!("{name} device span overflows u32")))
 }
 
 pub(crate) fn validate_memory_word_length(word_length: usize, name: &str) -> Result<(), SlmpError> {
@@ -494,14 +528,41 @@ pub(crate) fn validate_random_write_word_devices(
             ));
         }
     }
+    if !allow_qualified_only_devices {
+        let mut spans = Vec::with_capacity(word_entries.len() + dword_entries.len());
+        spans.extend(word_entries.iter().map(|(device, _)| (*device, 1usize)));
+        spans.extend(dword_entries.iter().map(|(device, _)| (*device, 2usize)));
+        for (index, (left, left_width)) in spans.iter().enumerate() {
+            let left_end = checked_span_end(left.number(), *left_width, "write_random_words")?;
+            for (right, right_width) in &spans[index + 1..] {
+                if left.plc_profile() != right.plc_profile() || left.code() != right.code() {
+                    continue;
+                }
+                let right_end =
+                    checked_span_end(right.number(), *right_width, "write_random_words")?;
+                if left.number() <= right_end && right.number() <= left_end {
+                    return Err(SlmpError::new(
+                        "write_random_words device ranges must not overlap within one request",
+                    ));
+                }
+            }
+        }
+    }
     Ok(())
 }
 
 pub(crate) fn validate_random_bit_write_devices(
     bit_entries: &[(SlmpDeviceAddress, bool)],
     plc_profile: SlmpPlcProfile,
+    validate_duplicates: bool,
 ) -> Result<(), SlmpError> {
+    let mut seen = std::collections::HashSet::new();
     for (device, _) in bit_entries {
+        if validate_duplicates && !seen.insert(*device) {
+            return Err(SlmpError::new(
+                "write_random_bits devices must not be duplicated within one request",
+            ));
+        }
         if is_read_only_device(device.code(), plc_profile) {
             return Err(read_only_random_write_error(plc_profile));
         }
