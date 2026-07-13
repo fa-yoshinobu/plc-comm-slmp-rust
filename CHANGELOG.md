@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-13
+
 - Library: Added public monitor registration/cycle and fixed Clear Error semantic APIs; each call sends exactly one request without registration fallback or retry.
 - Library: Monitor cycle expected counts must total at least one and stay within the selected profile's monitor-registration limit.
 - Library: Self-test loopback now rejects declared-length, actual-length, trailing-data, and echo mismatches.
@@ -44,23 +46,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Samples/Tooling: Executable environment, JSON, monitor, benchmark, and verification inputs require port, transport, target route, and profile instead of supplying runnable endpoint defaults. Named reads require an explicit dtype.
 - Tooling: The interactive read/write walk now requires explicit `--host` and `--port`; it no longer supplies a runnable PLC endpoint.
 
+### Added
+- Library: Added `SlmpPlcProfileDescriptor` and crate-root `plc_profile_descriptors()` for canonical SLMP profile metadata.
+
 ### Changed
 - Library: The default communication timeout is 3 seconds, the monitoring timer is 4 seconds (`0x0010`), and TCP keepalive idle time is 30 seconds.
 - Tooling: The benchmark client's omitted operation/communication timeout now uses the same 3000 ms default instead of 2000 ms.
 - Library: 4E serial numbers are assigned under the client request lock and matched against responses. Timeout, receive failure, or external Rust future cancellation invalidates the in-flight TCP/UDP socket so partial or delayed data cannot satisfy a later request.
 - Docs: Updated migration, routing, single-request consistency, profile-bound address, Extended Device, remote-control, and executable-example guidance for the new contract.
 
-### Tests
-- Tests: Added concurrent request serialization/serial-number coverage, UDP timeout invalidation, external-cancellation invalidation, profile-mismatch pre-transport rejection (including long timers), aggregate empty-input rejection, strict typed write values, duplicate/overlap rejection, typed Extended Device modifiers and LZ bounds, RESET transport invalidation, single-request named writes, explicit remote-control wire values, and approved connection default checks.
-
-## [3.1.0] - 2026-07-10
-
-### Added
-- Library: Added `SlmpPlcProfileDescriptor` and crate-root `plc_profile_descriptors()` for canonical SLMP profile metadata.
-
-### Changed
 - Release: Bumped the main crate metadata to `3.1.0`; the `slmp-node` workspace crate remains `1.0.3`.
 - Tooling: Pinned canonical SLMP profile imports to published profile tag `v2.0.0`.
+
+### Tests
+- Tests: Added concurrent request serialization/serial-number coverage, UDP timeout invalidation, external-cancellation invalidation, profile-mismatch pre-transport rejection (including long timers), aggregate empty-input rejection, strict typed write values, duplicate/overlap rejection, typed Extended Device modifiers and LZ bounds, RESET transport invalidation, single-request named writes, explicit remote-control wire values, and approved connection default checks.
 
 ## [3.0.0] - 2026-07-10
 
