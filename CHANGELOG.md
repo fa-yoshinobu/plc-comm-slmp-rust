@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Tests: Pinned the existing `traffic_stats()` byte-count and mismatched-response contract used for parity in the other SLMP implementations.
+
 ## [3.1.0] - 2026-07-13
 
 - Library: Added public monitor registration/cycle and fixed Clear Error semantic APIs; each call sends exactly one request without registration fallback or retry.

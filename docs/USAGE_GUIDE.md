@@ -562,3 +562,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `.n` | `D50.3` | Bit `n` inside a word, where `n` is `0` through `F`. |
 
 Named addresses used with `read_named`, `write_named`, and `poll_named` must include the intended type, for example `D100:U` or `M100:BIT`.
+## Traffic statistics
+
+`client.traffic_stats().await` returns the client-lifetime `request_count`, `tx_bytes`, and
+`rx_bytes` snapshot. A request counts only after its complete frame is sent; a complete received
+frame counts before protocol or PLC end-code validation. Close and reconnect do not reset it.

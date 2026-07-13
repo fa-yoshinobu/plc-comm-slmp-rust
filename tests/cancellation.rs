@@ -33,6 +33,8 @@ async fn externally_cancelled_exchange_closes_transport() {
         tokio::time::timeout(Duration::from_millis(50), client.read_words_raw(address, 1)).await;
     assert!(cancelled.is_err(), "the outer timeout must cancel the call");
     assert_eq!(client.traffic_stats().await.request_count, 1);
+    assert!(client.traffic_stats().await.tx_bytes > 0);
+    assert_eq!(client.traffic_stats().await.rx_bytes, 0);
 
     let error = client.read_words_raw(address, 1).await.unwrap_err();
     assert!(error.message.contains("transport is closed"));

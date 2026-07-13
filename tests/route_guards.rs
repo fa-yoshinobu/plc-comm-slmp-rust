@@ -283,7 +283,12 @@ async fn frame_4e_ignores_mismatched_serial_response() {
         .unwrap();
 
     assert_eq!(words, vec![0x2222]);
-    assert_eq!(server.requests().await.len(), 1);
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 1);
+    let stats = client.traffic_stats().await;
+    assert_eq!(stats.request_count, 1);
+    assert_eq!(stats.tx_bytes, requests[0].len() as u64);
+    assert_eq!(stats.rx_bytes, 34);
 }
 
 #[tokio::test]
@@ -942,6 +947,8 @@ async fn udp_timeout_closes_transport_before_another_request() {
     let second = client.read_words_raw(address, 1).await.unwrap_err();
     assert!(second.message.contains("transport is closed"));
     assert_eq!(client.traffic_stats().await.request_count, 1);
+    assert!(client.traffic_stats().await.tx_bytes > 0);
+    assert_eq!(client.traffic_stats().await.rx_bytes, 0);
 }
 
 #[tokio::test]
