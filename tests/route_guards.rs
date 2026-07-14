@@ -944,6 +944,8 @@ async fn udp_timeout_closes_transport_before_another_request() {
 
     let first = client.read_words_raw(address, 1).await.unwrap_err();
     assert!(first.message.contains("udp receive timed out"));
+    assert_eq!(first.kind, SlmpErrorKind::Timeout);
+    assert!(first.is_timeout());
     let second = client.read_words_raw(address, 1).await.unwrap_err();
     assert!(second.message.contains("transport is closed"));
     assert_eq!(client.traffic_stats().await.request_count, 1);

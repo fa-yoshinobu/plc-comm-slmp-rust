@@ -103,6 +103,7 @@ pub(crate) fn resolve_profile_for_plc_profile(
         SlmpPlcProfile::IqL => create_iql_profile(),
         SlmpPlcProfile::MxF => create_mxf_profile(),
         SlmpPlcProfile::MxR => create_mxr_profile(),
+        SlmpPlcProfile::MxRRj71En71 => create_mxr_profile(),
         SlmpPlcProfile::IqF => create_iqf_profile(),
         SlmpPlcProfile::QCpu => create_qcpu_profile(),
         SlmpPlcProfile::LCpu => create_lcpu_profile(),
@@ -227,6 +228,7 @@ pub(crate) fn device_range_model_label(plc_profile: SlmpPlcProfile) -> &'static 
         SlmpPlcProfile::IqL => "iQ-L",
         SlmpPlcProfile::MxF => "MX-F",
         SlmpPlcProfile::MxR => "MX-R",
+        SlmpPlcProfile::MxRRj71En71 => "MX-R via RJ71EN71",
         SlmpPlcProfile::IqF => "IQ-F",
         SlmpPlcProfile::QCpu => "QCPU",
         SlmpPlcProfile::QCpuQj71E71100 => "QCPU via QJ71E71-100",
@@ -1053,6 +1055,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn mxr_rj71en71_uses_mxr_ranges_and_preserves_selected_catalog_identity() {
+        let selected = SlmpPlcProfile::MxRRj71En71;
+        let range_profile = resolve_profile_for_plc_profile(selected);
+        assert_eq!(range_profile.plc_profile, SlmpPlcProfile::MxR);
+
+        let snapshot = create_snapshot(&range_profile);
+        let catalog = build_catalog_for_plc_profile(selected, &snapshot).unwrap();
+        assert_eq!(catalog.plc_profile, selected);
+        assert_eq!(catalog.model, "MX-R via RJ71EN71");
     }
 
     #[test]

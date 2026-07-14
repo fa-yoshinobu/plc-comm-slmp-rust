@@ -190,6 +190,7 @@ fn device_is_unsupported_for_family(code: SlmpDeviceCode, family: SlmpPlcProfile
         | SlmpPlcProfile::IqRRj71En71
         | SlmpPlcProfile::IqL
         | SlmpPlcProfile::MxR
+        | SlmpPlcProfile::MxRRj71En71
         | SlmpPlcProfile::MxF => false,
         SlmpPlcProfile::QCpuQj71E71100
         | SlmpPlcProfile::LCpuLj71E71100

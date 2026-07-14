@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Tests: Pinned the existing `traffic_stats()` byte-count and mismatched-response contract used for parity in the other SLMP implementations.
+- Library: TCP and UDP now accept a response only when all four target-route fields match the request; 4E responses must also match the request serial. Complete foreign responses are discarded while malformed frames still invalidate the transport.
+- Library: Each request now has one absolute timeout covering send, response assembly, and any discarded foreign-route or wrong-serial frames; unrelated responses cannot restart the timeout.
+- Library: Added `melsec:mx-r:rj71en71` (`SlmpPlcProfile::MxRRj71En71`) for MX-R through RJ71EN71 connections and pinned profile imports to `v2.1.0`.
+- Library: Deadline expiry is now machine-identifiable as `SlmpErrorKind::Timeout` and through `SlmpError::is_timeout()`.
+- Breaking: `SlmpErrorKind` adds `Timeout` and is now non-exhaustive; downstream exhaustive matches must include a wildcard arm.
+- Breaking: `SlmpPlcProfile` is now non-exhaustive so future canonical profile additions do not repeatedly break downstream exhaustive matches; downstream matches must include a wildcard arm.
+- Tests: Added deterministic TCP/UDP 3E/4E route-correlation, wrong-serial flood, within-deadline success, malformed-frame, and transport-isolation coverage.
+- Tooling: Refreshed canonical SLMP profile fixtures for 2026-07-14, including `melsec:mx-r:rj71en71` and its device-range rules.
 
 ## [3.1.0] - 2026-07-13
 

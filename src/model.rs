@@ -53,6 +53,7 @@ impl SlmpRemoteClearMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub enum SlmpPlcProfile {
     IqF,
     IqR,
@@ -60,6 +61,7 @@ pub enum SlmpPlcProfile {
     IqL,
     MxF,
     MxR,
+    MxRRj71En71,
     QCpu,
     QCpuQj71E71100,
     LCpu,
@@ -86,13 +88,14 @@ pub struct SlmpPlcProfileDescriptor {
 }
 
 impl SlmpPlcProfile {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::IqF,
         Self::IqR,
         Self::IqRRj71En71,
         Self::IqL,
         Self::MxF,
         Self::MxR,
+        Self::MxRRj71En71,
         Self::QCpu,
         Self::QCpuQj71E71100,
         Self::LCpu,
@@ -115,6 +118,7 @@ impl SlmpPlcProfile {
             Self::IqL,
             Self::MxF,
             Self::MxR,
+            Self::MxRRj71En71,
             Self::QCpuQj71E71100,
             Self::LCpu,
             Self::LCpuLj71E71100,
@@ -133,6 +137,7 @@ impl SlmpPlcProfile {
             Self::IqL => "melsec:iq-l",
             Self::MxF => "melsec:mx-f",
             Self::MxR => "melsec:mx-r",
+            Self::MxRRj71En71 => "melsec:mx-r:rj71en71",
             Self::QCpu => "melsec:qcpu",
             Self::QCpuQj71E71100 => "melsec:qcpu:qj71e71-100",
             Self::LCpu => "melsec:lcpu",
@@ -152,6 +157,7 @@ impl SlmpPlcProfile {
             Self::IqL => "MELSEC iQ-L (built-in)",
             Self::MxF => "MELSEC MX-F (built-in)",
             Self::MxR => "MELSEC MX-R (built-in)",
+            Self::MxRRj71En71 => "MELSEC MX-R (RJ71EN71)",
             Self::QCpu => "MELSEC-Q (base profile)",
             Self::QCpuQj71E71100 => "MELSEC-Q (QJ71E71-100)",
             Self::LCpu => "MELSEC-L (built-in)",
@@ -167,6 +173,7 @@ impl SlmpPlcProfile {
         match self {
             Self::IqRRj71En71 => Some("melsec:iq-r"),
             Self::MxF | Self::MxR => Some("melsec:iq-r"),
+            Self::MxRRj71En71 => Some("melsec:mx-r"),
             Self::QCpu => Some("melsec:qnu"),
             Self::QCpuQj71E71100 => Some("melsec:qcpu"),
             Self::LCpuLj71E71100 => Some("melsec:lcpu"),
@@ -185,6 +192,7 @@ impl SlmpPlcProfile {
             "melsec:iq-l" => Some(Self::IqL),
             "melsec:mx-f" => Some(Self::MxF),
             "melsec:mx-r" => Some(Self::MxR),
+            "melsec:mx-r:rj71en71" => Some(Self::MxRRj71En71),
             "melsec:qcpu" => Some(Self::QCpu),
             "melsec:qcpu:qj71e71-100" => Some(Self::QCpuQj71E71100),
             "melsec:lcpu" => Some(Self::LCpu),
@@ -203,12 +211,15 @@ impl SlmpPlcProfile {
                 frame_type: SlmpFrameType::Frame3E,
                 compatibility_mode: SlmpCompatibilityMode::Legacy,
             },
-            Self::IqR | Self::IqRRj71En71 | Self::IqL | Self::MxF | Self::MxR => {
-                SlmpPlcProfileDefaults {
-                    frame_type: SlmpFrameType::Frame4E,
-                    compatibility_mode: SlmpCompatibilityMode::Iqr,
-                }
-            }
+            Self::IqR
+            | Self::IqRRj71En71
+            | Self::IqL
+            | Self::MxF
+            | Self::MxR
+            | Self::MxRRj71En71 => SlmpPlcProfileDefaults {
+                frame_type: SlmpFrameType::Frame4E,
+                compatibility_mode: SlmpCompatibilityMode::Iqr,
+            },
             Self::QCpu | Self::LCpu | Self::QnU | Self::QnUDV => SlmpPlcProfileDefaults {
                 frame_type: SlmpFrameType::Frame3E,
                 compatibility_mode: SlmpCompatibilityMode::Legacy,
@@ -226,6 +237,7 @@ impl SlmpPlcProfile {
     pub fn address_profile(self) -> Self {
         match self {
             Self::IqRRj71En71 => Self::IqR,
+            Self::MxRRj71En71 => Self::MxR,
             Self::QCpuQj71E71100 => Self::QCpu,
             Self::LCpuLj71E71100 => Self::LCpu,
             Self::QnUQj71E71100 => Self::QnU,
@@ -1059,6 +1071,30 @@ mod tests {
         );
         assert_eq!(profile.address_profile(), SlmpPlcProfile::IqR);
         assert_eq!(profile.range_profile(), SlmpPlcProfile::IqRRj71En71);
+    }
+
+    #[test]
+    fn mxr_rj71en71_profile_is_connectable_with_canonical_defaults_and_base() {
+        let profile = SlmpPlcProfile::parse_label("melsec:mx-r:rj71en71").unwrap();
+        assert_eq!(profile, SlmpPlcProfile::MxRRj71En71);
+        assert_eq!(profile.base_profile(), Some("melsec:mx-r"));
+        assert_eq!(profile.address_profile(), SlmpPlcProfile::MxR);
+        assert_eq!(profile.range_profile(), SlmpPlcProfile::MxRRj71En71);
+        assert_eq!(profile.defaults().frame_type, super::SlmpFrameType::Frame4E);
+        assert_eq!(
+            profile.defaults().compatibility_mode,
+            super::SlmpCompatibilityMode::Iqr
+        );
+
+        let options = super::SlmpConnectionOptions::new(
+            "127.0.0.1",
+            1025,
+            SlmpTransportMode::Tcp,
+            SlmpTargetAddress::default(),
+            profile,
+        )
+        .unwrap();
+        assert_eq!(options.plc_profile, profile);
     }
 
     #[test]

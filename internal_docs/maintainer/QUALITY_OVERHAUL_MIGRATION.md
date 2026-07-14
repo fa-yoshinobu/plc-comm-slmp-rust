@@ -424,5 +424,139 @@ Acceptance criteria:
 - [x] Existing Rust implementation and executable tests match the target contract.
 - [x] User API and usage documentation state the counter meaning and lifetime.
 - [x] Live PLC verification is unnecessary because deterministic transports observe every boundary.
-- [ ] Claude source review completed and findings recorded for the next release batch.
 - [ ] Final next-release package and cross-language API comparison completed.
+
+## QREV-20260714-002: Correlate responses with the complete request target
+
+Scope: Rust TCP and UDP transports for both 3E and 4E binary frames.
+
+Target contract: after a structurally complete response frame is received, its network, station,
+module I/O, and multidrop fields must exactly match the target encoded in the request. A complete
+foreign-route frame is discarded and the same request continues waiting. A malformed frame is a
+protocol failure and invalidates the in-flight transport. For 4E, both the target and serial number
+must match before the response is accepted.
+
+Compatibility impact: responses from a route other than the caller-selected route are no longer
+returned as successful PLC results. No public API signature changes.
+
+Acceptance criteria:
+
+1. TCP and UDP tests cover every target-field mismatch independently for both 3E and 4E, followed
+   by a matching response that is returned from the original request.
+2. A malformed response remains a protocol error and the failed transport cannot be reused.
+3. 4E requires both the complete target and the serial number to match.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Formatting, Clippy, unit/integration tests, docs, Node binding, and package checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency.
+- [x] Claude source review completed and findings recorded in `D:\APP\claude_review_findings_20260714.md`.
+- [x] Codex resolved or dispositioned every Claude finding and reran affected checks.
+- [x] Live-PLC verification is not required; deterministic TCP/UDP peers exercise the wire contract.
+- [x] Documentation, migration notes, changelog, and generated API reference agree.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## QREV-20260714-003: Use one absolute deadline for each request
+
+Scope: Rust TCP and UDP send/receive handling, including discarded foreign-route and wrong-serial
+responses.
+
+Target contract: one absolute deadline begins before the request send and bounds the complete
+exchange. Every send and receive uses only the remaining time. Discarding any otherwise valid
+foreign-route or wrong-serial frame never restarts or extends the deadline. Timeout, cancellation,
+I/O failure, or malformed framing leaves the transport closed so partial or delayed data cannot
+satisfy a later request.
+
+Compatibility impact: traffic that continually injects unrelated valid frames can no longer keep a
+request alive beyond its configured timeout. No public API signature changes.
+
+Acceptance criteria:
+
+1. Deterministic TCP and UDP wrong-serial and saturated foreign-route floods cannot extend a
+   request past its configured deadline, allowing only scheduler tolerance asserted by the tests.
+2. A matching response received before the same deadline succeeds after unrelated frames.
+3. Send and complete response assembly share the same deadline; it is not restarted per read.
+4. Timeout and cancellation isolation regression tests prove that a later request cannot consume
+   bytes from the failed exchange, including a clean exchange through a newly connected session.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Formatting, Clippy, unit/integration tests, docs, Node binding, and package checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency.
+- [x] Claude source review completed and findings recorded in `D:\APP\claude_review_findings_20260714.md`.
+- [x] Codex resolved or dispositioned every Claude finding and reran affected checks.
+- [x] Live-PLC verification is not required; deterministic TCP/UDP peers exercise the timing contract.
+- [x] Documentation, migration notes, changelog, and generated API reference agree.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## PROFILE-20260714-RJ71EN71: Canonical MX-R Ethernet-unit profile
+
+Scope: profile import tooling, Rust profile/default/capability/range metadata, user profile listing,
+and downstream exhaustive matching behavior.
+
+Target contract: `melsec:mx-r:rj71en71` is a connectable 4E/iQ-R profile based on
+`melsec:mx-r`. Runtime metadata and checked-in fixtures agree field-for-field with canonical
+profile release `v2.1.0`; the default importer cannot silently replace them with an older release.
+Public profile and error-kind enums are non-exhaustive so later canonical additions do not create
+another downstream exhaustive-match break.
+
+Compatibility impact: the profile and `SlmpErrorKind::Timeout` are new public enum values.
+`SlmpPlcProfile` and `SlmpErrorKind` are now non-exhaustive, so downstream exhaustive matches must
+add a wildcard arm.
+
+Acceptance criteria:
+
+1. `update_slmp_profile_jsons.ps1 -FailIfChanged` uses `v2.1.0` by default and reports both
+   checked-in fixtures unchanged.
+2. Parsing, defaults, base profile, range profile, selected catalog identity, and model label are
+   directly executable and equal the canonical profile.
+3. Every canonical profile's frame, compatibility mode, subcommands, verified models, feature
+   state/source, limit max/weighted max/over-end-code/source, write policy, and display label are
+   compared by the parity test.
+4. `docs/PROFILES.md`, API documentation, and the changelog expose the new profile and breaking
+   enum-match migration.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the canonical fixture and public API surface.
+- [x] Claude source review completed; findings are recorded in `D:\APP\claude_review_findings_20260714.md`.
+- [x] Codex resolved or dispositioned every Claude finding and reran affected checks.
+- [x] Live-PLC checks are not required for import pinning and deterministic metadata parity; no communication was performed.
+- [x] Documentation, migration notes, changelog, and API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## Claude source review disposition — 2026-07-14
+
+The authorized review scope and canonical findings are recorded in
+`D:\APP\claude_review_findings_20260714.md`. Codex checked each Rust and applicable cross-library
+finding against the actual source before changing it.
+
+| Finding | Codex disposition | Resolution/evidence |
+| --- | --- | --- |
+| F-X1 | Accepted | Default profile import Ref is `v2.1.0`; `-FailIfChanged` reports both fixtures unchanged. |
+| F-X2 | Accepted | Added the `melsec:mx-r:rj71en71` row to `docs/PROFILES.md`. |
+| F-X5 | Accepted | Changelog now classifies the profile as a Library addition and records enum-match compatibility; public evolving enums are non-exhaustive. |
+| R-1 | Accepted | TCP and UDP check the absolute deadline before and after every send/receive/discard boundary; a no-sleep saturated flood test covers both transports. |
+| R-2 | Accepted | The saturated test uses serial-matching foreign routes, asserts timeout/Rx accounting/closed transport, then proves a fresh session succeeds. |
+| R-3 | Duplicate of F-X2 | Resolved by the canonical profile table row. |
+| R-4 | Duplicate of F-X1 | Resolved by the fixed `v2.1.0` importer Ref and drift check. |
+| R-5 | Accepted | All request I/O timeout phases return `SlmpErrorKind::Timeout`; `is_timeout()` is public. Oversized durations remain General validation failures. |
+| R-6 | Accepted | `SLMP_TIMEOUT_MS` now states that it is the absolute request-exchange deadline. |
+| R-7 | Accepted | MX-R and MX-F no longer share incorrect feature evidence; MX-R and MX-R/RJ71EN71 use canonical live/spec sources. |
+| R-8 | Accepted | Parity now includes sources, over-end-codes, subcommands, verified models, defaults, and labels. It exposed and corrected older iQ-R Ethernet-unit/MX-F evidence-source and iQ-F end-code drift; direct construction also caught and corrected the MX-R/RJ71EN71 address-profile normalization. |
+| R-9 | Accepted | The 100 ms deadline regression lower bound is 90 ms; the 80 ms saturated case permits only 10 ms early tolerance. |
+| R-10 | Accepted | Nonzero 4E reserved response bytes are a structural error; deterministic TCP and UDP tests prove transport invalidation. |
+| R-11 | Accepted | `SlmpPlcProfile` is non-exhaustive and the required wildcard-match migration is in the changelog. |
+
+- [x] Every applicable Claude finding has an explicit technical disposition.
+- [x] Full post-disposition CI, package, and diff verification rerun.
+- [x] No live PLC communication, commit, push, PR, or publication was performed.
+
+Post-disposition evidence: the canonical `v2.1.0` fixture drift check, Rust formatting, Clippy with
+all targets and CLI features, all unit/integration/doc tests, Node crate check, crate packaging and
+package compilation, and `git diff --check` passed. The saturated TCP/UDP regression also passed
+five consecutive focused runs. Final Codex diff review additionally aligned short UDP datagrams
+with the malformed-response classification and added a lower-bound assertion to the segmented TCP
+deadline test; the resulting 12-case response-correlation target passed five consecutive runs and
+the complete CI/package gates were rerun afterward.
