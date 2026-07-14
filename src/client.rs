@@ -26,10 +26,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::task;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout_at};
 
 const MAX_RUNTIME_RANGE_PROBE_COUNT: u32 = 1_048_576;
 const UDP_RECEIVE_BUFFER_SIZE: usize = 65_535;
+const TCP_WRITE_TIMEOUT_MESSAGE: &str = "tcp write timed out";
+const TCP_READ_TIMEOUT_MESSAGE: &str = "tcp read timed out";
+const UDP_SEND_TIMEOUT_MESSAGE: &str = "udp send timed out";
+const UDP_RECEIVE_TIMEOUT_MESSAGE: &str = "udp receive timed out";
 
 #[derive(Clone)]
 pub struct SlmpClient {
@@ -60,6 +64,12 @@ impl SlmpClient {
         }
         if options.timeout.is_zero() {
             return Err(SlmpError::new("timeout must be greater than zero"));
+        }
+        if std::time::Instant::now()
+            .checked_add(options.timeout)
+            .is_none()
+        {
+            return Err(SlmpError::new("timeout is too large"));
         }
         let transport = match options.transport_mode {
             SlmpTransportMode::Tcp => {
@@ -2570,6 +2580,10 @@ impl ClientInner {
             None
         };
         let tx_len = self.last_request_frame.len() as u64;
+        let expected_target = self.options.target;
+        let deadline = Instant::now()
+            .checked_add(self.options.timeout)
+            .ok_or_else(|| SlmpError::new("timeout is too large"))?;
 
         // Keep the client in Closed while an exchange is in flight. If this future is
         // externally cancelled, the local socket is dropped and cannot leak a partial or
@@ -2578,36 +2592,38 @@ impl ClientInner {
         match transport {
             Transport::Tcp(mut stream) => {
                 let io_result = async {
-                    timeout(
-                        self.options.timeout,
-                        stream.write_all(&self.last_request_frame),
-                    )
-                    .await
-                    .map_err(|_| SlmpError::new("tcp write timed out"))??;
+                    timeout_at(deadline, stream.write_all(&self.last_request_frame))
+                        .await
+                        .map_err(|_| SlmpError::timeout(TCP_WRITE_TIMEOUT_MESSAGE))??;
                     self.traffic_stats.request_count += 1;
                     self.traffic_stats.tx_bytes += tx_len;
+                    Self::ensure_before_deadline(deadline, TCP_WRITE_TIMEOUT_MESSAGE)?;
                     if !expect_response {
                         self.last_response_frame.clear();
                         return Ok::<(), SlmpError>(());
                     }
                     loop {
+                        Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE)?;
                         Self::receive_tcp_frame(
                             &mut stream,
                             self.options.frame_type,
-                            self.options.timeout,
+                            deadline,
                             &mut self.last_response_frame,
                         )
                         .await?;
                         self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
-                        if !Self::has_expected_response_frame_type(
+                        Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE)?;
+                        Self::validate_complete_response_frame(
                             self.options.frame_type,
                             &self.last_response_frame,
-                        ) {
-                            return Err(SlmpError::new("unexpected response frame type"));
-                        }
+                        )?;
                         if Self::has_expected_response_serial(
                             &self.last_response_frame,
                             expected_serial,
+                        ) && Self::has_expected_response_target(
+                            self.options.frame_type,
+                            &self.last_response_frame,
+                            expected_target,
                         ) {
                             break;
                         }
@@ -2616,11 +2632,11 @@ impl ClientInner {
                 }
                 .await;
                 if let Err(error) = io_result {
-                    let _ = stream.shutdown().await;
+                    drop(stream);
                     return Err(error);
                 }
                 if !expect_response {
-                    let _ = stream.shutdown().await;
+                    drop(stream);
                     return Ok(Vec::new());
                 }
                 self.transport = Transport::Tcp(stream);
@@ -2628,11 +2644,12 @@ impl ClientInner {
             }
             Transport::Udp(socket) => {
                 let io_result = async {
-                    timeout(self.options.timeout, socket.send(&self.last_request_frame))
+                    timeout_at(deadline, socket.send(&self.last_request_frame))
                         .await
-                        .map_err(|_| SlmpError::new("udp send timed out"))??;
+                        .map_err(|_| SlmpError::timeout(UDP_SEND_TIMEOUT_MESSAGE))??;
                     self.traffic_stats.request_count += 1;
                     self.traffic_stats.tx_bytes += tx_len;
+                    Self::ensure_before_deadline(deadline, UDP_SEND_TIMEOUT_MESSAGE)?;
                     if !expect_response {
                         self.last_response_frame.clear();
                         return Ok::<(), SlmpError>(());
@@ -2640,24 +2657,26 @@ impl ClientInner {
                     // A failed UDP exchange invalidates the socket. Closing it prevents a delayed
                     // datagram from being consumed as the response to a later 3E request.
                     loop {
+                        Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE)?;
                         self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
-                        let received = timeout(
-                            self.options.timeout,
-                            socket.recv(&mut self.last_response_frame),
-                        )
-                        .await
-                        .map_err(|_| SlmpError::new("udp receive timed out"))??;
+                        let received =
+                            timeout_at(deadline, socket.recv(&mut self.last_response_frame))
+                                .await
+                                .map_err(|_| SlmpError::timeout(UDP_RECEIVE_TIMEOUT_MESSAGE))??;
                         self.last_response_frame.truncate(received);
                         self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
-                        if !Self::has_expected_response_frame_type(
+                        Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE)?;
+                        Self::validate_complete_response_frame(
                             self.options.frame_type,
                             &self.last_response_frame,
-                        ) {
-                            return Err(SlmpError::new("unexpected response frame type"));
-                        }
+                        )?;
                         if Self::has_expected_response_serial(
                             &self.last_response_frame,
                             expected_serial,
+                        ) && Self::has_expected_response_target(
+                            self.options.frame_type,
+                            &self.last_response_frame,
+                            expected_target,
                         ) {
                             break;
                         }
@@ -2811,40 +2830,48 @@ impl ClientInner {
         buffer[4] = target.multidrop;
     }
 
+    fn ensure_before_deadline(deadline: Instant, message: &'static str) -> Result<(), SlmpError> {
+        if Instant::now() >= deadline {
+            Err(SlmpError::timeout(message))
+        } else {
+            Ok(())
+        }
+    }
+
     async fn receive_tcp_frame(
         stream: &mut TcpStream,
         frame_type: SlmpFrameType,
-        timeout_duration: std::time::Duration,
+        deadline: Instant,
         frame: &mut Vec<u8>,
     ) -> Result<(), SlmpError> {
         let mut header = [0u8; 13];
-        timeout(timeout_duration, stream.read_exact(&mut header[0..2]))
+        timeout_at(deadline, stream.read_exact(&mut header[0..2]))
             .await
-            .map_err(|_| SlmpError::new("tcp read timed out"))??;
+            .map_err(|_| SlmpError::timeout(TCP_READ_TIMEOUT_MESSAGE))??;
 
         if matches!(frame_type, SlmpFrameType::Frame4E) && header[0] == 0xD4 && header[1] == 0x00 {
-            timeout(timeout_duration, stream.read_exact(&mut header[2..13]))
+            timeout_at(deadline, stream.read_exact(&mut header[2..13]))
                 .await
-                .map_err(|_| SlmpError::new("tcp read timed out"))??;
+                .map_err(|_| SlmpError::timeout(TCP_READ_TIMEOUT_MESSAGE))??;
             let length = u16::from_le_bytes([header[11], header[12]]) as usize;
             frame.resize(13 + length, 0);
             frame[0..13].copy_from_slice(&header);
-            timeout(timeout_duration, stream.read_exact(&mut frame[13..]))
+            timeout_at(deadline, stream.read_exact(&mut frame[13..]))
                 .await
-                .map_err(|_| SlmpError::new("tcp read timed out"))??;
+                .map_err(|_| SlmpError::timeout(TCP_READ_TIMEOUT_MESSAGE))??;
             return Ok(());
         }
 
         if matches!(frame_type, SlmpFrameType::Frame3E) && header[0] == 0xD0 && header[1] == 0x00 {
-            timeout(timeout_duration, stream.read_exact(&mut header[2..9]))
+            timeout_at(deadline, stream.read_exact(&mut header[2..9]))
                 .await
-                .map_err(|_| SlmpError::new("tcp read timed out"))??;
+                .map_err(|_| SlmpError::timeout(TCP_READ_TIMEOUT_MESSAGE))??;
             let length = u16::from_le_bytes([header[7], header[8]]) as usize;
             frame.resize(9 + length, 0);
             frame[0..9].copy_from_slice(&header[..9]);
-            timeout(timeout_duration, stream.read_exact(&mut frame[9..]))
+            timeout_at(deadline, stream.read_exact(&mut frame[9..]))
                 .await
-                .map_err(|_| SlmpError::new("tcp read timed out"))??;
+                .map_err(|_| SlmpError::timeout(TCP_READ_TIMEOUT_MESSAGE))??;
             return Ok(());
         }
 
@@ -2900,15 +2927,29 @@ impl ClientInner {
         Ok(response[header_size + 2..header_size + data_length].to_vec())
     }
 
-    fn has_expected_response_frame_type(frame_type: SlmpFrameType, response: &[u8]) -> bool {
-        match frame_type {
-            SlmpFrameType::Frame4E => {
-                response.len() >= 2 && response[0] == 0xD4 && response[1] == 0x00
-            }
-            SlmpFrameType::Frame3E => {
-                response.len() >= 2 && response[0] == 0xD0 && response[1] == 0x00
-            }
+    fn validate_complete_response_frame(
+        frame_type: SlmpFrameType,
+        response: &[u8],
+    ) -> Result<(), SlmpError> {
+        let (header_size, length_index, subheader) = match frame_type {
+            SlmpFrameType::Frame4E => (13, 11, [0xD4, 0x00]),
+            SlmpFrameType::Frame3E => (9, 7, [0xD0, 0x00]),
+        };
+        if response.len() < header_size {
+            return Err(SlmpError::new("malformed response"));
         }
+        if response[0..2] != subheader {
+            return Err(SlmpError::new("unexpected response frame type"));
+        }
+        if matches!(frame_type, SlmpFrameType::Frame4E) && response[4..6] != [0, 0] {
+            return Err(SlmpError::new("malformed 4E response reserved field"));
+        }
+        let data_length =
+            u16::from_le_bytes([response[length_index], response[length_index + 1]]) as usize;
+        if data_length < 2 || response.len() != header_size + data_length {
+            return Err(SlmpError::new("malformed response"));
+        }
+        Ok(())
     }
 
     fn has_expected_response_serial(response: &[u8], expected_serial: Option<u16>) -> bool {
@@ -2919,6 +2960,22 @@ impl ClientInner {
             return false;
         }
         u16::from_le_bytes([response[2], response[3]]) == expected_serial
+    }
+
+    fn has_expected_response_target(
+        frame_type: SlmpFrameType,
+        response: &[u8],
+        expected_target: SlmpTargetAddress,
+    ) -> bool {
+        let offset = match frame_type {
+            SlmpFrameType::Frame4E => 6,
+            SlmpFrameType::Frame3E => 2,
+        };
+        response[offset] == expected_target.network
+            && response[offset + 1] == expected_target.station
+            && u16::from_le_bytes([response[offset + 2], response[offset + 3]])
+                == expected_target.module_io
+            && response[offset + 4] == expected_target.multidrop
     }
 
     fn word_subcommand(&self, bit_unit: bool) -> u16 {
@@ -3211,6 +3268,20 @@ mod tests {
             last_request_frame: Vec::new(),
             last_response_frame: Vec::new(),
             traffic_stats: SlmpTrafficStats::default(),
+        }
+    }
+
+    #[test]
+    fn every_request_io_timeout_phase_uses_the_timeout_error_kind() {
+        for message in [
+            TCP_WRITE_TIMEOUT_MESSAGE,
+            TCP_READ_TIMEOUT_MESSAGE,
+            UDP_SEND_TIMEOUT_MESSAGE,
+            UDP_RECEIVE_TIMEOUT_MESSAGE,
+        ] {
+            let error = SlmpError::timeout(message);
+            assert_eq!(error.kind, crate::error::SlmpErrorKind::Timeout);
+            assert!(error.is_timeout());
         }
     }
 

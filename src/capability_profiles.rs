@@ -118,7 +118,7 @@ const IQR_FEATURES: &[SlmpCapabilityFeature] = &[
     feature(
         SlmpProfileFeature::ExtLinkDirect,
         SlmpProfileFeatureState::ConfigDependent,
-        "policy",
+        "live",
         Some("Link-direct access depends on the network/module configuration."),
     ),
     feature(
@@ -137,6 +137,69 @@ const IQR_FEATURES: &[SlmpCapabilityFeature] = &[
         SlmpProfileFeature::Lz32BitPath,
         SlmpProfileFeatureState::Supported,
         "live",
+        None,
+    ),
+];
+
+const IQR_RJ71EN71_FEATURES: &[SlmpCapabilityFeature] = &[
+    feature(
+        SlmpProfileFeature::TypeName,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Direct,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Random,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Block,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Monitor,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::ExtModuleAccess,
+        SlmpProfileFeatureState::ConfigDependent,
+        "policy",
+        Some("Module access depends on the installed special module."),
+    ),
+    feature(
+        SlmpProfileFeature::ExtLinkDirect,
+        SlmpProfileFeatureState::ConfigDependent,
+        "policy",
+        Some("Link-direct access depends on the network/module configuration."),
+    ),
+    feature(
+        SlmpProfileFeature::HgCpuBuffer,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        Some("U3E0\\HG direct/random/monitor follows the iQ-R base profile."),
+    ),
+    feature(
+        SlmpProfileFeature::LongDevicePath,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Lz32BitPath,
+        SlmpProfileFeatureState::Supported,
+        "policy",
         None,
     ),
 ];
@@ -181,13 +244,13 @@ const IQL_FEATURES: &[SlmpCapabilityFeature] = &[
     feature(
         SlmpProfileFeature::ExtLinkDirect,
         SlmpProfileFeatureState::ConfigDependent,
-        "policy",
+        "live",
         Some("Link-direct access depends on the network/module configuration."),
     ),
     feature(
         SlmpProfileFeature::HgCpuBuffer,
         SlmpProfileFeatureState::Blocked,
-        "manual",
+        "spec",
         Some("CPU-buffer HG is an iQ-R-only path."),
     ),
     feature(
@@ -204,7 +267,7 @@ const IQL_FEATURES: &[SlmpCapabilityFeature] = &[
     ),
 ];
 
-const MX_FEATURES: &[SlmpCapabilityFeature] = &[
+const MXF_FEATURES: &[SlmpCapabilityFeature] = &[
     feature(
         SlmpProfileFeature::TypeName,
         SlmpProfileFeatureState::Supported,
@@ -267,6 +330,69 @@ const MX_FEATURES: &[SlmpCapabilityFeature] = &[
     ),
 ];
 
+const MXR_FEATURES: &[SlmpCapabilityFeature] = &[
+    feature(
+        SlmpProfileFeature::TypeName,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Direct,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Random,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Block,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Monitor,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::ExtModuleAccess,
+        SlmpProfileFeatureState::ConfigDependent,
+        "live",
+        Some("Module access depends on the installed special module."),
+    ),
+    feature(
+        SlmpProfileFeature::ExtLinkDirect,
+        SlmpProfileFeatureState::ConfigDependent,
+        "live",
+        Some("Link-direct access depends on the network/module configuration."),
+    ),
+    feature(
+        SlmpProfileFeature::HgCpuBuffer,
+        SlmpProfileFeatureState::Blocked,
+        "spec",
+        Some("CPU-buffer HG is an iQ-R-only path."),
+    ),
+    feature(
+        SlmpProfileFeature::LongDevicePath,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Lz32BitPath,
+        SlmpProfileFeatureState::Supported,
+        "live",
+        None,
+    ),
+];
+
 const IQF_FEATURES: &[SlmpCapabilityFeature] = &[
     feature(
         SlmpProfileFeature::TypeName,
@@ -313,7 +439,7 @@ const IQF_FEATURES: &[SlmpCapabilityFeature] = &[
     feature(
         SlmpProfileFeature::HgCpuBuffer,
         SlmpProfileFeatureState::Blocked,
-        "manual",
+        "spec",
         Some("CPU-buffer HG is an iQ-R-only path."),
     ),
     feature(
@@ -376,7 +502,70 @@ const QL_MEASURED_FEATURES: &[SlmpCapabilityFeature] = &[
     feature(
         SlmpProfileFeature::HgCpuBuffer,
         SlmpProfileFeatureState::Blocked,
-        "manual",
+        "spec",
+        Some("CPU-buffer HG is an iQ-R-only path."),
+    ),
+    feature(
+        SlmpProfileFeature::LongDevicePath,
+        SlmpProfileFeatureState::Delegated,
+        "live",
+        Some("Existing long-device route rules decide this feature."),
+    ),
+    feature(
+        SlmpProfileFeature::Lz32BitPath,
+        SlmpProfileFeatureState::Delegated,
+        "live",
+        Some("Existing 32-bit route rules decide this feature."),
+    ),
+];
+
+const QCPU_FEATURES: &[SlmpCapabilityFeature] = &[
+    feature(
+        SlmpProfileFeature::TypeName,
+        SlmpProfileFeatureState::Blocked,
+        "policy",
+        Some("Read Type Name is unavailable on the conservative base profile."),
+    ),
+    feature(
+        SlmpProfileFeature::Direct,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Random,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::Block,
+        SlmpProfileFeatureState::Blocked,
+        "policy",
+        Some("Block access is unavailable on the conservative base profile."),
+    ),
+    feature(
+        SlmpProfileFeature::Monitor,
+        SlmpProfileFeatureState::Supported,
+        "policy",
+        None,
+    ),
+    feature(
+        SlmpProfileFeature::ExtModuleAccess,
+        SlmpProfileFeatureState::Blocked,
+        "policy",
+        Some("Module access is unavailable on the conservative base profile."),
+    ),
+    feature(
+        SlmpProfileFeature::ExtLinkDirect,
+        SlmpProfileFeatureState::Blocked,
+        "policy",
+        Some("Link-direct access is unavailable on the conservative base profile."),
+    ),
+    feature(
+        SlmpProfileFeature::HgCpuBuffer,
+        SlmpProfileFeatureState::Blocked,
+        "spec",
         Some("CPU-buffer HG is an iQ-R-only path."),
     ),
     feature(
@@ -555,6 +744,105 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
     ),
 ];
 
+const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
+    limit(
+        SlmpProfileLimit::DirectWordRead,
+        960,
+        Some("C051"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectWordWrite,
+        960,
+        Some("C051"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitRead,
+        7168,
+        Some("C052"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::DirectBitWrite,
+        7168,
+        Some("C052"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWord,
+        96,
+        Some("C054"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWord,
+        80,
+        Some("C054"),
+        "inferred",
+        Some(960),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBit,
+        94,
+        Some("C053"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWord,
+        96,
+        Some("C054"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomReadWordExt,
+        96,
+        Some("C054"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteWordExt,
+        80,
+        Some("C054"),
+        "inferred",
+        Some(960),
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::RandomWriteBitExt,
+        94,
+        Some("C053"),
+        "inferred",
+        None,
+        None,
+    ),
+    limit(
+        SlmpProfileLimit::MonitorRegisterWordExt,
+        96,
+        Some("C054"),
+        "inferred",
+        None,
+        None,
+    ),
+];
+
 const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectWordRead,
@@ -658,7 +946,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectWordRead,
         960,
-        Some("C051"),
+        Some("C052"),
         "live",
         None,
         None,
@@ -666,7 +954,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectWordWrite,
         960,
-        Some("C051"),
+        Some("C052"),
         "live",
         None,
         None,
@@ -674,7 +962,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectBitRead,
         3584,
-        Some("C052"),
+        Some("C051"),
         "live",
         None,
         None,
@@ -682,7 +970,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
         SlmpProfileLimit::DirectBitWrite,
         3584,
-        Some("C052"),
+        Some("C051"),
         "live",
         None,
         None,
@@ -1269,8 +1557,8 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         "melsec:iq-r:rj71en71",
         "4E",
         "iQ-R",
-        IQR_FEATURES,
-        IQR_LIMITS,
+        IQR_RJ71EN71_FEATURES,
+        INFERRED_IQR_LIMITS,
         IQR_WRITE_POLICY,
     ),
     profile(
@@ -1287,7 +1575,16 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         "melsec:mx-r",
         "4E",
         "iQ-R",
-        MX_FEATURES,
+        MXR_FEATURES,
+        IQR_LIMITS,
+        IQR_WRITE_POLICY,
+    ),
+    profile(
+        SlmpPlcProfile::MxRRj71En71,
+        "melsec:mx-r:rj71en71",
+        "4E",
+        "iQ-R",
+        MXR_FEATURES,
         IQR_LIMITS,
         IQR_WRITE_POLICY,
     ),
@@ -1296,8 +1593,8 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         "melsec:mx-f",
         "4E",
         "iQ-R",
-        MX_FEATURES,
-        IQR_LIMITS,
+        MXF_FEATURES,
+        INFERRED_IQR_LIMITS,
         IQR_WRITE_POLICY,
     ),
     profile(
@@ -1314,7 +1611,7 @@ pub(crate) const BUILTIN_CAPABILITY_PROFILES: &[SlmpCapabilityProfile] = &[
         "melsec:qcpu",
         "3E",
         "Q/L",
-        QL_MEASURED_FEATURES,
+        QCPU_FEATURES,
         QL_QCPU_LIMITS,
         QL_WRITE_POLICY,
     ),
@@ -1389,6 +1686,29 @@ pub(crate) fn capability_profile(
     BUILTIN_CAPABILITY_PROFILES
         .iter()
         .find(|profile| profile.plc_profile == plc_profile)
+}
+
+#[cfg(test)]
+fn verified_models(plc_profile: SlmpPlcProfile) -> &'static [&'static str] {
+    match plc_profile {
+        SlmpPlcProfile::IqF => &["FX5U-32MR/DS(built-in Ethernet)"],
+        SlmpPlcProfile::IqR => &["R120PCPU(built-in Ethernet)", "R120PCPU via RJ71EN71"],
+        SlmpPlcProfile::IqRRj71En71 => &["R120PCPU via RJ71EN71"],
+        SlmpPlcProfile::IqL => &["L16HCPU(built-in Ethernet)"],
+        SlmpPlcProfile::MxF => &["Unconfirmed"],
+        SlmpPlcProfile::MxR => &["MXR300-32(built-in Ethernet)"],
+        SlmpPlcProfile::MxRRj71En71 => &["MXR300-32 via RJ71EN71"],
+        SlmpPlcProfile::QCpu => {
+            &["No built-in Ethernet CPU target (QnU-derived conservative baseline)"]
+        }
+        SlmpPlcProfile::QCpuQj71E71100 => &["Q12HCPU via QJ71E71-100"],
+        SlmpPlcProfile::LCpu => &["L26CPU-BT(built-in Ethernet)"],
+        SlmpPlcProfile::LCpuLj71E71100 => &["L02SCPU via LJ71E71-100"],
+        SlmpPlcProfile::QnU => &["Q26UDEHCPU(built-in Ethernet)"],
+        SlmpPlcProfile::QnUQj71E71100 => &["Q26UDEHCPU via QJ71E71-100"],
+        SlmpPlcProfile::QnUDV => &["Q06UDVCPU(built-in Ethernet)"],
+        SlmpPlcProfile::QnUDVQj71E71100 => &["Q06UDVCPU via QJ71E71-100"],
+    }
 }
 
 pub(crate) fn profile_feature(
@@ -1559,6 +1879,7 @@ mod tests {
 
         for (profile_id, expected_profile) in expected_profiles {
             let actual_profile = actual[profile_id.as_str()];
+            assert_eq!(actual_profile.plc_profile.canonical_name(), profile_id);
             assert_eq!(
                 actual_profile.plc_profile.display_name(),
                 expected_profile["display_name"].as_str().unwrap()
@@ -1571,12 +1892,52 @@ mod tests {
                 actual_profile.compat,
                 expected_profile["compat"].as_str().unwrap()
             );
+            let defaults = actual_profile.plc_profile.defaults();
+            assert_eq!(
+                match defaults.frame_type {
+                    crate::model::SlmpFrameType::Frame3E => "3E",
+                    crate::model::SlmpFrameType::Frame4E => "4E",
+                },
+                expected_profile["frame"].as_str().unwrap()
+            );
+            assert_eq!(
+                match defaults.compatibility_mode {
+                    crate::model::SlmpCompatibilityMode::Legacy => "Q/L",
+                    crate::model::SlmpCompatibilityMode::Iqr => "iQ-R",
+                },
+                expected_profile["compat"].as_str().unwrap()
+            );
+            let expected_subcommands = expected_profile["subcommands"].as_object().unwrap();
+            let actual_subcommands = match defaults.compatibility_mode {
+                crate::model::SlmpCompatibilityMode::Legacy => [
+                    ("word", "0000"),
+                    ("bit", "0001"),
+                    ("ext_word", "0080"),
+                    ("ext_bit", "0081"),
+                ],
+                crate::model::SlmpCompatibilityMode::Iqr => [
+                    ("word", "0002"),
+                    ("bit", "0003"),
+                    ("ext_word", "0082"),
+                    ("ext_bit", "0083"),
+                ],
+            };
+            for (key, value) in actual_subcommands {
+                assert_eq!(value, expected_subcommands[key].as_str().unwrap());
+            }
+            let expected_models: Vec<_> = expected_profile["verified_models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap())
+                .collect();
+            assert_eq!(verified_models(actual_profile.plc_profile), expected_models);
 
             let expected_features = expected_profile["features"].as_object().unwrap();
             let actual_features: BTreeMap<_, _> = actual_profile
                 .features
                 .iter()
-                .map(|entry| (feature_key(entry.feature), state_name(entry.state)))
+                .map(|entry| (feature_key(entry.feature), *entry))
                 .collect();
             assert_eq!(
                 expected_features.keys().cloned().collect::<Vec<_>>(),
@@ -1586,9 +1947,15 @@ mod tests {
                     .collect::<Vec<_>>()
             );
             for (key, expected_feature) in expected_features {
+                let actual_feature = actual_features[key.as_str()];
                 assert_eq!(
-                    actual_features[key.as_str()],
+                    state_name(actual_feature.state),
                     expected_feature["state"].as_str().unwrap()
+                );
+                assert_eq!(
+                    actual_feature.source,
+                    expected_feature["source"].as_str().unwrap(),
+                    "feature source mismatch for {profile_id}/{key}"
                 );
             }
 
@@ -1614,6 +1981,16 @@ mod tests {
                 assert_eq!(
                     actual_limit.weighted_max.map(|value| value as u64),
                     expected_limit.get("weighted_max").and_then(Value::as_u64)
+                );
+                assert_eq!(
+                    actual_limit.over_end_code,
+                    expected_limit.get("over_end_code").and_then(Value::as_str),
+                    "limit end-code mismatch for {profile_id}/{key}"
+                );
+                assert_eq!(
+                    actual_limit.source,
+                    expected_limit["source"].as_str().unwrap(),
+                    "limit source mismatch for {profile_id}/{key}"
                 );
             }
 

@@ -1,4 +1,6 @@
-use plc_comm_slmp::{SlmpError, end_code_key, end_code_name, is_remote_password_end_code};
+use plc_comm_slmp::{
+    SlmpError, SlmpErrorKind, end_code_key, end_code_name, is_remote_password_end_code,
+};
 
 #[test]
 fn end_code_keys_and_names_are_code_derived() {
@@ -27,4 +29,21 @@ fn slmp_error_end_code_helpers() {
     let without_code = SlmpError::new("no end code");
     assert_eq!(without_code.end_code_name(), None);
     assert!(!without_code.is_remote_password_error());
+}
+
+#[test]
+fn timeout_errors_have_a_stable_machine_readable_kind() {
+    let error = SlmpError::from(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "tcp read timed out",
+    ));
+
+    assert_eq!(error.kind, SlmpErrorKind::Timeout);
+    assert!(error.is_timeout());
+    assert_eq!(error.message, "tcp read timed out");
+    assert_eq!(error.end_code, None);
+
+    let validation = SlmpError::new("timeout is too large");
+    assert_eq!(validation.kind, SlmpErrorKind::General);
+    assert!(!validation.is_timeout());
 }

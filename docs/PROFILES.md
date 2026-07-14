@@ -20,6 +20,7 @@ For cross-profile capability and device-range details, see the [SLMP Profile Ref
 | `melsec:iq-l` | MELSEC iQ-L (built-in) | `SlmpPlcProfile::IqL` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R-equivalent address parsing while remaining separately selectable. |
 | `melsec:mx-f` | MELSEC MX-F (built-in) | `SlmpPlcProfile::MxF` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
 | `melsec:mx-r` | MELSEC MX-R (built-in) | `SlmpPlcProfile::MxR` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Uses iQ-R protocol mode. |
+| `melsec:mx-r:rj71en71` | MELSEC MX-R (RJ71EN71) | `SlmpPlcProfile::MxRRj71En71` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Iqr` | Ethernet-unit profile based on `melsec:mx-r`. |
 | `melsec:lcpu` | MELSEC-L (built-in) | `SlmpPlcProfile::LCpu` | `SlmpFrameType::Frame3E` | `SlmpCompatibilityMode::Legacy` | Legacy 3E profile. |
 | `melsec:lcpu:lj71e71-100` | MELSEC-L (LJ71E71-100) | `SlmpPlcProfile::LCpuLj71E71100` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Legacy` | Ethernet unit profile using 4E frames with Q/L compatibility. |
 | `melsec:qcpu:qj71e71-100` | MELSEC-Q (QJ71E71-100) | `SlmpPlcProfile::QCpuQj71E71100` | `SlmpFrameType::Frame4E` | `SlmpCompatibilityMode::Legacy` | Ethernet unit profile for QCPU connections. |

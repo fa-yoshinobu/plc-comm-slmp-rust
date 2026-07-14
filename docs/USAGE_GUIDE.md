@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | `host` | value passed to `new` | PLC host name or IP address. |
 | `port` | required argument | TCP or UDP destination port. |
-| `timeout` | 3 seconds | Socket read/write timeout. |
+| `timeout` | 3 seconds | Absolute deadline for the complete request send and matching response. |
 | `tcp_keepalive` | 30 seconds | TCP keepalive idle time, or `None`. |
 | `target` | required argument | SLMP target address fields; pass `SlmpTargetAddress::default()` explicitly for the own station. |
 | `transport_mode` | required argument | TCP or UDP. |
@@ -109,6 +109,10 @@ let options = SlmpConnectionOptions::new(
 
 Do not omit the target. `SlmpTargetAddress::default()` is only a convenient way
 to spell the explicit own-station route at the call site.
+
+Responses must return the same network, station, module I/O, and multidrop route.
+The client discards complete foreign-route responses while waiting within the
+original request deadline. A 4E response must also match the request serial.
 
 ## Extended device access
 
@@ -215,6 +219,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 When the PLC returns a non-zero SLMP end code, high-level calls return `SlmpError`.
 Read `end_code` for the PLC response code and `error_info` when the PLC returned the structured error-information block.
+Request-exchange deadline expiry returns `SlmpErrorKind::Timeout`; callers may also use
+`SlmpError::is_timeout()` instead of matching error-message text. Timeout invalidates the
+in-flight transport, so explicitly connect a new client before another request.
 
 ```rust
 match read_typed(
@@ -441,7 +448,7 @@ The repository examples are designed to run from environment variables.
 | `SLMP_TARGET` | required unless all four route fields are present | `SELF`, `SELF-MULTIPLE-CPU-1`, or `NAME,NET,ST,IO,MD`. |
 | `SLMP_NETWORK` / `SLMP_STATION` | complete-set alternative | Both are required together with module I/O and multidrop. |
 | `SLMP_MODULE_IO` / `SLMP_MULTIDROP` | complete-set alternative | Both are required together with network and station. |
-| `SLMP_TIMEOUT_MS` | optional; `3000` | Socket timeout in milliseconds. |
+| `SLMP_TIMEOUT_MS` | optional; `3000` | Absolute request-exchange deadline in milliseconds. |
 | `SLMP_MONITORING_TIMER` | optional; `16` | SLMP monitoring timer in 250 ms units (4 seconds). |
 | `SLMP_ENABLE_WRITES` | optional; `0` | Set `1` to enable write examples. |
 
@@ -562,3 +569,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `.n` | `D50.3` | Bit `n` inside a word, where `n` is `0` through `F`. |
 
 Named addresses used with `read_named`, `write_named`, and `poll_named` must include the intended type, for example `D100:U` or `M100:BIT`.
+## Traffic statistics
+
+`client.traffic_stats().await` returns the client-lifetime `request_count`, `tx_bytes`, and
+`rx_bytes` snapshot. A request counts only after its complete frame is sent; a complete received
+frame counts before protocol or PLC end-code validation. Close and reconnect do not reset it.

@@ -67,6 +67,7 @@ CPU-buffer access.
 | Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
 | Bit-in-word write | `write_bit_in_word` |
 | Traffic counters | `traffic_stats` |
+| Errors and timeout classification | `SlmpError`, `SlmpErrorKind`, `SlmpError::is_timeout` |
 
 ## Target Module I/O Constants
 

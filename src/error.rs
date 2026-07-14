@@ -2,8 +2,10 @@ use crate::error_codes::{end_code_name, is_remote_password_end_code};
 use crate::model::SlmpCommand;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SlmpErrorKind {
     General,
+    Timeout,
     PlcEndCode,
     ProfileFeature,
 }
@@ -61,6 +63,18 @@ impl SlmpError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             kind: SlmpErrorKind::General,
+            message: message.into(),
+            end_code: None,
+            command: None,
+            subcommand: None,
+            error_info: None,
+            profile_feature: None,
+        }
+    }
+
+    pub(crate) fn timeout(message: impl Into<String>) -> Self {
+        Self {
+            kind: SlmpErrorKind::Timeout,
             message: message.into(),
             end_code: None,
             command: None,
@@ -149,6 +163,10 @@ impl SlmpError {
         matches!(self.kind, SlmpErrorKind::ProfileFeature)
     }
 
+    pub fn is_timeout(&self) -> bool {
+        matches!(self.kind, SlmpErrorKind::Timeout)
+    }
+
     pub fn end_code_name(&self) -> Option<&'static str> {
         self.end_code.map(end_code_name)
     }
@@ -160,6 +178,10 @@ impl SlmpError {
 
 impl From<std::io::Error> for SlmpError {
     fn from(value: std::io::Error) -> Self {
-        Self::new(value.to_string())
+        if value.kind() == std::io::ErrorKind::TimedOut {
+            Self::timeout(value.to_string())
+        } else {
+            Self::new(value.to_string())
+        }
     }
 }
