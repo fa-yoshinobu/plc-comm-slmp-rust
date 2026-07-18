@@ -424,7 +424,10 @@ Acceptance criteria:
 - [x] Existing Rust implementation and executable tests match the target contract.
 - [x] User API and usage documentation state the counter meaning and lifetime.
 - [x] Live PLC verification is unnecessary because deterministic transports observe every boundary.
-- [ ] Final next-release package and cross-language API comparison completed.
+- [x] Final next-release package and cross-language API comparison completed. Evidence: the `v4.0.0`
+  tag equals repository HEAD, the GitHub Release and crates.io `plc-comm-slmp` `4.0.0` crate are public,
+  tag-commit checks passed, and the final five-implementation source/API comparison was completed
+  on 2026-07-18.
 
 ## QREV-20260714-002: Correlate responses with the complete request target
 
