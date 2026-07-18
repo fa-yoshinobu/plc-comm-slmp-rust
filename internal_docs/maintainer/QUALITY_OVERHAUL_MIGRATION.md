@@ -370,7 +370,7 @@ The contract changes in this record are API-shape, pre-transport validation, det
 
 ## Claude review package status
 
-The approved decisions, repository diff, and final local results were reviewed in the two user-authorized SLMP Claude batches. Canonical results and dispositions are preserved under `D:\APP\Close\instructions`.
+The approved decisions, repository diff, and final local results were reviewed in the two user-authorized SLMP Claude batches. Canonical results and dispositions are preserved in the archived workspace instruction records.
 
 ## 2026-07-12 D-128 through D-132 delta
 
@@ -424,7 +424,10 @@ Acceptance criteria:
 - [x] Existing Rust implementation and executable tests match the target contract.
 - [x] User API and usage documentation state the counter meaning and lifetime.
 - [x] Live PLC verification is unnecessary because deterministic transports observe every boundary.
-- [ ] Final next-release package and cross-language API comparison completed.
+- [x] Final next-release package and cross-language API comparison completed. Evidence: the `v4.0.0`
+  tag equals repository HEAD, the GitHub Release and crates.io `plc-comm-slmp` `4.0.0` crate are public,
+  tag-commit checks passed, and the final five-implementation source/API comparison was completed
+  on 2026-07-18.
 
 ## QREV-20260714-002: Correlate responses with the complete request target
 
@@ -450,7 +453,7 @@ Acceptance criteria:
 - [x] Tests added or updated for every acceptance criterion.
 - [x] Formatting, Clippy, unit/integration tests, docs, Node binding, and package checks passed.
 - [x] Codex self-review completed against the approved contract and cross-language consistency.
-- [x] Claude source review completed and findings recorded in `D:\APP\claude_review_findings_20260714.md`.
+- [x] Claude source review completed and findings preserved in the archived workspace record `claude_review_findings_20260714.md`.
 - [x] Codex resolved or dispositioned every Claude finding and reran affected checks.
 - [x] Live-PLC verification is not required; deterministic TCP/UDP peers exercise the wire contract.
 - [x] Documentation, migration notes, changelog, and generated API reference agree.
@@ -483,7 +486,7 @@ Acceptance criteria:
 - [x] Tests added or updated for every acceptance criterion.
 - [x] Formatting, Clippy, unit/integration tests, docs, Node binding, and package checks passed.
 - [x] Codex self-review completed against the approved contract and cross-language consistency.
-- [x] Claude source review completed and findings recorded in `D:\APP\claude_review_findings_20260714.md`.
+- [x] Claude source review completed and findings preserved in the archived workspace record `claude_review_findings_20260714.md`.
 - [x] Codex resolved or dispositioned every Claude finding and reran affected checks.
 - [x] Live-PLC verification is not required; deterministic TCP/UDP peers exercise the timing contract.
 - [x] Documentation, migration notes, changelog, and generated API reference agree.
@@ -520,7 +523,7 @@ Acceptance criteria:
 - [x] Tests added or updated for every acceptance criterion.
 - [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
 - [x] Codex self-review completed against the canonical fixture and public API surface.
-- [x] Claude source review completed; findings are recorded in `D:\APP\claude_review_findings_20260714.md`.
+- [x] Claude source review completed; findings are preserved in the archived workspace record `claude_review_findings_20260714.md`.
 - [x] Codex resolved or dispositioned every Claude finding and reran affected checks.
 - [x] Live-PLC checks are not required for import pinning and deterministic metadata parity; no communication was performed.
 - [x] Documentation, migration notes, changelog, and API reference agree with the implementation.
@@ -529,7 +532,7 @@ Acceptance criteria:
 ## Claude source review disposition — 2026-07-14
 
 The authorized review scope and canonical findings are recorded in
-`D:\APP\claude_review_findings_20260714.md`. Codex checked each Rust and applicable cross-library
+the archived workspace record `claude_review_findings_20260714.md`. Codex checked each Rust and applicable cross-library
 finding against the actual source before changing it.
 
 | Finding | Codex disposition | Resolution/evidence |
