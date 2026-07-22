@@ -1,5 +1,6 @@
 use crate::address::{parse_device, parse_named_address};
 use crate::client::SlmpClient;
+use crate::client_rules::checked_span_end;
 use crate::error::SlmpError;
 use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile};
 use async_stream::try_stream;
@@ -205,14 +206,9 @@ pub async fn read_dwords_single_request(
 ) -> Result<Vec<u32>, SlmpError> {
     if matches!(start.code(), SlmpDeviceCode::LZ) {
         validate_single_request_count(count, RANDOM_READ_BATCH_LIMIT)?;
-        let devices = (0..count)
-            .map(|index| {
-                SlmpDeviceAddress::new(
-                    start.code(),
-                    start.number() + index as u32,
-                    start.plc_profile(),
-                )
-            })
+        let end = checked_span_end(start.number(), count, "read_dwords_single_request")?;
+        let devices = (start.number()..=end)
+            .map(|number| SlmpDeviceAddress::new(start.code(), number, start.plc_profile()))
             .collect::<Vec<_>>();
         return Ok(client.read_random(&[], &devices).await?.dword_values);
     }
