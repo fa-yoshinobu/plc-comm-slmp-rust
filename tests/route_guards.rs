@@ -767,6 +767,27 @@ async fn long_timer_typed_read_rejects_profile_mismatch_before_transport() {
 }
 
 #[tokio::test]
+async fn continuous_u32_address_overflow_is_rejected_before_transport() {
+    let client = udp_client().await;
+    let lz = SlmpDeviceAddress::new(SlmpDeviceCode::LZ, u32::MAX, SlmpPlcProfile::IqR);
+
+    let lz_error = read_dwords_single_request(&client, lz, 2)
+        .await
+        .unwrap_err();
+    assert!(lz_error.message.contains("span overflows u32"));
+
+    let timer_error = client.read_long_timer(u32::MAX, 2).await.unwrap_err();
+    assert!(timer_error.message.contains("span overflows u32"));
+
+    let retentive_error = client
+        .read_long_retentive_timer(u32::MAX, 2)
+        .await
+        .unwrap_err();
+    assert!(retentive_error.message.contains("span overflows u32"));
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
 async fn typed_writes_reject_cross_type_coercion_before_transport() {
     let client = udp_client().await;
     let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
@@ -1077,9 +1098,12 @@ async fn direct_dword_routes_reject_long_current_and_lz_devices() {
 
 #[tokio::test]
 async fn dword_helpers_use_random_dword_route_for_lz() {
-    let server = MultiResponseServer::start(vec![build_dword_payload(&[0x1234_5678, 0x9ABC_DEF0])])
-        .await
-        .unwrap();
+    let server = MultiResponseServer::start(vec![
+        build_dword_payload(&[0x1234_5678, 0x9ABC_DEF0]),
+        build_dword_payload(&[0x1357_2468]),
+    ])
+    .await
+    .unwrap();
     let mut options = SlmpConnectionOptions::new(
         "127.0.0.1",
         1025,
@@ -1099,6 +1123,15 @@ async fn dword_helpers_use_random_dword_route_for_lz() {
     .await
     .unwrap();
     assert_eq!(values, vec![0x1234_5678, 0x9ABC_DEF0]);
+
+    let maximum = read_dwords_single_request(
+        &client,
+        SlmpDeviceAddress::new(SlmpDeviceCode::LZ, u32::MAX, SlmpPlcProfile::IqL),
+        1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(maximum, vec![0x1357_2468]);
 }
 
 #[tokio::test]

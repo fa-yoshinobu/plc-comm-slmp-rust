@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Library: LZ DWord helpers and long-timer/long-retentive-timer result generation now validate the complete `u32` device span with checked arithmetic. Overflow is reported as `SlmpError` instead of panicking in checked builds or wrapping to a different address in release builds; a valid single point at `u32::MAX` remains accepted.
+
+### Tests
+
+- Tests: Added pre-transport LZ and long-timer boundary coverage, including identical debug/release behavior at `u32::MAX`.
+
 ## [4.0.0] - 2026-07-17
 
 - Release: Bumped the main crate and lockfile metadata to `4.0.0`; the `slmp-node` workspace crate remains `1.0.3`.

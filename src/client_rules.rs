@@ -266,7 +266,7 @@ fn validate_block_write_overlap(
     Ok(())
 }
 
-fn checked_span_end(start: u32, points: usize, name: &str) -> Result<u32, SlmpError> {
+pub(crate) fn checked_span_end(start: u32, points: usize, name: &str) -> Result<u32, SlmpError> {
     let length = u32::try_from(points)
         .map_err(|_| SlmpError::new(format!("{name} device span is too large")))?;
     start
@@ -729,14 +729,19 @@ pub(crate) fn parse_long_timer_words(
     words: &[u16],
     head_no: u32,
     prefix: &str,
-) -> Vec<SlmpLongTimerResult> {
+) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
     let mut result = Vec::with_capacity(words.len() / 4);
     for (index, chunk) in words.chunks_exact(4).enumerate() {
         let status_word = chunk[2];
         let current_value = chunk[0] as u32 | ((chunk[1] as u32) << 16);
+        let offset = u32::try_from(index)
+            .map_err(|_| SlmpError::new("long timer result index exceeds u32"))?;
+        let number = head_no
+            .checked_add(offset)
+            .ok_or_else(|| SlmpError::new("long timer device span overflows u32"))?;
         result.push(SlmpLongTimerResult {
-            index: head_no + index as u32,
-            device: format!("{prefix}{}", head_no + index as u32),
+            index: number,
+            device: format!("{prefix}{number}"),
             current_value,
             contact: (status_word & 0x0002) != 0,
             coil: (status_word & 0x0001) != 0,
@@ -744,7 +749,7 @@ pub(crate) fn parse_long_timer_words(
             raw_words: chunk.to_vec(),
         });
     }
-    result
+    Ok(result)
 }
 
 pub(crate) fn decode_cpu_operation_state(status_word: u16) -> SlmpCpuOperationState {
@@ -869,7 +874,8 @@ mod tests {
             ],
             10,
             "LTN",
-        );
+        )
+        .unwrap();
 
         assert_eq!(values.len(), 2);
         assert_eq!(values[0].index, 10);
@@ -886,6 +892,17 @@ mod tests {
         assert!(values[1].contact);
         assert!(!values[1].coil);
         assert_eq!(values[1].status_word, 0x0002);
+
+        let maximum = parse_long_timer_words(&[1, 0, 0, 0], u32::MAX, "LTN").unwrap();
+        assert_eq!(maximum[0].index, u32::MAX);
+        assert_eq!(maximum[0].device, format!("LTN{}", u32::MAX));
+
+        assert_eq!(
+            parse_long_timer_words(&[0; 8], u32::MAX, "LTN")
+                .unwrap_err()
+                .to_string(),
+            "long timer device span overflows u32"
+        );
     }
 
     #[test]

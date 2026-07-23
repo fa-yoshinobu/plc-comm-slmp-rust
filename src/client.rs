@@ -2480,13 +2480,14 @@ impl ClientInner {
         points: usize,
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let word_points = Self::long_timer_word_points(points)?;
+        rules::checked_span_end(head_no, points, "long timer")?;
         let words = self
             .read_words_raw(
                 SlmpDeviceAddress::new(SlmpDeviceCode::LTN, head_no, self.options.plc_profile),
                 word_points,
             )
             .await?;
-        Ok(rules::parse_long_timer_words(&words, head_no, "LTN"))
+        rules::parse_long_timer_words(&words, head_no, "LTN")
     }
 
     async fn read_long_retentive_timer(
@@ -2495,13 +2496,14 @@ impl ClientInner {
         points: usize,
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let word_points = Self::long_timer_word_points(points)?;
+        rules::checked_span_end(head_no, points, "long retentive timer")?;
         let words = self
             .read_words_raw(
                 SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, head_no, self.options.plc_profile),
                 word_points,
             )
             .await?;
-        Ok(rules::parse_long_timer_words(&words, head_no, "LSTN"))
+        rules::parse_long_timer_words(&words, head_no, "LSTN")
     }
 
     fn long_timer_word_points(points: usize) -> Result<u16, SlmpError> {
