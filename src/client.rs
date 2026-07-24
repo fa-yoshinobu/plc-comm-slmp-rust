@@ -881,6 +881,9 @@ fn configure_tcp_keepalive(
 
 impl ClientInner {
     fn ensure_address_profile(&self, device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+        // PROFILE_RANGE_NOT_A_TRANSPORT_GUARD: PLC profile device ranges are
+        // application metadata. The transport validates syntax, device
+        // support, and only the selected wire representation width.
         let actual = device.plc_profile();
         let expected = self.options.plc_profile;
         if actual != expected {
@@ -889,6 +892,15 @@ impl ClientInner {
                 actual.canonical_name(),
                 expected.canonical_name()
             )));
+        }
+        if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) && device.number() > 0x00FF_FFFF
+        {
+            return Err(SlmpError::new(
+                "Legacy device number must fit the 24-bit wire field (0..16777215)",
+            ));
         }
         Ok(())
     }
@@ -908,8 +920,26 @@ impl ClientInner {
         dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
         let mut spans = Vec::with_capacity(word_entries.len() + dword_entries.len());
-        spans.extend(word_entries.iter().map(|(device, _)| (*device, 1u32)));
-        spans.extend(dword_entries.iter().map(|(device, _)| (*device, 2u32)));
+        spans.extend(word_entries.iter().map(|(device, _)| {
+            (
+                *device,
+                if device.device().code().is_bit_device() {
+                    16u32
+                } else {
+                    1u32
+                },
+            )
+        }));
+        spans.extend(dword_entries.iter().map(|(device, _)| {
+            (
+                *device,
+                if device.device().code().is_bit_device() {
+                    32u32
+                } else {
+                    2u32
+                },
+            )
+        }));
         for (index, (left, left_width)) in spans.iter().enumerate() {
             let left_device = left.device();
             let left_end = left_device
@@ -1427,22 +1457,37 @@ impl ClientInner {
         rules::validate_random_read_devices(&word_refs, &dword_refs, true, "Read Random (0x0403)")?;
 
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
+        let mut link_direct = false;
+        let mut other_layout = false;
         for device in word_devices {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            let is_link_direct = extension.direct_memory_specification == 0xF9;
+            link_direct |= is_link_direct;
+            other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
         }
         for device in dword_devices {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            let is_link_direct = extension.direct_memory_specification == 0xF9;
+            link_direct |= is_link_direct;
+            other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
         }
-        let sub = if matches!(
+        Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+            link_direct,
+            other_layout,
+            "read_random_ext",
+        )?;
+        let sub = if link_direct
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0080
         } else {
             0x0082
@@ -1546,16 +1591,28 @@ impl ClientInner {
             "Entry Monitor Device (0x0801)",
         )?;
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
+        let mut link_direct = false;
+        let mut other_layout = false;
         for device in word_devices.iter().chain(dword_devices.iter()) {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            let is_link_direct = extension.direct_memory_specification == 0xF9;
+            link_direct |= is_link_direct;
+            other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
         }
-        let subcommand = if matches!(
+        Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+            link_direct,
+            other_layout,
+            "register_monitor_devices_ext",
+        )?;
+        let subcommand = if link_direct
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0080
         } else {
             0x0082
@@ -1698,8 +1755,13 @@ impl ClientInner {
         Self::validate_qualified_random_write_overlap(word_entries, dword_entries)?;
 
         let mut payload = vec![word_entries.len() as u8, dword_entries.len() as u8];
+        let mut link_direct = false;
+        let mut other_layout = false;
         for (device, value) in word_entries {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            let is_link_direct = extension.direct_memory_specification == 0xF9;
+            link_direct |= is_link_direct;
+            other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
@@ -1707,15 +1769,25 @@ impl ClientInner {
         }
         for (device, value) in dword_entries {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            let is_link_direct = extension.direct_memory_specification == 0xF9;
+            link_direct |= is_link_direct;
+            other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
             payload.extend_from_slice(&value.to_le_bytes());
         }
-        let sub = if matches!(
+        Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+            link_direct,
+            other_layout,
+            "write_random_words_ext",
+        )?;
+        let sub = if link_direct
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0080
         } else {
             0x0082
@@ -1811,34 +1883,39 @@ impl ClientInner {
             }
         }
 
-        let bit_value_size = if matches!(
-            self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
-            1
-        } else {
-            2
-        };
-        let mut payload = Vec::with_capacity(bit_entries.len() * (13 + bit_value_size) + 1);
+        let mut payload = Vec::with_capacity(bit_entries.len() * 15 + 1);
         payload.push(bit_entries.len() as u8);
+        let mut link_direct = false;
+        let mut other_layout = false;
         for (device, value) in bit_entries {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            let ql_encoding = matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) || extension.direct_memory_specification == 0xF9;
+            let is_link_direct = extension.direct_memory_specification == 0xF9;
+            link_direct |= is_link_direct;
+            other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
-            if matches!(
-                self.options.compatibility_mode,
-                SlmpCompatibilityMode::Legacy
-            ) {
+            if ql_encoding {
                 payload.push(u8::from(*value));
             } else {
                 payload.extend_from_slice(&u16::from(*value).to_le_bytes());
             }
         }
-        let sub = if matches!(
+        Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
-            SlmpCompatibilityMode::Legacy
-        ) {
+            link_direct,
+            other_layout,
+            "write_random_bits_ext",
+        )?;
+        let sub = if link_direct
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
             0x0081
         } else {
             0x0083
@@ -3054,6 +3131,23 @@ impl ClientInner {
         payload
     }
 
+    fn reject_mixed_extended_layouts(
+        compatibility_mode: SlmpCompatibilityMode,
+        has_link_direct: bool,
+        has_other_layout: bool,
+        operation: &str,
+    ) -> Result<(), SlmpError> {
+        if matches!(compatibility_mode, SlmpCompatibilityMode::Iqr)
+            && has_link_direct
+            && has_other_layout
+        {
+            return Err(SlmpError::new(format!(
+                "{operation} cannot mix J link-direct Q/L entries with 13-byte iQ-R extended entries in one request"
+            )));
+        }
+        Ok(())
+    }
+
     fn resolve_effective_extension(
         device: SlmpQualifiedDeviceAddress,
         plc_profile: SlmpPlcProfile,
@@ -3130,6 +3224,18 @@ impl ClientInner {
                 }
             }
             _ => {}
+        }
+        if result.direct_memory_specification == 0xF9 {
+            if device.device().number() > 0x00FF_FFFF {
+                return Err(SlmpError::new(
+                    "link-direct device number must fit the 24-bit Q/L wire field (0..16777215)",
+                ));
+            }
+            if result.extension_specification > 0x00FF {
+                return Err(SlmpError::new(
+                    "link-direct network number must fit the 8-bit wire field (0..255)",
+                ));
+            }
         }
         Ok(result)
     }
@@ -3230,7 +3336,12 @@ impl std::fmt::Debug for SlmpClient {
 pub fn encode_raw_device_spec(
     mode: SlmpCompatibilityMode,
     device: RawSlmpDeviceAddress,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, SlmpError> {
+    if matches!(mode, SlmpCompatibilityMode::Legacy) && device.number > 0x00FF_FFFF {
+        return Err(SlmpError::new(
+            "Legacy device number must fit the 24-bit wire field (0..16777215)",
+        ));
+    }
     let size = device_spec_size(mode);
     let mut output = vec![0u8; size];
     match mode {
@@ -3245,7 +3356,7 @@ pub fn encode_raw_device_spec(
             output[4..6].copy_from_slice(&device.code.as_u16().to_le_bytes());
         }
     }
-    output
+    Ok(output)
 }
 
 #[cfg(test)]

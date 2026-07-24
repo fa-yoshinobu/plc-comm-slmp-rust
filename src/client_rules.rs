@@ -531,8 +531,26 @@ pub(crate) fn validate_random_write_word_devices(
     }
     if !allow_qualified_only_devices {
         let mut spans = Vec::with_capacity(word_entries.len() + dword_entries.len());
-        spans.extend(word_entries.iter().map(|(device, _)| (*device, 1usize)));
-        spans.extend(dword_entries.iter().map(|(device, _)| (*device, 2usize)));
+        spans.extend(word_entries.iter().map(|(device, _)| {
+            (
+                *device,
+                if device.code().is_bit_device() {
+                    16usize
+                } else {
+                    1usize
+                },
+            )
+        }));
+        spans.extend(dword_entries.iter().map(|(device, _)| {
+            (
+                *device,
+                if device.code().is_bit_device() {
+                    32usize
+                } else {
+                    2usize
+                },
+            )
+        }));
         for (index, (left, left_width)) in spans.iter().enumerate() {
             let left_end = checked_span_end(left.number(), *left_width, "write_random_words")?;
             for (right, right_width) in &spans[index + 1..] {

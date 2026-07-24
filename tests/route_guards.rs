@@ -589,6 +589,98 @@ async fn extended_monitor_registration_uses_qualified_subcommand() {
 }
 
 #[tokio::test]
+async fn link_direct_random_and_monitor_extended_apis_use_ql_subcommands() {
+    let server = CapturingResponseServer::start(vec![
+        (0x0000, vec![0x34, 0x12]),
+        (0x0000, vec![]),
+        (0x0000, vec![]),
+        (0x0000, vec![]),
+    ])
+    .await
+    .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    let word = parse_qualified_device(r"J1\W0", SlmpPlcProfile::IqR).unwrap();
+    let bit = parse_qualified_device(r"J1\B0", SlmpPlcProfile::IqR).unwrap();
+
+    client.read_random_ext(&[word], &[]).await.unwrap();
+    client
+        .write_random_words_ext(&[(word, 1)], &[])
+        .await
+        .unwrap();
+    client.write_random_bits_ext(&[(bit, true)]).await.unwrap();
+    client
+        .register_monitor_devices_ext(&[word], &[])
+        .await
+        .unwrap();
+
+    let requests = server.requests().await;
+    assert_eq!(requests.len(), 4);
+    assert_eq!(
+        u16::from_le_bytes([requests[0][17], requests[0][18]]),
+        0x0080
+    );
+    assert_eq!(
+        u16::from_le_bytes([requests[1][17], requests[1][18]]),
+        0x0080
+    );
+    assert_eq!(
+        u16::from_le_bytes([requests[2][17], requests[2][18]]),
+        0x0081
+    );
+    assert_eq!(
+        u16::from_le_bytes([requests[3][17], requests[3][18]]),
+        0x0080
+    );
+    assert_eq!(requests[2].len(), 32);
+}
+
+#[tokio::test]
+async fn link_direct_extended_apis_reject_mixed_ql_and_iqr_layouts_before_transport() {
+    let client = udp_client().await;
+    let link_word = parse_qualified_device(r"J1\W0", SlmpPlcProfile::IqR).unwrap();
+    let iqr_word = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+    let link_bit = parse_qualified_device(r"J1\B0", SlmpPlcProfile::IqR).unwrap();
+    let iqr_bit = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+
+    let read_error = client
+        .read_random_ext(&[link_word, iqr_word], &[])
+        .await
+        .unwrap_err();
+    let write_error = client
+        .write_random_words_ext(&[(link_word, 1), (iqr_word, 2)], &[])
+        .await
+        .unwrap_err();
+    let bit_error = client
+        .write_random_bits_ext(&[(link_bit, true), (iqr_bit, false)])
+        .await
+        .unwrap_err();
+    let monitor_error = client
+        .register_monitor_devices_ext(&[link_word, iqr_word], &[])
+        .await
+        .unwrap_err();
+
+    for error in [read_error, write_error, bit_error, monitor_error] {
+        assert!(error.to_string().contains("cannot mix J link-direct"));
+    }
+}
+
+#[tokio::test]
 async fn hg_qualified_device_never_changes_user_selected_request_target() {
     async fn write_once(target_module_io: u16) -> Vec<u8> {
         let server = CapturingResponseServer::start(vec![(0x0000, vec![])])
@@ -872,6 +964,13 @@ async fn random_and_block_writes_reject_duplicate_or_overlapping_ranges() {
     assert!(
         client
             .write_random_u32s(&[(d100, 1), (d101, 2)])
+            .await
+            .is_err()
+    );
+    let m115 = SlmpDeviceAddress::new(SlmpDeviceCode::M, 115, SlmpPlcProfile::IqR);
+    assert!(
+        client
+            .write_random_u16s(&[(m100, 1), (m115, 2)])
             .await
             .is_err()
     );

@@ -44,6 +44,7 @@ fn encode_device_spec(mode: SlmpCompatibilityMode, device: SlmpDeviceAddress) ->
         mode,
         RawSlmpDeviceAddress::new(device.code(), device.number()),
     )
+    .expect("validated device must fit the selected wire format")
 }
 
 fn make_error(message: impl Into<String>) -> Box<dyn Error> {

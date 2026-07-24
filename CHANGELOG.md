@@ -17,9 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING
+
+- Library: Raw device-spec encoders now return `Result` and reject addresses that exceed the selected legacy or link-direct wire field instead of truncating high bits. Callers must propagate or handle the encoding error.
+
 ### Fixed
 
 - Library: LZ DWord helpers and long-timer/long-retentive-timer result generation now validate the complete `u32` device span with checked arithmetic. Overflow is reported as `SlmpError` instead of panicking in checked builds or wrapping to a different address in release builds; a valid single point at `u32::MAX` remains accepted.
+- Library: J link-direct extended random read/write and monitor registration now use Q/L subcommands and bit-value encoding; requests mixing J and iQ-R entry layouts are rejected before transport, and qualified-device span validation uses the correct representation width.
+- Library: Profile device-range upper bounds are not used as transport send guards.
 
 ### Tests
 
