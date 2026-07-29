@@ -23,13 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Library: Decimal and hexadecimal device parsers reject signs and embedded whitespace, and J-direct network numbers use the stable decimal `0..255` contract.
+- Library: Long-timer helpers validate device-family support and the selected wire width before transport.
 - Library: LZ DWord helpers and long-timer/long-retentive-timer result generation now validate the complete `u32` device span with checked arithmetic. Overflow is reported as `SlmpError` instead of panicking in checked builds or wrapping to a different address in release builds; a valid single point at `u32::MAX` remains accepted.
 - Library: J link-direct extended random read/write and monitor registration now use Q/L subcommands and bit-value encoding; requests mixing J and iQ-R entry layouts are rejected before transport, and qualified-device span validation uses the correct representation width.
 - Library: Profile device-range upper bounds are not used as transport send guards.
 
 ### Tests
 
-- Tests: Added pre-transport LZ and long-timer boundary coverage, including identical debug/release behavior at `u32::MAX`.
+- Tests: Added pre-transport LZ, long-timer family, strict parser, J-network, and boundary coverage, including identical debug/release behavior at `u32::MAX`.
 
 ## [4.0.0] - 2026-07-17
 

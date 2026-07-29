@@ -1,4 +1,4 @@
-use crate::address::device_spec_size;
+use crate::address::{device_spec_size, ensure_device_supported_for_family};
 use crate::capability_profiles::{
     self, SlmpProfileFeature, SlmpProfileFeatureState, SlmpProfileLimit,
 };
@@ -2558,12 +2558,10 @@ impl ClientInner {
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let word_points = Self::long_timer_word_points(points)?;
         rules::checked_span_end(head_no, points, "long timer")?;
-        let words = self
-            .read_words_raw(
-                SlmpDeviceAddress::new(SlmpDeviceCode::LTN, head_no, self.options.plc_profile),
-                word_points,
-            )
-            .await?;
+        let device = SlmpDeviceAddress::new(SlmpDeviceCode::LTN, head_no, self.options.plc_profile);
+        ensure_device_supported_for_family("LTN", device.code(), self.options.plc_profile)?;
+        self.ensure_address_profile(device)?;
+        let words = self.read_words_raw(device, word_points).await?;
         rules::parse_long_timer_words(&words, head_no, "LTN")
     }
 
@@ -2574,12 +2572,11 @@ impl ClientInner {
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let word_points = Self::long_timer_word_points(points)?;
         rules::checked_span_end(head_no, points, "long retentive timer")?;
-        let words = self
-            .read_words_raw(
-                SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, head_no, self.options.plc_profile),
-                word_points,
-            )
-            .await?;
+        let device =
+            SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, head_no, self.options.plc_profile);
+        ensure_device_supported_for_family("LSTN", device.code(), self.options.plc_profile)?;
+        self.ensure_address_profile(device)?;
+        let words = self.read_words_raw(device, word_points).await?;
         rules::parse_long_timer_words(&words, head_no, "LSTN")
     }
 

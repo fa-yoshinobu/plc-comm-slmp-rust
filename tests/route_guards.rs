@@ -1,7 +1,7 @@
 use plc_comm_slmp::{
     NamedAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCommand, SlmpConnectionOptions,
     SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpPlcProfile, SlmpQualifiedDeviceAddress,
-    SlmpTransportMode, SlmpValue, parse_qualified_device, parse_scalar_for_named,
+    SlmpTransportMode, SlmpValue, parse_device, parse_qualified_device, parse_scalar_for_named,
     read_dwords_single_request, read_named, read_typed, write_named, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -880,6 +880,19 @@ async fn continuous_u32_address_overflow_is_rejected_before_transport() {
 }
 
 #[tokio::test]
+async fn long_timer_helpers_apply_family_guards_before_transport() {
+    let unsupported = udp_client_with_profile(SlmpPlcProfile::IqF).await;
+    let timer_error = unsupported.read_long_timer(0, 1).await.unwrap_err();
+    assert!(timer_error.message.contains("not supported"));
+    let retentive_error = unsupported
+        .read_long_retentive_timer(0, 1)
+        .await
+        .unwrap_err();
+    assert!(retentive_error.message.contains("not supported"));
+    assert_eq!(unsupported.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
 async fn typed_writes_reject_cross_type_coercion_before_transport() {
     let client = udp_client().await;
     let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
@@ -1391,6 +1404,20 @@ fn parse_qualified_device_rejects_hg_outside_iqr_cpu_range() {
         err.to_string()
             .contains("HG Extended Device access is valid only for U3E0\\HG through U3E3\\HG")
     );
+}
+
+#[test]
+fn strict_device_parser_rejects_signs_whitespace_and_large_j_networks() {
+    for text in ["D+5", "D 5", "W 1F"] {
+        assert!(parse_device(text, SlmpPlcProfile::IqR).is_err());
+    }
+
+    let error = parse_qualified_device(r"J256\SW10", SlmpPlcProfile::IqR).unwrap_err();
+    assert_eq!(
+        error.message,
+        "Invalid J-direct network; expected decimal 0..255."
+    );
+    assert!(parse_qualified_device(r"J+1\SW10", SlmpPlcProfile::IqR).is_err());
 }
 
 #[tokio::test]
