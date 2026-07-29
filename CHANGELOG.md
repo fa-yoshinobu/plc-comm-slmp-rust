@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-07-29
+
+- Release: Bumped the main crate and lockfile metadata to `4.0.1`; the non-published `slmp-node` workspace crate remains `1.0.3`.
+- Release: GitHub Release drafts now prepend this version's changelog section to generated notes and repair a missing section on workflow reruns.
+
 ### BREAKING
 
 - Library: Raw device-spec encoders now return `Result` and reject addresses that exceed the selected legacy or link-direct wire field instead of truncating high bits. Callers must propagate or handle the encoding error.
