@@ -30,14 +30,34 @@ fn raw_device_spec_encoding_matches_repository_owned_vectors() {
             524_287,
             vec![0xFF, 0xFF, 0x07, 0x00, 0x2C, 0x00],
         ),
+        (
+            SlmpCompatibilityMode::Legacy,
+            SlmpDeviceCode::R,
+            32_768,
+            vec![0x00, 0x80, 0x00, 0xAF],
+        ),
+        (
+            SlmpCompatibilityMode::Iqr,
+            SlmpDeviceCode::R,
+            32_768,
+            vec![0x00, 0x80, 0x00, 0x00, 0xAF, 0x00],
+        ),
     ];
 
     for (mode, code, number, expected) in cases {
         assert_eq!(
-            encode_raw_device_spec(mode, RawSlmpDeviceAddress::new(code, number)),
+            encode_raw_device_spec(mode, RawSlmpDeviceAddress::new(code, number)).unwrap(),
             expected
         );
     }
+
+    assert!(
+        encode_raw_device_spec(
+            SlmpCompatibilityMode::Legacy,
+            RawSlmpDeviceAddress::new(SlmpDeviceCode::D, 0x0100_0000),
+        )
+        .is_err()
+    );
 }
 
 #[test]

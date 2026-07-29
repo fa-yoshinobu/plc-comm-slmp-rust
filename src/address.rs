@@ -125,7 +125,7 @@ fn parse_device_internal(
             ensure_device_supported_for_family(prefix, code, plc_profile)?;
             let number_text = &token[prefix.len()..];
             let radix = device_radix(code, plc_profile);
-            let number = parse_u32_with_radix(number_text, radix).map_err(|_| {
+            let number = parse_u32_with_radix(number_text, radix).ok_or_else(|| {
                 SlmpError::new(format!(
                     "Invalid SLMP device number '{number_text}' for device code '{prefix}' in '{text}'."
                 ))
@@ -139,7 +139,7 @@ fn parse_device_internal(
     )))
 }
 
-fn ensure_device_supported_for_family(
+pub(crate) fn ensure_device_supported_for_family(
     prefix: &str,
     code: SlmpDeviceCode,
     plc_profile: SlmpPlcProfile,
@@ -208,12 +208,18 @@ fn device_radix(code: SlmpDeviceCode, plc_profile: SlmpPlcProfile) -> u32 {
     if code.is_hex_addressed() { 16 } else { 10 }
 }
 
-fn parse_u32_with_radix(text: &str, radix: u32) -> Result<u32, std::num::ParseIntError> {
-    match radix {
-        8 => u32::from_str_radix(text, 8),
-        16 => u32::from_str_radix(text, 16),
-        _ => text.parse::<u32>(),
+fn parse_u32_with_radix(text: &str, radix: u32) -> Option<u32> {
+    if text.is_empty()
+        || !text.bytes().all(|byte| match radix {
+            8 => matches!(byte, b'0'..=b'7'),
+            16 => matches!(byte, b'0'..=b'9' | b'A'..=b'F'),
+            _ => byte.is_ascii_digit(),
+        })
+    {
+        return None;
     }
+
+    u32::from_str_radix(text, radix).ok()
 }
 
 fn format_number(address: SlmpDeviceAddress) -> String {
@@ -236,12 +242,15 @@ pub fn parse_qualified_device(
     if let Some(rest) = token.strip_prefix('J')
         && let Some((network, device_text)) = split_slash(rest)
     {
-        let network: u16 = network
+        if network.is_empty() || !network.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(SlmpError::new("Invalid J-direct network."));
+        }
+        let network: u8 = network
             .parse()
-            .map_err(|_| SlmpError::new("Invalid J-direct network."))?;
+            .map_err(|_| SlmpError::new("Invalid J-direct network; expected decimal 0..255."))?;
         return Ok(SlmpQualifiedDeviceAddress::link_direct(
             parse_device(device_text, plc_profile)?,
-            network,
+            u16::from(network),
         ));
     }
 

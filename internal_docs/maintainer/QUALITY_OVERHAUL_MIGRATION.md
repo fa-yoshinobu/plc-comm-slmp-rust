@@ -563,3 +563,28 @@ five consecutive focused runs. Final Codex diff review additionally aligned shor
 with the malformed-response classification and added a lower-bound assertion to the segmented TCP
 deadline test; the resulting 12-case response-correlation target passed five consecutive runs and
 the complete CI/package gates were rerun afterward.
+
+## BH-LIVE-SLMP-20260729 — Supplemental bug-hunt live verification
+
+Scope: commit `e3ae97bba3e53a4b225c5830fbdccf485fc8559b`, profile `melsec:iq-r`, TCP
+`192.168.250.100:1025`.
+
+Target contract: the library sends profile-catalog range exceedances that fit the wire format, uses
+the Q/L layout for J link-direct extended random and monitor operations, and leaves every test
+device in its documented final state.
+
+Acceptance evidence:
+
+- [x] `D100` one-word read succeeded with value `0`.
+- [x] `R32768` reached the PLC and surfaced `PlcEndCode`/`SlmpError` end code `0x4031` for command
+  `0x0401`, subcommand `0x0002`; no pre-send profile-range rejection occurred.
+- [x] Extended random read of `J1\W10` succeeded with value `0`.
+- [x] Extended random word write changed `J1\W10` from `0` to `0x7C13`, read back `0x7C13`,
+  restored `0`, and confirmed the restoration.
+- [x] Extended random bit write changed `J1\B10` to ON, read ON, reset it to OFF, and confirmed OFF.
+- [x] Extended monitor registration for `J1\W10` and one monitor cycle succeeded with value `0`;
+  the TCP session was then closed.
+- [x] Temporary one-operation live examples were removed and the repository working tree was clean.
+
+Disposition: all supplemental live checks passed. The `R32768` result is PLC-side address evidence,
+not authority to add a communication-library profile-range guard.
