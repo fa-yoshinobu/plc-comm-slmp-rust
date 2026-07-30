@@ -53,9 +53,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [Full documentation site](https://fa-yoshinobu.github.io/plc-comm-docs-site/) | Unified docs for all PLC communication libraries. |
 | [Getting started](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/rust/GETTING_STARTED/) | Install the crate, connect to your PLC, and run your first SLMP read/write. |
 | [Usage guide](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/rust/USAGE_GUIDE/) | Use the high-level API and common SLMP workflows. |
+| [API reference](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/rust/API_REFERENCE/) | Find public client methods, helpers, profile APIs, and error types. |
 | [SLMP profile reference](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/) | Check profile parameters, device families, address syntax, and numbering rules. |
 | [PLC profiles](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/rust/PROFILES/) | Choose the canonical MELSEC profile and frame behavior. |
+| [Gotchas](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/rust/GOTCHAS/) | Check whether this library has any current library-specific caveats. |
+| [Performance](https://fa-yoshinobu.github.io/plc-comm-docs-site/performance/) | See measured latency, throughput, and long-run soak results from real PLC hardware. |
+| [Choosing a Language](https://fa-yoshinobu.github.io/plc-comm-docs-site/choosing-a-language/) | Compare the .NET, Python, Rust, C++, and Node-RED implementations before you pick one. |
 | [Examples](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/blob/main/examples/README.md) | Run maintained Rust examples. |
+
+For a zero-code connectivity check, see [PLC Scope](https://github.com/fa-yoshinobu/plc-scope-dotnet) (Windows).
 
 ## License and registry
 
