@@ -5,6 +5,14 @@ on:
   pull_request:
 
 jobs:
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - name: Check the published crate on its declared minimum Rust version
+        run: cargo check -p plc-comm-slmp --all-targets --all-features
+
   rust-core:
     runs-on: ubuntu-latest
     defaults:
@@ -41,3 +49,13 @@ jobs:
       - name: Check napi crate
         working-directory: plc-comm-slmp-rust
         run: cargo check -p slmp-node
+
+      - name: Validate crate contents
+        working-directory: plc-comm-slmp-rust
+        shell: pwsh
+        run: ./scripts/check_package_contents.ps1
+
+      - name: Verify self-contained source archive
+        working-directory: plc-comm-slmp-rust
+        shell: pwsh
+        run: ./scripts/check_source_archive.ps1

@@ -155,7 +155,7 @@ async fn poll_step(
 fn is_retryable_slmp(error: &SlmpError) -> bool {
     !matches!(
         error.kind,
-        SlmpErrorKind::PlcEndCode | SlmpErrorKind::ProfileFeature
+        SlmpErrorKind::PlcEndCode | SlmpErrorKind::ProfileFeature | SlmpErrorKind::OutcomeUnknown
     )
 }
 

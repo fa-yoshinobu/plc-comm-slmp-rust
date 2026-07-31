@@ -8,7 +8,7 @@ Use this page when you want the shortest path from a Rust program to a MELSEC PL
 
 | Requirement | Value |
 | --- | --- |
-| Rust | Stable Rust |
+| Rust | 1.85 or newer (1.85 is the declared minimum supported compiler) |
 | Async runtime | `tokio` with `macros` and a runtime feature |
 | PLC endpoint | `192.168.250.100:1025` |
 | Profile used below | `SlmpPlcProfile::IqR` |

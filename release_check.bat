@@ -19,17 +19,17 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 )
 
-echo [3/4] Running CI...
-call run_ci.bat
+echo [3/4] Checking GitHub source archive contents...
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_source_archive.ps1
 if %errorlevel% neq 0 (
-    echo [ERROR] CI failed.
+    echo [ERROR] Source archive content check failed.
     exit /b %errorlevel%
 )
 
-echo [4/4] Packaging dry run...
-cargo package
+echo [4/4] Running CI, generated-crate, and isolated-consumer gates...
+call run_ci.bat
 if %errorlevel% neq 0 (
-    echo [ERROR] Package dry run failed.
+    echo [ERROR] CI failed.
     exit /b %errorlevel%
 )
 

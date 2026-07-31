@@ -119,18 +119,17 @@ fn parse_device_internal(
         "TN", "CS", "CC", "CN", "SB", "SW", "DX", "DY", "LCS", "LCC", "LCN", "LZ", "ZR", "RD",
         "HG", "X", "Y", "M", "L", "F", "V", "B", "S", "D", "W", "Z", "R", "G",
     ] {
-        if token.starts_with(prefix)
-            && let Some(code) = SlmpDeviceCode::parse_prefix(prefix)
-        {
-            ensure_device_supported_for_family(prefix, code, plc_profile)?;
-            let number_text = &token[prefix.len()..];
-            let radix = device_radix(code, plc_profile);
-            let number = parse_u32_with_radix(number_text, radix).ok_or_else(|| {
-                SlmpError::new(format!(
-                    "Invalid SLMP device number '{number_text}' for device code '{prefix}' in '{text}'."
-                ))
-            })?;
-            return Ok(SlmpDeviceAddress::new(code, number, plc_profile));
+        if let Some(number_text) = token.strip_prefix(prefix) {
+            if let Some(code) = SlmpDeviceCode::parse_prefix(prefix) {
+                ensure_device_supported_for_family(prefix, code, plc_profile)?;
+                let radix = device_radix(code, plc_profile);
+                let number = parse_u32_with_radix(number_text, radix).ok_or_else(|| {
+                    SlmpError::new(format!(
+                        "Invalid SLMP device number '{number_text}' for device code '{prefix}' in '{text}'."
+                    ))
+                })?;
+                return Ok(SlmpDeviceAddress::new(code, number, plc_profile));
+            }
         }
     }
 
@@ -239,28 +238,28 @@ pub fn parse_qualified_device(
         return Err(SlmpError::new("Device text is required."));
     }
 
-    if let Some(rest) = token.strip_prefix('J')
-        && let Some((network, device_text)) = split_slash(rest)
-    {
-        if network.is_empty() || !network.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(SlmpError::new("Invalid J-direct network."));
+    if let Some(rest) = token.strip_prefix('J') {
+        if let Some((network, device_text)) = split_slash(rest) {
+            if network.is_empty() || !network.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(SlmpError::new("Invalid J-direct network."));
+            }
+            let network: u8 = network.parse().map_err(|_| {
+                SlmpError::new("Invalid J-direct network; expected decimal 0..255.")
+            })?;
+            return Ok(SlmpQualifiedDeviceAddress::link_direct(
+                parse_device(device_text, plc_profile)?,
+                u16::from(network),
+            ));
         }
-        let network: u8 = network
-            .parse()
-            .map_err(|_| SlmpError::new("Invalid J-direct network; expected decimal 0..255."))?;
-        return Ok(SlmpQualifiedDeviceAddress::link_direct(
-            parse_device(device_text, plc_profile)?,
-            u16::from(network),
-        ));
     }
 
-    if let Some(rest) = token.strip_prefix('U')
-        && let Some((extension, device_text)) = split_slash(rest)
-    {
-        let extension_specification = u16::from_str_radix(extension, 16)
-            .map_err(|_| SlmpError::new("Invalid extension specification."))?;
-        let device = parse_device(device_text, plc_profile)?;
-        return SlmpQualifiedDeviceAddress::module_access(device, extension_specification);
+    if let Some(rest) = token.strip_prefix('U') {
+        if let Some((extension, device_text)) = split_slash(rest) {
+            let extension_specification = u16::from_str_radix(extension, 16)
+                .map_err(|_| SlmpError::new("Invalid extension specification."))?;
+            let device = parse_device(device_text, plc_profile)?;
+            return SlmpQualifiedDeviceAddress::module_access(device, extension_specification);
+        }
     }
 
     Ok(SlmpQualifiedDeviceAddress::new(parse_device(

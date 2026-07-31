@@ -675,3 +675,180 @@ Self-review disposition:
   construction. Oversized rejection still precedes every request-time send, statistic, last-frame,
   and serial mutation, which is the native state-transition contract.
 - No duplicate or deferred finding changes this contract.
+
+## GOAL-SERIAL-DEFER-001 — Effective single-request capacity
+
+Scope: every public TCP/UDP 3E/4E command path, including labels, monitor operations, raw commands,
+and helpers that return decoded collections.
+
+Target contract: each operation has one effective maximum derived from the narrowest request field,
+complete transport frame/datagram, response field, decoder, output collection, and canonical profile
+limit. The exact maximum is one request. Maximum-plus-one is rejected before frame publication,
+4E serial allocation, statistics, transport activity, retry, or automatic split.
+
+Compatibility impact: oversized inputs that could previously truncate, wrap, or rely on implicit
+multi-request behavior are deterministic pre-transport errors.
+
+Acceptance criteria:
+
+1. Common raw payload tests cover TCP/UDP 3E/4E exact maximum and maximum-plus-one and assert frame,
+   serial, and statistic preservation on rejection.
+2. Label aggregate builders cover the protocol maximum and next representable over-limit value.
+3. Command/profile count validators and exact response decoders reject over-limit or trailing output
+   without a fallback request.
+4. `read_named`, writes, and monitor helpers contain no hidden split, retry, or resend path.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required for deterministic size arithmetic and injected transport vectors.
+- [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## GOAL-SERIAL-DEFER-002 — One absolute request deadline
+
+Scope: ordinary TCP and UDP exchanges, correlation, parsing, and command-specific payload decoding.
+
+Target contract: one monotonic deadline begins immediately before the first transport send and
+covers send, complete receive, discarded foreign responses, correlation, protocol parse, and output
+decode. Queue waiting does not consume it. Expiry retires the exact transport and never resends.
+
+Compatibility impact: segmented or unrelated responses and decoder work can no longer extend the
+configured operation duration; the affected client must be replaced after timeout.
+
+Acceptance criteria:
+
+1. TCP/UDP wrong-serial and foreign-route floods cannot extend the deadline.
+2. Segmented TCP receive uses the original deadline for every segment.
+3. Parse and payload-decode failures retire the transport; deadline checks bracket completed decode.
+4. A fresh explicitly connected client can operate independently after an old generation expires.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required for deterministic deadline and injected-response behavior.
+- [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## GOAL-FIFO-DEFER-001 — Ordinary client FIFO and close generation
+
+Scope: all clones of one `SlmpClient`; separate client instances are separate queues.
+
+Target contract: one shared client admits calls in FIFO order and permits one wire transaction at a
+time. Rust arguments are fixed before admission by ownership/immutable borrowing. Dropping a waiting
+future removes it without send or delay. `close` immediately invalidates active and queued work for
+the exact connection generation without waiting behind the active operation.
+
+Compatibility impact: close no longer waits for the active mutex holder; queued calls deterministically
+fail without reaching transport.
+
+Acceptance criteria:
+
+1. Concurrent calls produce one non-pipelined ordered frame stream with unique 4E serials.
+2. A cancelled waiter sends no frame and its successor proceeds in the next FIFO position.
+3. Close returns promptly, active and queued calls get the correct error class, and no queued frame is sent.
+4. A slow operation on one client does not block another client instance.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required for local admission and socket-generation behavior.
+- [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## GOAL-ERROR-DEFER-001 — Pairwise operational outcomes
+
+Scope: public `SlmpErrorKind`, state-changing command classification, and raw command behavior.
+
+Target contract: validation, timeout, cancellation, closed, not-connected, transport, malformed
+response, PLC end code, profile feature, and unknown state-changing outcome are pairwise
+machine-readable. `OutcomeUnknown` carries a structured timeout/cancelled/closed/transport/malformed
+reason. Once a state-changing send may have started, those failures are never returned as a safe
+retry signal. A correlated PLC end code remains definitive PLC NG and leaves the transport reusable.
+
+Compatibility impact: failures formerly grouped into `General` now use specific enum values, and
+callers matching the non-exhaustive enum should handle `OutcomeUnknown` without automatic resend.
+
+Acceptance criteria:
+
+1. Public kinds and structured unknown reasons are pairwise distinct.
+2. Active close and malformed acknowledgements after a write return structured `OutcomeUnknown`.
+3. Read timeout/malformed paths retain their direct class and retire the transport.
+4. PLC NG remains `PlcEndCode`, preserves the end code, and permits a later request on the complete
+   correlated session.
+5. `raw_command` uses `SlmpCommand::is_state_changing` and cannot bypass conservative classification.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required for deterministic error mapping and injected response vectors.
+- [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## GOAL-AGGREGATE-DEFER-001 — Explicit Rust aggregate boundary
+
+Scope: `read_named`, `poll_named`, aggregate write helpers, and `write_bit_in_word`.
+
+Target contract: `read_named` and each polling cycle remain one random-read request or reject before
+transport; no automatic read split is added. State-changing aggregates remain one request or reject.
+`write_bit_in_word` is the explicit non-aggregate two-command RMW exception: both frames occupy one
+FIFO turn, the operation remains non-atomic at the PLC, and its write uses conservative unknown-outcome
+classification.
+
+Compatibility impact: there is no implicit split or partial aggregate result. The RMW helper now
+prevents another operation on the same client from interleaving between its read and write.
+
+Acceptance criteria:
+
+1. `read_named` exact profile limit succeeds as one request and limit-plus-one rejects without send.
+2. Named writes reject mixed request families and bit-in-word entries before transport.
+3. Source and wire tests find no hidden aggregate split, retry, or fallback path.
+4. Under a queued competitor, RMW wire order is read-target, write-target, then competitor.
+5. Documentation states temporal snapshot risk, PLC-level non-atomicity, and unknown write outcome.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required for deterministic batching, admission, and injected-response behavior.
+- [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## 2026-08-01 Codex self-review disposition
+
+| Finding | Disposition | Resolution |
+| --- | --- | --- |
+| RUST-20260801-01 | Accepted | `close` originally waited behind the active client mutex. Added a per-client close signal, non-blocking exact-generation retirement, and active/queued tests. |
+| RUST-20260801-02 | Accepted | The transport was restored before response parsing and semantic decode. Restoration now follows successful parse, and semantic decode is deadline-checked; malformed decode retires the transport. |
+| RUST-20260801-03 | Accepted | Four error kinds could not distinguish operational outcomes. Added pairwise public kinds and structured unknown-outcome reasons, including raw-command state classification. |
+| RUST-20260801-04 | Accepted | `write_bit_in_word` released the client lock between read and write. It now holds one FIFO turn and has deterministic interleaving coverage. |
+| RUST-20260801-05 | Duplicate | Existing request/label/profile boundary tests already cover exact maximum, maximum-plus-one, pre-transport state preservation, and no split; retained and included in the final gate. |
+| RUST-20260801-06 | Rejected | Adding automatic `read_named` splitting would violate the approved Rust single-request contract and temporal-snapshot guarantee; no implementation change made. |
+| RUST-20260801-07 | Deferred | Live PLC confirmation is unnecessary for local FIFO, arithmetic, timeout, injected malformed response, and classification contracts; no live communication was performed. |
+| RUST-20260801-08 | Accepted | Package verification exposed that `tokio::select!` was available only through dev/CLI feature unification. Enabled Tokio `macros` for the distributed library dependency and reran package/consumer gates. |
+| RUST-20260801-09 | Accepted | The persistent package gate used only `cargo package --list`, so the recorded generated-crate and isolated-consumer evidence was not reproducible from the gate. It now generates and extracts the `.crate`, checks its exact consumer boundary, builds packaged targets and rustdoc, and compiles a separate path consumer from the extracted artifact. |
+| RUST-20260801-10 | Accepted | Worktree source validation copied paths returned by `git ls-files`; a tracked deletion therefore failed at `Copy-Item` instead of producing the intended archive. The gate now creates a synthetic tree with a temporary Git index and `git add -A`, covering modifications, non-ignored untracked files, and deletions without changing the real index. |
+| RUST-20260801-11 | Accepted | The first temporary index was placed under the repository `build/` tree, allowing `git add -A` to stage the index and lock files themselves. The index now lives in the validated workspace parent, outside the repository, and both index paths are removed in `finally`. |
+| RUST-20260801-12 | Accepted | The source archive was extracted below the original repository's Cargo workspace, so its nested generated-crate check could be associated with the outer checkout. The complete source-archive work root now lives in the validated workspace parent outside the repository; packaged-crate and consumer checks cannot resolve through the original workspace. |
+
+Final verification evidence:
+
+- Rust 1.85 compiled the published crate with all targets and all features.
+- Rustfmt, Clippy with warnings denied, workspace/all-target/all-feature tests, examples, the Node
+  binding, and rustdoc with warnings denied passed.
+- The persistent package gate generated a 39-file `.crate` with 13 declared
+  Cargo examples, excluded repository tests and maintainer tooling, verified the
+  extracted package targets and rustdoc, and compiled a separate consumer project
+  against only the extracted package.
+- The worktree source-archive gate created a complete 75-file synthetic Git tree,
+  retained tests and maintainer inputs, extracted outside the original Cargo
+  workspace, and ran the complete local gate from that extracted tree. Its nested
+  no-checkout package gate produced the expected 38-file crate (the direct Git
+  package's VCS metadata is unavailable in a source-archive extraction), built all
+  13 examples and rustdoc, and compiled the isolated consumer.
+- Canonical profile drift, no-auto-publish policy, and `git diff --check` passed.
+- No live PLC communication, commit, push, release, or public-registry publication was performed.

@@ -6,8 +6,25 @@ use crate::model::SlmpCommand;
 pub enum SlmpErrorKind {
     General,
     Timeout,
+    Cancelled,
+    Closed,
+    NotConnected,
+    Transport,
+    MalformedResponse,
     PlcEndCode,
     ProfileFeature,
+    OutcomeUnknown,
+}
+
+/// Machine-readable reason why a state-changing command has an unknown outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SlmpOutcomeUnknownReason {
+    Timeout,
+    Cancelled,
+    Closed,
+    Transport,
+    MalformedResponse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +74,7 @@ pub struct SlmpError {
     pub subcommand: Option<u16>,
     pub error_info: Option<SlmpErrorInfo>,
     pub profile_feature: Option<SlmpProfileFeatureErrorInfo>,
+    pub outcome_unknown_reason: Option<SlmpOutcomeUnknownReason>,
 }
 
 impl SlmpError {
@@ -69,6 +87,7 @@ impl SlmpError {
             subcommand: None,
             error_info: None,
             profile_feature: None,
+            outcome_unknown_reason: None,
         }
     }
 
@@ -81,6 +100,64 @@ impl SlmpError {
             subcommand: None,
             error_info: None,
             profile_feature: None,
+            outcome_unknown_reason: None,
+        }
+    }
+
+    pub(crate) fn closed(message: impl Into<String>) -> Self {
+        Self::of_kind(SlmpErrorKind::Closed, message)
+    }
+
+    pub(crate) fn transport(message: impl Into<String>) -> Self {
+        Self::of_kind(SlmpErrorKind::Transport, message)
+    }
+
+    pub(crate) fn malformed_response(message: impl Into<String>) -> Self {
+        Self::of_kind(SlmpErrorKind::MalformedResponse, message)
+    }
+
+    fn of_kind(kind: SlmpErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            end_code: None,
+            command: None,
+            subcommand: None,
+            error_info: None,
+            profile_feature: None,
+            outcome_unknown_reason: None,
+        }
+    }
+
+    pub(crate) fn malformed_with_context(
+        message: impl Into<String>,
+        command: SlmpCommand,
+        subcommand: u16,
+    ) -> Self {
+        let mut error = Self::malformed_response(message);
+        error.command = Some(command);
+        error.subcommand = Some(subcommand);
+        error
+    }
+
+    pub(crate) fn outcome_unknown(
+        reason: SlmpOutcomeUnknownReason,
+        source: SlmpError,
+        command: SlmpCommand,
+        subcommand: u16,
+    ) -> Self {
+        Self {
+            kind: SlmpErrorKind::OutcomeUnknown,
+            message: format!(
+                "state-changing SLMP command outcome is unknown ({reason:?}): {}",
+                source.message
+            ),
+            end_code: source.end_code,
+            command: Some(command),
+            subcommand: Some(subcommand),
+            error_info: source.error_info,
+            profile_feature: source.profile_feature,
+            outcome_unknown_reason: Some(reason),
         }
     }
 
@@ -102,6 +179,7 @@ impl SlmpError {
             subcommand,
             error_info: None,
             profile_feature: None,
+            outcome_unknown_reason: None,
         }
     }
 
@@ -124,6 +202,7 @@ impl SlmpError {
             subcommand,
             error_info,
             profile_feature: None,
+            outcome_unknown_reason: None,
         }
     }
 
@@ -156,6 +235,7 @@ impl SlmpError {
                 state,
                 evidence,
             }),
+            outcome_unknown_reason: None,
         }
     }
 
@@ -165,6 +245,10 @@ impl SlmpError {
 
     pub fn is_timeout(&self) -> bool {
         matches!(self.kind, SlmpErrorKind::Timeout)
+    }
+
+    pub fn is_outcome_unknown(&self) -> bool {
+        matches!(self.kind, SlmpErrorKind::OutcomeUnknown)
     }
 
     pub fn end_code_name(&self) -> Option<&'static str> {
@@ -181,7 +265,7 @@ impl From<std::io::Error> for SlmpError {
         if value.kind() == std::io::ErrorKind::TimedOut {
             Self::timeout(value.to_string())
         } else {
-            Self::new(value.to_string())
+            Self::transport(value.to_string())
         }
     }
 }

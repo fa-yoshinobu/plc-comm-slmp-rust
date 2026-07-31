@@ -728,16 +728,28 @@ fn read_only_random_write_error(plc_profile: SlmpPlcProfile) -> SlmpError {
 
 pub(crate) fn unpack_bit_values(data: &[u8], points: usize) -> Result<Vec<bool>, SlmpError> {
     let need = points.div_ceil(2);
-    if data.len() < need {
+    if data.len() != need {
         return Err(SlmpError::new("read_bits payload size mismatch"));
     }
     let mut result = Vec::with_capacity(points);
-    for byte in data.iter().take(need) {
+    for byte in data {
         if result.len() < points {
-            result.push(((byte >> 4) & 0x01) != 0);
+            let high = (byte >> 4) & 0x0f;
+            if high > 1 {
+                return Err(SlmpError::new(
+                    "read_bits payload contains a non-binary high nibble",
+                ));
+            }
+            result.push(high == 1);
         }
         if result.len() < points {
-            result.push((byte & 0x01) != 0);
+            let low = byte & 0x0f;
+            if low > 1 {
+                return Err(SlmpError::new(
+                    "read_bits payload contains a non-binary low nibble",
+                ));
+            }
+            result.push(low == 1);
         }
     }
     Ok(result)
@@ -882,6 +894,19 @@ mod tests {
             unpack_bit_values(&[0x00], 3).unwrap_err().to_string(),
             "read_bits payload size mismatch"
         );
+        assert_eq!(
+            unpack_bit_values(&[0x10, 0x00], 1).unwrap_err().to_string(),
+            "read_bits payload size mismatch"
+        );
+        assert_eq!(
+            unpack_bit_values(&[0x20], 1).unwrap_err().to_string(),
+            "read_bits payload contains a non-binary high nibble"
+        );
+        assert_eq!(
+            unpack_bit_values(&[0x12], 2).unwrap_err().to_string(),
+            "read_bits payload contains a non-binary low nibble"
+        );
+        assert_eq!(unpack_bit_values(&[0x1f], 1).unwrap(), vec![true]);
     }
 
     #[test]

@@ -6,6 +6,10 @@ operation name for a specific SLMP command family.
 
 The main async client type is `SlmpClient`.
 
+All TCP and UDP connections are IPv4-only. `SlmpConnectionOptions` accepts an
+IPv4 literal or a hostname with an IPv4 result. IPv6 literals and hostnames
+without an IPv4 result are rejected without IPv6 fallback.
+
 ## Direct And Random Device Operations
 
 | Operation | Public API |
@@ -30,6 +34,11 @@ The main async client type is `SlmpClient`.
 | Single-kind block read/write | `read_word_blocks`, `read_bit_blocks`, `write_word_blocks`, `write_bit_blocks` |
 | Type name | `read_type_name` |
 
+Every individual bit-write entry accepts Rust `bool` values only. This includes
+direct, extended, random, typed, named, and bit-in-word operations; no numeric
+or string compatibility API is exposed. Packed bit-block words are a distinct
+wire-level input and remain `u16` values.
+
 Extended random APIs use the 008x subcommands. Use `parse_qualified_device`
 or `SlmpQualifiedDeviceAddress` for routed devices such as `U1\G0`,
 `U3E0\HG0`, or `J2\SW10`. Route fields are derived from the qualified address.
@@ -51,6 +60,11 @@ Optional Z, LZ, and indirect modification uses `SlmpDeviceModification`.
 | Device range catalog | `read_device_range_catalog`, `read_device_range_catalog_for_plc_profile` |
 | Self-test loopback | `self_test_loopback` |
 | Clear PLC error | `clear_error` |
+
+Device-range catalog calls read one canonical SD-register window. They do not
+probe candidate addresses or infer a boundary from a communication failure;
+the original acquisition error is returned and non-authoritative ranges remain
+unknown.
 
 Array label `unit_specification` is `0` for a logical bit count and `1` for a
 logical byte count. Both forms occupy whole two-byte wire units: bit counts use
@@ -82,9 +96,15 @@ CPU-buffer access.
 | Typed values | `read_typed`, `write_typed` |
 | Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection) |
 | Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
-| Bit-in-word write | `write_bit_in_word` |
+| Bit-in-word write | `write_bit_in_word` (explicit non-atomic RMW; read and write occupy one client FIFO turn) |
 | Traffic counters | `traffic_stats` |
-| Errors and timeout classification | `SlmpError`, `SlmpErrorKind`, `SlmpError::is_timeout` |
+| Errors and timeout classification | `SlmpError`, `SlmpErrorKind`, `SlmpOutcomeUnknownReason`, `SlmpError::is_timeout`, `SlmpError::is_outcome_unknown` |
+
+One client connection admits ordinary operations in FIFO order and permits one wire transaction at
+a time. Its absolute request deadline spans send, receive, correlation, parse, and payload decode.
+`close` invalidates active and queued work for that exact connection; separate client instances are
+independent. `raw_command` uses the supplied `SlmpCommand` to apply the same conservative
+state-changing outcome classification as semantic APIs.
 
 ## Target Module I/O Constants
 

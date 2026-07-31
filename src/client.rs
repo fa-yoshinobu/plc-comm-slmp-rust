@@ -9,7 +9,7 @@ use crate::device_ranges::{
     read_registers as read_device_range_registers,
     resolve_profile_for_plc_profile as resolve_device_range_profile_for_plc_profile,
 };
-use crate::error::{SlmpError, SlmpErrorInfo};
+use crate::error::{SlmpError, SlmpErrorInfo, SlmpErrorKind, SlmpOutcomeUnknownReason};
 use crate::model::{
     RawSlmpDeviceAddress, SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpCommand,
     SlmpCompatibilityMode, SlmpConnectionOptions, SlmpCpuOperationState, SlmpDeviceAddress,
@@ -20,15 +20,14 @@ use crate::model::{
     SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
 use socket2::{SockRef, TcpKeepalive};
-use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
+use std::net::TcpStream as StdTcpStream;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio::task;
 use tokio::time::{Instant, timeout_at};
 
-const MAX_RUNTIME_RANGE_PROBE_COUNT: u32 = 1_048_576;
 const UDP_RECEIVE_BUFFER_SIZE: usize = 65_535;
 const MAX_REQUEST_PAYLOAD_LENGTH: usize = u16::MAX as usize - 6;
 const MAX_IPV4_UDP_DATAGRAM_LENGTH: usize = 65_507;
@@ -40,6 +39,7 @@ const UDP_RECEIVE_TIMEOUT_MESSAGE: &str = "udp receive timed out";
 #[derive(Clone)]
 pub struct SlmpClient {
     inner: Arc<Mutex<ClientInner>>,
+    close_tx: watch::Sender<bool>,
 }
 
 enum Transport {
@@ -55,10 +55,13 @@ struct ClientInner {
     last_request_frame: Vec<u8>,
     last_response_frame: Vec<u8>,
     traffic_stats: SlmpTrafficStats,
+    close_rx: watch::Receiver<bool>,
+    response_decode_deadline: Option<Instant>,
 }
 
 impl SlmpClient {
     pub async fn connect(options: SlmpConnectionOptions) -> Result<Self, SlmpError> {
+        crate::network::normalize_ipv4_host(&options.host)?;
         if options.port == 0 {
             return Err(SlmpError::new(
                 "port is required and must be in range 1..=65535",
@@ -79,13 +82,22 @@ impl SlmpClient {
                 Transport::Tcp(stream)
             }
             SlmpTransportMode::Udp => {
+                let host = options.host.clone();
+                let port = options.port;
+                let remote_address = task::spawn_blocking(move || {
+                    crate::network::resolve_ipv4_addresses(&host, port)
+                        .map(|addresses| addresses[0])
+                })
+                .await
+                .map_err(|error| {
+                    SlmpError::transport(format!("udp resolution task failed: {error}"))
+                })??;
                 let socket = UdpSocket::bind("0.0.0.0:0").await?;
-                socket
-                    .connect((options.host.as_str(), options.port))
-                    .await?;
+                socket.connect(remote_address).await?;
                 Transport::Udp(socket)
             }
         };
+        let (close_tx, close_rx) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Mutex::new(ClientInner {
                 options,
@@ -94,18 +106,20 @@ impl SlmpClient {
                 last_request_frame: Vec::new(),
                 last_response_frame: Vec::new(),
                 traffic_stats: SlmpTrafficStats::default(),
+                close_rx,
+                response_decode_deadline: None,
             })),
+            close_tx,
         })
     }
 
     pub async fn close(&self) -> Result<(), SlmpError> {
-        let mut inner = self.inner.lock().await;
-        if let Transport::Tcp(stream) = &mut inner.transport {
-            stream.shutdown().await?;
+        self.close_tx.send_replace(true);
+        if let Ok(mut inner) = self.inner.try_lock() {
+            inner.transport = Transport::Closed;
+            inner.last_request_frame.clear();
+            inner.last_response_frame.clear();
         }
-        inner.transport = Transport::Closed;
-        inner.last_request_frame.clear();
-        inner.last_response_frame.clear();
         Ok(())
     }
 
@@ -141,113 +155,33 @@ impl SlmpClient {
             .await
     }
 
+    /// Reads one canonical SD-register window and builds the active profile's range catalog.
+    ///
+    /// This does not probe candidate addresses or infer boundaries from communication errors.
     pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
         let plc_profile = self.plc_profile().await;
         let profile = resolve_device_range_profile_for_plc_profile(plc_profile);
         let registers = read_device_range_registers(self, &profile).await?;
-        let catalog = build_device_range_catalog_for_plc_profile(plc_profile, &registers)?;
-        self.resolve_device_range_runtime_limits(catalog).await
+        build_device_range_catalog_for_plc_profile(plc_profile, &registers)
     }
 
+    /// Reads the catalog while asserting an exact match with the active connection profile.
+    /// Acquisition errors propagate without being converted into inferred address limits.
     pub async fn read_device_range_catalog_for_plc_profile(
         &self,
         plc_profile: SlmpPlcProfile,
     ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
+        let client_profile = self.plc_profile().await;
+        if plc_profile != client_profile {
+            return Err(SlmpError::new(format!(
+                "PLC profile mismatch: requested={} client={}",
+                plc_profile.canonical_name(),
+                client_profile.canonical_name()
+            )));
+        }
         let profile = resolve_device_range_profile_for_plc_profile(plc_profile);
         let registers = read_device_range_registers(self, &profile).await?;
-        let catalog = build_device_range_catalog_for_plc_profile(plc_profile, &registers)?;
-        self.resolve_device_range_runtime_limits(catalog).await
-    }
-
-    async fn resolve_device_range_runtime_limits(
-        &self,
-        mut catalog: SlmpDeviceRangeCatalog,
-    ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
-        let address_profile = catalog.plc_profile.address_profile();
-        if !matches!(
-            address_profile,
-            SlmpPlcProfile::QCpu
-                | SlmpPlcProfile::LCpu
-                | SlmpPlcProfile::QnU
-                | SlmpPlcProfile::QnUDV
-        ) {
-            return Ok(catalog);
-        }
-
-        if address_profile == SlmpPlcProfile::QCpu {
-            let z_count = if self.can_read_one_word(SlmpDeviceCode::Z, 15).await {
-                16
-            } else {
-                10
-            };
-            catalog = crate::device_ranges::replace_fixed_point_count(
-                catalog,
-                "Z",
-                z_count,
-                "Runtime access check",
-                "QCPU Z register count is selected by probing Z15.",
-            );
-        }
-
-        let zr_count = self.resolve_readable_point_count(SlmpDeviceCode::ZR).await;
-        catalog = crate::device_ranges::replace_fixed_point_count(
-            catalog,
-            "ZR",
-            zr_count,
-            "Runtime access check",
-            "ZR register count is selected by probing readable ZR addresses.",
-        );
-        Ok(crate::device_ranges::replace_fixed_point_count(
-            catalog,
-            "R",
-            zr_count.min(32_768),
-            "Runtime access check",
-            "R register count matches the probed ZR size and is capped at R32767.",
-        ))
-    }
-
-    async fn resolve_readable_point_count(&self, device: SlmpDeviceCode) -> u32 {
-        if !self.can_read_one_word(device, 0).await {
-            return 0;
-        }
-
-        let upper_limit = MAX_RUNTIME_RANGE_PROBE_COUNT - 1;
-        let mut low = 0;
-        let mut high = 1;
-        while high < upper_limit && self.can_read_one_word(device, high).await {
-            low = high;
-            high = ((high * 2) + 1).min(upper_limit);
-        }
-
-        if high == upper_limit && self.can_read_one_word(device, high).await {
-            return MAX_RUNTIME_RANGE_PROBE_COUNT;
-        }
-
-        let mut left = low + 1;
-        let mut right = high - 1;
-        while left <= right {
-            let mid = left + ((right - left) / 2);
-            if self.can_read_one_word(device, mid).await {
-                low = mid;
-                left = mid + 1;
-            } else {
-                if mid == 0 {
-                    break;
-                }
-                right = mid - 1;
-            }
-        }
-
-        low + 1
-    }
-
-    async fn can_read_one_word(&self, device: SlmpDeviceCode, number: u32) -> bool {
-        self.read_words_raw(
-            SlmpDeviceAddress::new(device, number, self.plc_profile().await),
-            1,
-        )
-        .await
-        .is_ok()
+        build_device_range_catalog_for_plc_profile(plc_profile, &registers)
     }
 
     pub async fn read_words_raw(
@@ -268,6 +202,23 @@ impl SlmpClient {
         let mut inner = self.inner.lock().await;
         inner.ensure_address_profile(device)?;
         inner.write_words(device, values).await
+    }
+
+    pub(crate) async fn write_bit_in_word_turn(
+        &self,
+        device: SlmpDeviceAddress,
+        bit_index: u8,
+        value: bool,
+    ) -> Result<(), SlmpError> {
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device)?;
+        let mut current = inner.read_words_raw(device, 1).await?[0];
+        if value {
+            current |= 1 << bit_index;
+        } else {
+            current &= !(1 << bit_index);
+        }
+        inner.write_words(device, &[current]).await
     }
 
     pub async fn read_bits(
@@ -819,11 +770,13 @@ impl SlmpClient {
         subcommand: u16,
         payload: &[u8],
     ) -> Result<Vec<u8>, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .request(command, subcommand, payload, true)
-            .await
+        let mut inner = self.inner.lock().await;
+        let response = inner.request(command, subcommand, payload, true).await?;
+        if command.is_state_changing() {
+            Ok(response)
+        } else {
+            inner.finish_response_decode(command, subcommand, Ok(response))
+        }
     }
 }
 
@@ -833,12 +786,7 @@ async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream
     let timeout_duration = options.timeout;
     let tcp_keepalive = options.tcp_keepalive;
     let std_stream = task::spawn_blocking(move || {
-        let addrs: Vec<_> = (host.as_str(), port).to_socket_addrs()?.collect();
-        if addrs.is_empty() {
-            return Err(SlmpError::new(format!(
-                "tcp connect failed: no socket addresses resolved for {host}:{port}"
-            )));
-        }
+        let addrs = crate::network::resolve_ipv4_addresses(&host, port)?;
 
         let mut last_error = None;
         for addr in addrs {
@@ -860,7 +808,7 @@ async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream
             .unwrap_or_else(|| SlmpError::new("tcp connect failed")))
     })
     .await
-    .map_err(|error| SlmpError::new(format!("tcp connect task failed: {error}")))??;
+    .map_err(|error| SlmpError::transport(format!("tcp connect task failed: {error}")))??;
 
     TcpStream::from_std(std_stream).map_err(SlmpError::from)
 }
@@ -979,23 +927,26 @@ impl ClientInner {
         let payload = self
             .request(SlmpCommand::ReadTypeName, 0x0000, &[], true)
             .await?;
-        if payload.len() < 16 {
-            return Err(SlmpError::new("read_type_name response too short"));
-        }
-        let model = String::from_utf8_lossy(&payload[..16])
-            .trim_end_matches('\0')
-            .trim_end()
-            .to_string();
-        let (model_code, has_model_code) = if payload.len() >= 18 {
-            (u16::from_le_bytes([payload[16], payload[17]]), true)
-        } else {
-            (0, false)
-        };
-        Ok(SlmpTypeNameInfo {
-            model,
-            model_code,
-            has_model_code,
-        })
+        let decoded = (|| {
+            if payload.len() < 16 {
+                return Err(SlmpError::new("read_type_name response too short"));
+            }
+            let model = String::from_utf8_lossy(&payload[..16])
+                .trim_end_matches('\0')
+                .trim_end()
+                .to_string();
+            let (model_code, has_model_code) = if payload.len() >= 18 {
+                (u16::from_le_bytes([payload[16], payload[17]]), true)
+            } else {
+                (0, false)
+            };
+            Ok(SlmpTypeNameInfo {
+                model,
+                model_code,
+                has_model_code,
+            })
+        })();
+        self.finish_response_decode(SlmpCommand::ReadTypeName, 0x0000, decoded)
     }
 
     async fn read_cpu_operation_state(&mut self) -> Result<SlmpCpuOperationState, SlmpError> {
@@ -1041,13 +992,15 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::DeviceRead, sub, &payload, true)
             .await?;
-        if data.len() != points as usize * 2 {
-            return Err(SlmpError::new("read_words payload size mismatch"));
-        }
-        Ok(data
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect())
+        let decoded = if data.len() != points as usize * 2 {
+            Err(SlmpError::new("read_words payload size mismatch"))
+        } else {
+            Ok(data
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect())
+        };
+        self.finish_response_decode(SlmpCommand::DeviceRead, sub, decoded)
     }
 
     async fn write_words(
@@ -1096,7 +1049,8 @@ impl ClientInner {
                 true,
             )
             .await?;
-        rules::unpack_bit_values(&data, points as usize)
+        let decoded = rules::unpack_bit_values(&data, points as usize);
+        self.finish_response_decode(SlmpCommand::DeviceRead, self.word_subcommand(true), decoded)
     }
 
     async fn write_bits(
@@ -1228,13 +1182,15 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::DeviceRead, sub, &payload, true)
             .await?;
-        if data.len() != points as usize * 2 {
-            return Err(SlmpError::new("read_words_ext payload size mismatch"));
-        }
-        Ok(data
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect())
+        let decoded = if data.len() != points as usize * 2 {
+            Err(SlmpError::new("read_words_ext payload size mismatch"))
+        } else {
+            Ok(data
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect())
+        };
+        self.finish_response_decode(SlmpCommand::DeviceRead, sub, decoded)
     }
 
     async fn write_words_extended(
@@ -1315,7 +1271,8 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::DeviceRead, sub, &payload, true)
             .await?;
-        rules::unpack_bit_values(&data, points as usize)
+        let decoded = rules::unpack_bit_values(&data, points as usize);
+        self.finish_response_decode(SlmpCommand::DeviceRead, sub, decoded)
     }
 
     async fn write_bits_extended(
@@ -1409,31 +1366,34 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::DeviceReadRandom, sub, &payload, true)
             .await?;
-        let expected = word_devices.len() * 2 + dword_devices.len() * 4;
-        if data.len() != expected {
-            return Err(SlmpError::new(format!(
-                "read_random response size mismatch expected={expected} actual={}",
-                data.len()
-            )));
-        }
-        let mut cursor = 0;
-        let mut result = SlmpRandomReadResult::default();
-        for _ in 0..word_devices.len() {
-            result
-                .word_values
-                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-            cursor += 2;
-        }
-        for _ in 0..dword_devices.len() {
-            result.dword_values.push(u32::from_le_bytes([
-                data[cursor],
-                data[cursor + 1],
-                data[cursor + 2],
-                data[cursor + 3],
-            ]));
-            cursor += 4;
-        }
-        Ok(result)
+        let decoded = (|| {
+            let expected = word_devices.len() * 2 + dword_devices.len() * 4;
+            if data.len() != expected {
+                return Err(SlmpError::new(format!(
+                    "read_random response size mismatch expected={expected} actual={}",
+                    data.len()
+                )));
+            }
+            let mut cursor = 0;
+            let mut result = SlmpRandomReadResult::default();
+            for _ in 0..word_devices.len() {
+                result
+                    .word_values
+                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+                cursor += 2;
+            }
+            for _ in 0..dword_devices.len() {
+                result.dword_values.push(u32::from_le_bytes([
+                    data[cursor],
+                    data[cursor + 1],
+                    data[cursor + 2],
+                    data[cursor + 3],
+                ]));
+                cursor += 4;
+            }
+            Ok(result)
+        })();
+        self.finish_response_decode(SlmpCommand::DeviceReadRandom, sub, decoded)
     }
 
     async fn read_random_ext(
@@ -1497,31 +1457,34 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::DeviceReadRandom, sub, &payload, true)
             .await?;
-        let expected = word_devices.len() * 2 + dword_devices.len() * 4;
-        if data.len() != expected {
-            return Err(SlmpError::new(format!(
-                "read_random_ext response size mismatch expected={expected} actual={}",
-                data.len()
-            )));
-        }
-        let mut cursor = 0;
-        let mut result = SlmpRandomReadResult::default();
-        for _ in 0..word_devices.len() {
-            result
-                .word_values
-                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-            cursor += 2;
-        }
-        for _ in 0..dword_devices.len() {
-            result.dword_values.push(u32::from_le_bytes([
-                data[cursor],
-                data[cursor + 1],
-                data[cursor + 2],
-                data[cursor + 3],
-            ]));
-            cursor += 4;
-        }
-        Ok(result)
+        let decoded = (|| {
+            let expected = word_devices.len() * 2 + dword_devices.len() * 4;
+            if data.len() != expected {
+                return Err(SlmpError::new(format!(
+                    "read_random_ext response size mismatch expected={expected} actual={}",
+                    data.len()
+                )));
+            }
+            let mut cursor = 0;
+            let mut result = SlmpRandomReadResult::default();
+            for _ in 0..word_devices.len() {
+                result
+                    .word_values
+                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+                cursor += 2;
+            }
+            for _ in 0..dword_devices.len() {
+                result.dword_values.push(u32::from_le_bytes([
+                    data[cursor],
+                    data[cursor + 1],
+                    data[cursor + 2],
+                    data[cursor + 3],
+                ]));
+                cursor += 4;
+            }
+            Ok(result)
+        })();
+        self.finish_response_decode(SlmpCommand::DeviceReadRandom, sub, decoded)
     }
 
     async fn register_monitor_devices(
@@ -1641,31 +1604,34 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::Monitor, 0x0000, &[], true)
             .await?;
-        let expected = word_points * 2 + dword_points * 4;
-        if data.len() != expected {
-            return Err(SlmpError::new(format!(
-                "monitor response size mismatch expected={expected} actual={}",
-                data.len()
-            )));
-        }
-        let mut cursor = 0;
-        let mut result = SlmpRandomReadResult::default();
-        for _ in 0..word_points {
-            result
-                .word_values
-                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-            cursor += 2;
-        }
-        for _ in 0..dword_points {
-            result.dword_values.push(u32::from_le_bytes([
-                data[cursor],
-                data[cursor + 1],
-                data[cursor + 2],
-                data[cursor + 3],
-            ]));
-            cursor += 4;
-        }
-        Ok(result)
+        let decoded = (|| {
+            let expected = word_points * 2 + dword_points * 4;
+            if data.len() != expected {
+                return Err(SlmpError::new(format!(
+                    "monitor response size mismatch expected={expected} actual={}",
+                    data.len()
+                )));
+            }
+            let mut cursor = 0;
+            let mut result = SlmpRandomReadResult::default();
+            for _ in 0..word_points {
+                result
+                    .word_values
+                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+                cursor += 2;
+            }
+            for _ in 0..dword_points {
+                result.dword_values.push(u32::from_le_bytes([
+                    data[cursor],
+                    data[cursor + 1],
+                    data[cursor + 2],
+                    data[cursor + 3],
+                ]));
+                cursor += 4;
+            }
+            Ok(result)
+        })();
+        self.finish_response_decode(SlmpCommand::Monitor, 0x0000, decoded)
     }
 
     async fn write_random_words(
@@ -1972,28 +1938,31 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::DeviceReadBlock, sub, &payload, true)
             .await?;
-        let expected = (total_word_points + total_bit_points) * 2;
-        if data.len() != expected {
-            return Err(SlmpError::new(format!(
-                "read_block response size mismatch expected={expected} actual={}",
-                data.len()
-            )));
-        }
-        let mut cursor = 0;
-        let mut result = SlmpBlockReadResult::default();
-        for _ in 0..total_word_points {
-            result
-                .word_values
-                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-            cursor += 2;
-        }
-        for _ in 0..total_bit_points {
-            result
-                .bit_values
-                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-            cursor += 2;
-        }
-        Ok(result)
+        let decoded = (|| {
+            let expected = (total_word_points + total_bit_points) * 2;
+            if data.len() != expected {
+                return Err(SlmpError::new(format!(
+                    "read_block response size mismatch expected={expected} actual={}",
+                    data.len()
+                )));
+            }
+            let mut cursor = 0;
+            let mut result = SlmpBlockReadResult::default();
+            for _ in 0..total_word_points {
+                result
+                    .word_values
+                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+                cursor += 2;
+            }
+            for _ in 0..total_bit_points {
+                result
+                    .bit_values
+                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+                cursor += 2;
+            }
+            Ok(result)
+        })();
+        self.finish_response_decode(SlmpCommand::DeviceReadBlock, sub, decoded)
     }
 
     async fn write_block(
@@ -2135,28 +2104,31 @@ impl ClientInner {
         let response = self
             .request(SlmpCommand::SelfTest, 0x0000, &payload, true)
             .await?;
-        if response.len() < 2 {
-            return Err(SlmpError::new("self_test response too short"));
-        }
-        let length = u16::from_le_bytes([response[0], response[1]]) as usize;
-        if length != data.len() {
-            return Err(SlmpError::new(format!(
-                "self_test response declared length mismatch: expected={}, declared={length}",
-                data.len()
-            )));
-        }
-        if response.len() != length + 2 {
-            return Err(SlmpError::new(format!(
-                "self_test response size mismatch: expected={}, actual={}",
-                length + 2,
-                response.len()
-            )));
-        }
-        let echo = &response[2..];
-        if echo != data {
-            return Err(SlmpError::new("self_test response payload mismatch"));
-        }
-        Ok(echo.to_vec())
+        let decoded = (|| {
+            if response.len() < 2 {
+                return Err(SlmpError::new("self_test response too short"));
+            }
+            let length = u16::from_le_bytes([response[0], response[1]]) as usize;
+            if length != data.len() {
+                return Err(SlmpError::new(format!(
+                    "self_test response declared length mismatch: expected={}, declared={length}",
+                    data.len()
+                )));
+            }
+            if response.len() != length + 2 {
+                return Err(SlmpError::new(format!(
+                    "self_test response size mismatch: expected={}, actual={}",
+                    length + 2,
+                    response.len()
+                )));
+            }
+            let echo = &response[2..];
+            if echo != data {
+                return Err(SlmpError::new("self_test response payload mismatch"));
+            }
+            Ok(echo.to_vec())
+        })();
+        self.finish_response_decode(SlmpCommand::SelfTest, 0x0000, decoded)
     }
 
     async fn clear_error(&mut self) -> Result<(), SlmpError> {
@@ -2177,13 +2149,15 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::MemoryRead, 0x0000, &payload, true)
             .await?;
-        if data.len() != word_length as usize * 2 {
-            return Err(SlmpError::new("memory_read response size mismatch"));
-        }
-        Ok(data
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect())
+        let decoded = if data.len() != word_length as usize * 2 {
+            Err(SlmpError::new("memory_read response size mismatch"))
+        } else {
+            Ok(data
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect())
+        };
+        self.finish_response_decode(SlmpCommand::MemoryRead, 0x0000, decoded)
     }
 
     async fn memory_write_words(
@@ -2217,10 +2191,12 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::ExtendUnitRead, 0x0000, &payload, true)
             .await?;
-        if data.len() != byte_length as usize {
-            return Err(SlmpError::new("extend_unit_read response size mismatch"));
-        }
-        Ok(data)
+        let decoded = if data.len() != byte_length as usize {
+            Err(SlmpError::new("extend_unit_read response size mismatch"))
+        } else {
+            Ok(data)
+        };
+        self.finish_response_decode(SlmpCommand::ExtendUnitRead, 0x0000, decoded)
     }
 
     async fn extend_unit_read_words(
@@ -2267,7 +2243,8 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::LabelArrayRead, 0x0000, &payload, true)
             .await?;
-        Self::parse_array_label_read_response(&data, points)
+        let decoded = Self::parse_array_label_read_response(&data, points);
+        self.finish_response_decode(SlmpCommand::LabelArrayRead, 0x0000, decoded)
     }
 
     async fn write_array_labels(
@@ -2290,7 +2267,8 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::LabelReadRandom, 0x0000, &payload, true)
             .await?;
-        Self::parse_label_random_read_response(&data, labels.len())
+        let decoded = Self::parse_label_random_read_response(&data, labels.len());
+        self.finish_response_decode(SlmpCommand::LabelReadRandom, 0x0000, decoded)
     }
 
     async fn write_random_labels(
@@ -2704,6 +2682,18 @@ impl ClientInner {
         payload: &[u8],
         expect_response: bool,
     ) -> Result<Vec<u8>, SlmpError> {
+        if self.response_decode_deadline.is_some() {
+            self.transport = Transport::Closed;
+            self.response_decode_deadline = None;
+            return Err(SlmpError::malformed_with_context(
+                "previous response was not decoded before the next request",
+                command,
+                subcommand,
+            ));
+        }
+        if *self.close_rx.borrow() {
+            return Err(SlmpError::closed("SLMP client is closed"));
+        }
         self.validate_request_payload(command, subcommand, payload)?;
         self.build_request_frame(command, subcommand, payload)?;
         let expected_serial = if matches!(self.options.frame_type, SlmpFrameType::Frame4E) {
@@ -2719,6 +2709,8 @@ impl ClientInner {
         let deadline = Instant::now()
             .checked_add(self.options.timeout)
             .ok_or_else(|| SlmpError::new("timeout is too large"))?;
+        let state_changing = command.is_state_changing();
+        let mut close_rx = self.close_rx.clone();
 
         // Keep the client in Closed while an exchange is in flight. If this future is
         // externally cancelled, the local socket is dropped and cannot leak a partial or
@@ -2726,109 +2718,326 @@ impl ClientInner {
         let transport = std::mem::replace(&mut self.transport, Transport::Closed);
         match transport {
             Transport::Tcp(mut stream) => {
-                let io_result = async {
-                    timeout_at(deadline, stream.write_all(&self.last_request_frame))
-                        .await
-                        .map_err(|_| SlmpError::timeout(TCP_WRITE_TIMEOUT_MESSAGE))??;
-                    self.traffic_stats.request_count += 1;
-                    self.traffic_stats.tx_bytes += tx_len;
-                    Self::ensure_before_deadline(deadline, TCP_WRITE_TIMEOUT_MESSAGE)?;
-                    if !expect_response {
-                        self.last_response_frame.clear();
-                        return Ok::<(), SlmpError>(());
+                let mut send_may_have_started = false;
+                let io_result = tokio::select! {
+                    biased;
+                    _ = Self::wait_for_close(&mut close_rx) => {
+                        Err(SlmpError::closed("SLMP client was closed during the request"))
                     }
-                    loop {
-                        Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE)?;
-                        Self::receive_tcp_frame(
-                            &mut stream,
-                            self.options.frame_type,
-                            deadline,
-                            &mut self.last_response_frame,
-                        )
-                        .await?;
-                        self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
-                        Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE)?;
-                        Self::validate_complete_response_frame(
-                            self.options.frame_type,
-                            &self.last_response_frame,
-                        )?;
-                        if Self::has_expected_response_serial(
-                            &self.last_response_frame,
-                            expected_serial,
-                        ) && Self::has_expected_response_target(
-                            self.options.frame_type,
-                            &self.last_response_frame,
-                            expected_target,
-                        ) {
-                            break;
+                    result = async {
+                        send_may_have_started = true;
+                        timeout_at(deadline, stream.write_all(&self.last_request_frame))
+                            .await
+                            .map_err(|_| SlmpError::timeout(TCP_WRITE_TIMEOUT_MESSAGE))??;
+                        self.traffic_stats.request_count += 1;
+                        self.traffic_stats.tx_bytes += tx_len;
+                        Self::ensure_before_deadline(deadline, TCP_WRITE_TIMEOUT_MESSAGE)?;
+                        if !expect_response {
+                            self.last_response_frame.clear();
+                            return Ok::<(), SlmpError>(());
                         }
-                    }
-                    Ok(())
-                }
-                .await;
+                        loop {
+                            Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE)?;
+                            Self::receive_tcp_frame(
+                                &mut stream,
+                                self.options.frame_type,
+                                deadline,
+                                &mut self.last_response_frame,
+                            )
+                            .await
+                            .map_err(|error| Self::as_malformed_response(error, command, subcommand))?;
+                            self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                            Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE)?;
+                            Self::validate_complete_response_frame(
+                                self.options.frame_type,
+                                &self.last_response_frame,
+                            )
+                            .map_err(|error| Self::as_malformed_response(error, command, subcommand))?;
+                            if Self::has_expected_response_serial(
+                                &self.last_response_frame,
+                                expected_serial,
+                            ) && Self::has_expected_response_target(
+                                self.options.frame_type,
+                                &self.last_response_frame,
+                                expected_target,
+                            ) {
+                                break;
+                            }
+                        }
+                        Ok(())
+                    } => result,
+                };
                 if let Err(error) = io_result {
                     drop(stream);
-                    return Err(error);
+                    self.last_response_frame.clear();
+                    return Err(Self::classify_exchange_error(
+                        error,
+                        state_changing,
+                        send_may_have_started,
+                        command,
+                        subcommand,
+                    ));
                 }
                 if !expect_response {
                     drop(stream);
                     return Ok(Vec::new());
                 }
-                self.transport = Transport::Tcp(stream);
-                Self::parse_response(command, subcommand, &self.last_response_frame)
+                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
+                Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE).map_err(
+                    |error| {
+                        Self::classify_exchange_error(
+                            error,
+                            state_changing,
+                            true,
+                            command,
+                            subcommand,
+                        )
+                    },
+                )?;
+                if *close_rx.borrow() {
+                    drop(stream);
+                    return Err(Self::classify_exchange_error(
+                        SlmpError::closed("SLMP client was closed during response decoding"),
+                        state_changing,
+                        true,
+                        command,
+                        subcommand,
+                    ));
+                }
+                match parsed {
+                    Ok(payload) => {
+                        if state_changing && !payload.is_empty() {
+                            drop(stream);
+                            return Err(SlmpError::outcome_unknown(
+                                SlmpOutcomeUnknownReason::MalformedResponse,
+                                SlmpError::malformed_with_context(
+                                    "state-changing command returned unexpected response data",
+                                    command,
+                                    subcommand,
+                                ),
+                                command,
+                                subcommand,
+                            ));
+                        }
+                        if !state_changing {
+                            self.response_decode_deadline = Some(deadline);
+                        }
+                        self.transport = Transport::Tcp(stream);
+                        Ok(payload)
+                    }
+                    Err(error) if matches!(error.kind, SlmpErrorKind::PlcEndCode) => {
+                        self.transport = Transport::Tcp(stream);
+                        Err(error)
+                    }
+                    Err(error) => {
+                        drop(stream);
+                        Err(Self::classify_exchange_error(
+                            error,
+                            state_changing,
+                            true,
+                            command,
+                            subcommand,
+                        ))
+                    }
+                }
             }
             Transport::Udp(socket) => {
-                let io_result = async {
-                    timeout_at(deadline, socket.send(&self.last_request_frame))
-                        .await
-                        .map_err(|_| SlmpError::timeout(UDP_SEND_TIMEOUT_MESSAGE))??;
-                    self.traffic_stats.request_count += 1;
-                    self.traffic_stats.tx_bytes += tx_len;
-                    Self::ensure_before_deadline(deadline, UDP_SEND_TIMEOUT_MESSAGE)?;
-                    if !expect_response {
-                        self.last_response_frame.clear();
-                        return Ok::<(), SlmpError>(());
+                let mut send_may_have_started = false;
+                let io_result = tokio::select! {
+                    biased;
+                    _ = Self::wait_for_close(&mut close_rx) => {
+                        Err(SlmpError::closed("SLMP client was closed during the request"))
                     }
-                    // A failed UDP exchange invalidates the socket. Closing it prevents a delayed
-                    // datagram from being consumed as the response to a later 3E request.
-                    loop {
-                        Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE)?;
-                        self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
-                        let received =
-                            timeout_at(deadline, socket.recv(&mut self.last_response_frame))
-                                .await
-                                .map_err(|_| SlmpError::timeout(UDP_RECEIVE_TIMEOUT_MESSAGE))??;
-                        self.last_response_frame.truncate(received);
-                        self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
-                        Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE)?;
-                        Self::validate_complete_response_frame(
-                            self.options.frame_type,
-                            &self.last_response_frame,
-                        )?;
-                        if Self::has_expected_response_serial(
-                            &self.last_response_frame,
-                            expected_serial,
-                        ) && Self::has_expected_response_target(
-                            self.options.frame_type,
-                            &self.last_response_frame,
-                            expected_target,
-                        ) {
-                            break;
+                    result = async {
+                        send_may_have_started = true;
+                        timeout_at(deadline, socket.send(&self.last_request_frame))
+                            .await
+                            .map_err(|_| SlmpError::timeout(UDP_SEND_TIMEOUT_MESSAGE))??;
+                        self.traffic_stats.request_count += 1;
+                        self.traffic_stats.tx_bytes += tx_len;
+                        Self::ensure_before_deadline(deadline, UDP_SEND_TIMEOUT_MESSAGE)?;
+                        if !expect_response {
+                            self.last_response_frame.clear();
+                            return Ok::<(), SlmpError>(());
                         }
-                    }
-                    Ok(())
+                        // A failed UDP exchange invalidates the socket. Closing it prevents a delayed
+                        // datagram from being consumed as the response to a later 3E request.
+                        loop {
+                            Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE)?;
+                            self.last_response_frame.resize(UDP_RECEIVE_BUFFER_SIZE, 0);
+                            let received =
+                                timeout_at(deadline, socket.recv(&mut self.last_response_frame))
+                                    .await
+                                    .map_err(|_| SlmpError::timeout(UDP_RECEIVE_TIMEOUT_MESSAGE))??;
+                            self.last_response_frame.truncate(received);
+                            self.traffic_stats.rx_bytes += self.last_response_frame.len() as u64;
+                            Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE)?;
+                            Self::validate_complete_response_frame(
+                                self.options.frame_type,
+                                &self.last_response_frame,
+                            )
+                            .map_err(|error| Self::as_malformed_response(error, command, subcommand))?;
+                            if Self::has_expected_response_serial(
+                                &self.last_response_frame,
+                                expected_serial,
+                            ) && Self::has_expected_response_target(
+                                self.options.frame_type,
+                                &self.last_response_frame,
+                                expected_target,
+                            ) {
+                                break;
+                            }
+                        }
+                        Ok(())
+                    } => result,
+                };
+                if let Err(error) = io_result {
+                    drop(socket);
+                    self.last_response_frame.clear();
+                    return Err(Self::classify_exchange_error(
+                        error,
+                        state_changing,
+                        send_may_have_started,
+                        command,
+                        subcommand,
+                    ));
                 }
-                .await;
-                io_result?;
                 if !expect_response {
                     return Ok(Vec::new());
                 }
-                self.transport = Transport::Udp(socket);
-                Self::parse_response(command, subcommand, &self.last_response_frame)
+                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
+                Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE).map_err(
+                    |error| {
+                        Self::classify_exchange_error(
+                            error,
+                            state_changing,
+                            true,
+                            command,
+                            subcommand,
+                        )
+                    },
+                )?;
+                if *close_rx.borrow() {
+                    drop(socket);
+                    return Err(Self::classify_exchange_error(
+                        SlmpError::closed("SLMP client was closed during response decoding"),
+                        state_changing,
+                        true,
+                        command,
+                        subcommand,
+                    ));
+                }
+                match parsed {
+                    Ok(payload) => {
+                        if state_changing && !payload.is_empty() {
+                            drop(socket);
+                            return Err(SlmpError::outcome_unknown(
+                                SlmpOutcomeUnknownReason::MalformedResponse,
+                                SlmpError::malformed_with_context(
+                                    "state-changing command returned unexpected response data",
+                                    command,
+                                    subcommand,
+                                ),
+                                command,
+                                subcommand,
+                            ));
+                        }
+                        if !state_changing {
+                            self.response_decode_deadline = Some(deadline);
+                        }
+                        self.transport = Transport::Udp(socket);
+                        Ok(payload)
+                    }
+                    Err(error) if matches!(error.kind, SlmpErrorKind::PlcEndCode) => {
+                        self.transport = Transport::Udp(socket);
+                        Err(error)
+                    }
+                    Err(error) => {
+                        drop(socket);
+                        Err(Self::classify_exchange_error(
+                            error,
+                            state_changing,
+                            true,
+                            command,
+                            subcommand,
+                        ))
+                    }
+                }
             }
-            Transport::Closed => Err(SlmpError::new(
+            Transport::Closed => Err(SlmpError::closed(
                 "transport is closed after a previous transport failure",
             )),
+        }
+    }
+
+    async fn wait_for_close(close_rx: &mut watch::Receiver<bool>) {
+        loop {
+            if *close_rx.borrow() {
+                return;
+            }
+            if close_rx.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        }
+    }
+
+    fn as_malformed_response(error: SlmpError, command: SlmpCommand, subcommand: u16) -> SlmpError {
+        if !matches!(error.kind, SlmpErrorKind::General) {
+            return error;
+        }
+        SlmpError::malformed_with_context(error.message, command, subcommand)
+    }
+
+    fn classify_exchange_error(
+        error: SlmpError,
+        state_changing: bool,
+        send_may_have_started: bool,
+        command: SlmpCommand,
+        subcommand: u16,
+    ) -> SlmpError {
+        if !state_changing || !send_may_have_started {
+            return error;
+        }
+        let reason = match error.kind {
+            SlmpErrorKind::Timeout => SlmpOutcomeUnknownReason::Timeout,
+            SlmpErrorKind::Cancelled => SlmpOutcomeUnknownReason::Cancelled,
+            SlmpErrorKind::Closed => SlmpOutcomeUnknownReason::Closed,
+            SlmpErrorKind::Transport => SlmpOutcomeUnknownReason::Transport,
+            SlmpErrorKind::MalformedResponse => SlmpOutcomeUnknownReason::MalformedResponse,
+            _ => return error,
+        };
+        SlmpError::outcome_unknown(reason, error, command, subcommand)
+    }
+
+    fn finish_response_decode<T>(
+        &mut self,
+        command: SlmpCommand,
+        subcommand: u16,
+        result: Result<T, SlmpError>,
+    ) -> Result<T, SlmpError> {
+        let deadline = self.response_decode_deadline.take().ok_or_else(|| {
+            SlmpError::malformed_with_context(
+                "response decode state is unavailable",
+                command,
+                subcommand,
+            )
+        })?;
+        if *self.close_rx.borrow() {
+            self.transport = Transport::Closed;
+            return Err(SlmpError::closed(
+                "SLMP client was closed during response decoding",
+            ));
+        }
+        if Instant::now() >= deadline {
+            self.transport = Transport::Closed;
+            return Err(SlmpError::timeout("response decoding timed out"));
+        }
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.transport = Transport::Closed;
+                Err(Self::as_malformed_response(error, command, subcommand))
+            }
         }
     }
 
@@ -3038,7 +3247,7 @@ impl ClientInner {
             return Ok(());
         }
 
-        Err(SlmpError::new("invalid response subheader"))
+        Err(SlmpError::malformed_response("invalid response subheader"))
     }
 
     fn parse_response(
@@ -3049,11 +3258,10 @@ impl ClientInner {
         let is_4e = response.len() >= 13 && response[0] == 0xD4 && response[1] == 0x00;
         let is_3e = response.len() >= 9 && response[0] == 0xD0 && response[1] == 0x00;
         if !is_4e && !is_3e {
-            return Err(SlmpError::with_context(
+            return Err(SlmpError::malformed_with_context(
                 "invalid response header",
-                None,
-                Some(command),
-                Some(subcommand),
+                command,
+                subcommand,
             ));
         }
         let header_size = if is_4e { 13 } else { 9 };
@@ -3061,11 +3269,10 @@ impl ClientInner {
         let data_length =
             u16::from_le_bytes([response[length_index], response[length_index + 1]]) as usize;
         if response.len() < header_size + data_length || data_length < 2 {
-            return Err(SlmpError::with_context(
+            return Err(SlmpError::malformed_with_context(
                 "malformed response",
-                None,
-                Some(command),
-                Some(subcommand),
+                command,
+                subcommand,
             ));
         }
         let end_index = header_size;
@@ -3451,6 +3658,7 @@ mod tests {
     async fn udp_inner(plc_profile: SlmpPlcProfile) -> ClientInner {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         socket.connect("127.0.0.1:9").await.unwrap();
+        let (_close_tx, close_rx) = watch::channel(false);
         ClientInner {
             options: SlmpConnectionOptions::new(
                 "127.0.0.1",
@@ -3465,6 +3673,8 @@ mod tests {
             last_request_frame: Vec::new(),
             last_response_frame: Vec::new(),
             traffic_stats: SlmpTrafficStats::default(),
+            close_rx,
+            response_decode_deadline: None,
         }
     }
 

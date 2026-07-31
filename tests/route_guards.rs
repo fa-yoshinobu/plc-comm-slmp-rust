@@ -356,36 +356,38 @@ async fn self_test_loopback_rejects_manual_invalid_payloads_before_transport() {
 
 #[tokio::test]
 async fn self_test_loopback_requires_exact_declared_length_size_and_echo() {
-    let server = CapturingResponseServer::start(vec![
-        (0x0000, vec![0x04, 0x00, b'A', b'1', b'B', b'2']),
-        (0x0000, vec![0x03, 0x00, b'A', b'1', b'B']),
-        (0x0000, vec![0x04, 0x00, b'A', b'1', b'B', b'2', b'F']),
-        (0x0000, vec![0x04, 0x00, b'A', b'1', b'B', b'3']),
-    ])
-    .await
-    .unwrap();
-    let options = SlmpConnectionOptions::new(
-        "127.0.0.1",
-        server.port,
-        SlmpTransportMode::Tcp,
-        plc_comm_slmp::SlmpTargetAddress::default(),
-        SlmpPlcProfile::IqR,
-    )
-    .unwrap();
-    let client = SlmpClient::connect(options).await.unwrap();
-
-    assert_eq!(client.self_test_loopback(b"A1B2").await.unwrap(), b"A1B2");
-
-    let declared = client.self_test_loopback(b"A1B2").await.unwrap_err();
-    assert!(declared.to_string().contains("declared length mismatch"));
-
-    let trailing = client.self_test_loopback(b"A1B2").await.unwrap_err();
-    assert!(trailing.to_string().contains("size mismatch"));
-
-    let payload = client.self_test_loopback(b"A1B2").await.unwrap_err();
-    assert!(payload.to_string().contains("payload mismatch"));
-
-    assert_eq!(server.requests().await.len(), 4);
+    for (response, expected_message) in [
+        (
+            vec![0x03, 0x00, b'A', b'1', b'B'],
+            "declared length mismatch",
+        ),
+        (
+            vec![0x04, 0x00, b'A', b'1', b'B', b'2', b'F'],
+            "size mismatch",
+        ),
+        (vec![0x04, 0x00, b'A', b'1', b'B', b'3'], "payload mismatch"),
+    ] {
+        let server = CapturingResponseServer::start(vec![(0x0000, response)])
+            .await
+            .unwrap();
+        let options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            server.port,
+            SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        let client = SlmpClient::connect(options).await.unwrap();
+        let malformed = client.self_test_loopback(b"A1B2").await.unwrap_err();
+        assert_eq!(malformed.kind, SlmpErrorKind::MalformedResponse);
+        assert!(malformed.to_string().contains(expected_message));
+        assert_eq!(
+            client.self_test_loopback(b"A1B2").await.unwrap_err().kind,
+            SlmpErrorKind::Closed
+        );
+        assert_eq!(server.requests().await.len(), 1);
+    }
 }
 
 #[tokio::test]

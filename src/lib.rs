@@ -103,6 +103,7 @@ mod error;
 mod error_codes;
 mod helpers;
 mod model;
+mod network;
 mod route_validation;
 
 pub use address::{
@@ -118,7 +119,9 @@ pub use device_range_sample::{
 pub use device_ranges::{
     SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeNotation,
 };
-pub use error::{SlmpError, SlmpErrorInfo, SlmpErrorKind, SlmpProfileFeatureErrorInfo};
+pub use error::{
+    SlmpError, SlmpErrorInfo, SlmpErrorKind, SlmpOutcomeUnknownReason, SlmpProfileFeatureErrorInfo,
+};
 pub use error_codes::{end_code_key, end_code_name, is_remote_password_end_code};
 pub use helpers::{
     NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_dwords_single_request,

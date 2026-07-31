@@ -17,22 +17,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: Shared-client operations now use one FIFO admission order with one wire transaction at a time. Cancelling a waiting future sends nothing, `close` immediately invalidates active and queued work for the exact connection generation, and separate clients remain independent.
+- Library: One monotonic request deadline now covers send, complete TCP/UDP receive, correlation, protocol parsing, and command-specific payload decoding. Timeout, close, cancellation, transport, and malformed-response paths retire the affected transport without resend.
+- Library: State-changing commands now return machine-readable `OutcomeUnknown` with a structured `SlmpOutcomeUnknownReason` after any failure that occurs once transmission may have started. PLC end codes remain definitive PLC results.
+- Library: `write_bit_in_word` remains an explicit non-atomic two-command RMW, but its read and write now occupy one uninterrupted FIFO client turn.
+- Tests: Added deterministic FIFO, waiting-cancellation, close-generation, independent-client, RMW ordering, PLC-NG reuse, malformed-write outcome, and pairwise error taxonomy coverage.
+- Release: Aligned artifact roles so the registry package contains consumer runtime, native API metadata, license, README, and ecosystem-native examples where applicable while excluding repository tests and maintainer tooling; the GitHub source archive retains tracked non-hardware validation and maintainer inputs.
+- Library: Audited every live API that accepts a profile-bound address and the explicit-profile live catalog assertion: exact canonical identity, including unit-specific profiles, must equal the client profile before request construction or transport activity.
+- Tests: Profile-mismatch coverage verifies rejection without reducing unit profiles to their base family.
+- Library: Device-range catalogs now use only canonical profile rules and the single required SD-register window. Communication failures are propagated without converting PLC errors into inferred address limits or hidden boundary probes.
+- Tests: Added device-range catalog coverage proving canonical values use one SD read and unknown ranges remain unknown without runtime probing.
+- Library: Audited every direct, extended, random, named, typed, and bit-in-word write entry: individual bit values remain Rust `bool` values with no numeric, string, truthy, or compatibility entry point. Packed bit-block words remain a separate `u16` wire-level API.
 - Docs: README documentation links now include the shared Performance and Choosing a Language pages, and package registry metadata was expanded for discoverability. No functional change.
+- Library: Replaced post-1.85 let-chain syntax with equivalent Rust 1.85 control flow so the published crate now compiles at its declared minimum Rust version.
+- CI: Added an explicit all-target/all-feature gate for the published crate on Rust 1.85; the non-published N-API workspace binding retains its independent dependency toolchain.
+- CI: Generate and extract the actual `.crate`, reject repository tests and maintainer tooling, build every declared Cargo example and rustdoc from the extracted artifact, and compile a separate path consumer using only that package.
+- CI: Build current-worktree source archives through an isolated temporary Git index so tracked modifications, non-ignored untracked files, and tracked deletions are all validated without changing the maintainer's real index.
+- Docs: Documented Rust 1.85 as the declared minimum supported compiler in the getting-started guide.
 
 ### BREAKING
 
+- Library: `SlmpErrorKind` adds `Cancelled`, `Closed`, `NotConnected`, `Transport`, `MalformedResponse`, and `OutcomeUnknown`; transport and response failures previously grouped under `General` are now distinct. State-changing post-send failures expose `outcome_unknown_reason` and must not be automatically retried.
+- Library: TCP and UDP connections are now IPv4-only. IPv6 literals are rejected before socket creation, hostname results are filtered to IPv4 without IPv6 fallback, and callers using IPv6 must migrate to IPv4.
 - Library: Array label lengths now use the SLMP bit/byte logical-length contract and two-byte wire padding. Zero logical lengths, non-exact array write buffers, and zero or odd random-label write buffers are rejected before transport.
 - Library: Requests that exceed the 16-bit SLMP data-length field or one complete UDP datagram are rejected before frame publication, send, and 4E serial allocation. Oversized label aggregates now return `SlmpError` deterministically.
+- Library: Direct and extended bit reads now reject trailing packed bytes and non-binary used nibbles that were previously tolerated.
 
 ### Fixed
 
 - Library: Array label reads now accept the documented six-bit/two-byte response shape and reject count, unit, logical-length, truncation, and trailing-data mismatches. Random label reads reject zero or odd result lengths while preserving unknown data type IDs and spare values.
 - Library: Enforced command-payload limits of 65,529 bytes over TCP, 65,492 bytes for UDP 3E, and 65,488 bytes for UDP 4E without truncation or automatic splitting.
+- Library: Packed bit responses now require exactly `ceil(points / 2)` bytes and require every used nibble to be `0` or `1`.
 
 ### Tests
 
+- Tests: Added IPv6-literal rejection and local TCP/UDP hostname coverage for IPv4-only resolution.
 - Tests: Added bit and byte boundary vectors, pre-transport validation checks, and malformed label-response coverage.
 - Tests: Added TCP/UDP 3E/4E payload boundaries, frame/serial/stat preservation on rejection, and aggregate limits for all four label builders.
+- Tests: Added packed-bit regressions for short and trailing data, invalid high/low nibbles, and odd-point padding.
 
 ## [4.0.1] - 2026-07-29
 

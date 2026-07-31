@@ -181,13 +181,9 @@ pub async fn write_bit_in_word(
     if bit_index > 15 {
         return Err(SlmpError::new("bit_index must be 0-15."));
     }
-    let mut current = client.read_words_raw(device, 1).await?[0];
-    if value {
-        current |= 1 << bit_index;
-    } else {
-        current &= !(1 << bit_index);
-    }
-    client.write_words(device, &[current]).await
+    client
+        .write_bit_in_word_turn(device, bit_index, value)
+        .await
 }
 
 pub async fn read_words_single_request(
@@ -362,10 +358,10 @@ fn compile_read_plan(
             let mut bit_word_read = None;
             if dtype == "BIT" {
                 bit_word_read = plain_bit_word_read(device);
-                if let Some(read) = bit_word_read
-                    && seen_word_devices.insert(read.device)
-                {
-                    word_devices.push(read.device);
+                if let Some(read) = bit_word_read {
+                    if seen_word_devices.insert(read.device) {
+                        word_devices.push(read.device);
+                    }
                 }
             } else if matches!(dtype.as_str(), "U" | "S") && device.code().is_word_batchable() {
                 if seen_word_devices.insert(device) {

@@ -219,9 +219,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 When the PLC returns a non-zero SLMP end code, high-level calls return `SlmpError`.
 Read `end_code` for the PLC response code and `error_info` when the PLC returned the structured error-information block.
-Request-exchange deadline expiry returns `SlmpErrorKind::Timeout`; callers may also use
+Each request gets one monotonic deadline immediately before its first transport send. Queue
+waiting does not consume that deadline. The same deadline covers the complete send, TCP/UDP
+response assembly, response correlation, protocol parsing, and command-specific payload decode.
+Request-exchange deadline expiry on a read returns `SlmpErrorKind::Timeout`; callers may also use
 `SlmpError::is_timeout()` instead of matching error-message text. Timeout invalidates the
 in-flight transport, so explicitly connect a new client before another request.
+
+`SlmpErrorKind` distinguishes validation (`General`), `Timeout`, `Cancelled`, `Closed`,
+`NotConnected`, `Transport`, `MalformedResponse`, `PlcEndCode`, `ProfileFeature`, and
+`OutcomeUnknown`. If transmission of a state-changing command may have started, timeout,
+cancellation reported by an adapter, close, transport failure, or malformed acknowledgement returns `OutcomeUnknown`;
+inspect `outcome_unknown_reason` for the structured cause. Do not automatically resend that
+command. A nonzero PLC end code remains the definitive `PlcEndCode` result and does not by itself
+retire a fully correlated connection.
+
+Dropping a Rust future (including an outer `tokio::time::timeout`) cannot deliver a library
+`Result`; it retires an in-flight transport. If the dropped command was state-changing, the caller
+must treat its outcome as unknown and must not resend it automatically.
 
 ```rust
 match read_typed(
@@ -339,6 +354,21 @@ word/DWord entries is rejected before transport, so the application must perform
 and account for the separate operations explicitly. Bit-in-word entries are also
 rejected here because they require a read-modify-write sequence; call
 `write_bit_in_word` explicitly when that non-atomic sequence is intended.
+
+`write_bit_in_word` performs one read followed by one write while holding one FIFO client turn, so
+another operation on the same client cannot interleave between those two frames. It is still a
+non-atomic PLC read-modify-write: another PLC client or PLC logic can change the word, and a
+post-send interruption of its write reports `OutcomeUnknown`. Do not retry it automatically.
+
+## Shared-client ordering and close
+
+Clones of one `SlmpClient` share one FIFO admission queue and allow at most one wire transaction at
+a time. Arguments are fixed for the queued call; cancelling a waiting Rust future removes that
+waiter without sending and without delaying later waiters. Calling `close` invalidates the exact
+client connection generation immediately: an active read returns `Closed`, an active transmitted
+state-changing command returns `OutcomeUnknown` with reason `Closed`, and queued calls return
+`Closed` without sending. Separate `SlmpClient` instances have independent queues and can progress
+concurrently.
 
 ## Single-request range reads
 
@@ -506,7 +536,9 @@ cargo run --example device_matrix_compare
 
 ## Device range catalog
 
-`read_device_range_catalog` reads live device range bounds after you connect. It requires an explicit profile through `SlmpConnectionOptions`; it does not auto-discover your intended profile.
+Every semantic `SlmpDeviceAddress` or qualified address is bound to the exact canonical profile used to create it. Passing it to a client configured for any other profile is rejected before request construction or transport activity, including when a unit-specific profile shares a base family with the client. Parse the address again with the destination client's profile instead of reusing it across profiles.
+
+`read_device_range_catalog` reads the canonical profile's required SD-register window after you connect. It requires an explicit profile through `SlmpConnectionOptions`; it does not auto-discover your intended profile, probe candidate addresses, or infer a smaller range from a failed PLC request. Any timeout, transport, protocol, route, password, busy, or other PLC error is returned to the caller; a range without an authoritative value remains unknown. Rust future cancellation drops the operation instead of producing a library error.
 The source rules for this catalog are maintained in the shared [SLMP device ranges](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/device-ranges/) reference.
 
 ```rust

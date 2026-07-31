@@ -198,29 +198,6 @@ pub(crate) fn build_catalog_for_plc_profile(
     Ok(catalog)
 }
 
-pub(crate) fn replace_fixed_point_count(
-    mut catalog: SlmpDeviceRangeCatalog,
-    device: &str,
-    point_count: u32,
-    source: &str,
-    note: &str,
-) -> SlmpDeviceRangeCatalog {
-    let upper_bound = point_count_to_upper_bound(Some(point_count));
-    for entry in &mut catalog.entries {
-        if entry.device == device {
-            entry.upper_bound = upper_bound;
-            entry.point_count = Some(point_count);
-            entry.address_range = format_address_range(&entry.device, entry.notation, upper_bound);
-            entry.source = source.to_string();
-            entry.notes = Some(match &entry.notes {
-                Some(existing) if !existing.is_empty() => format!("{existing} {note}"),
-                _ => note.to_string(),
-            });
-        }
-    }
-    catalog
-}
-
 pub(crate) fn device_range_model_label(plc_profile: SlmpPlcProfile) -> &'static str {
     match plc_profile {
         SlmpPlcProfile::IqR => "IQ-R",

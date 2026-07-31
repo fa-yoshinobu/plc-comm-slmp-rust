@@ -4,10 +4,11 @@ This checklist governs crates.io and GitHub publication for this repository.
 
 ## Pre-Tag Gate
 
-1. Use a clean release branch and run `release_check.bat` before the version exists in crates.io.
+1. Use a clean release branch and run `release_check.bat` before the version exists in crates.io. The launcher runs the source-archive gate and the generated-crate/isolated-consumer gate; do not replace either with a file-list-only package check.
 2. Confirm `Cargo.toml`, runtime version metadata, canonical profile fixtures, CHANGELOG, user docs, examples, and public API agree.
 3. Enumerate every unchecked repository TODO and maintainer checkbox. Pass it, mark it explicitly not required, or record an item-by-item release disposition in the active release GOAL.
-4. Run `cargo package` and inspect the crate before creating the immutable annotated tag.
+4. Run `scripts/check_source_archive.ps1` and require the extracted GitHub source archive to pass its complete non-hardware validation gate.
+5. Run `scripts/check_package_contents.ps1`. It generates and extracts the `.crate`, confirms repository tests and maintainer tooling are absent, builds packaged examples and rustdoc, and compiles an isolated consumer using only the extracted package before the immutable annotated tag is created.
 
 ## Publication Integrity Gate
 

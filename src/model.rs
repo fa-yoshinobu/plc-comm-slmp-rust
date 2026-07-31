@@ -374,6 +374,29 @@ impl SlmpCommand {
     pub fn as_u16(self) -> u16 {
         self as u16
     }
+
+    /// Returns whether successful transmission can change PLC or monitor state.
+    pub const fn is_state_changing(self) -> bool {
+        matches!(
+            self,
+            Self::DeviceWrite
+                | Self::DeviceWriteRandom
+                | Self::DeviceWriteBlock
+                | Self::MonitorRegister
+                | Self::LabelArrayWrite
+                | Self::LabelWriteRandom
+                | Self::MemoryWrite
+                | Self::ExtendUnitWrite
+                | Self::RemoteRun
+                | Self::RemoteStop
+                | Self::RemotePause
+                | Self::RemoteLatchClear
+                | Self::RemoteReset
+                | Self::RemotePasswordUnlock
+                | Self::RemotePasswordLock
+                | Self::ClearError
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -947,6 +970,7 @@ pub struct SlmpNamedTarget {
 
 #[derive(Debug, Clone)]
 pub struct SlmpConnectionOptions {
+    /// PLC IPv4 address or hostname that resolves to IPv4. IPv6 is unsupported.
     pub host: String,
     pub port: u16,
     pub timeout: Duration,
@@ -974,9 +998,10 @@ impl SlmpConnectionOptions {
                 "port is required and must be in range 1..=65535",
             ));
         }
+        let host = crate::network::normalize_ipv4_host(&host.into())?;
         let defaults = plc_profile.defaults();
         Ok(Self {
-            host: host.into(),
+            host,
             port,
             timeout: Duration::from_secs(3),
             tcp_keepalive: Some(Duration::from_secs(30)),

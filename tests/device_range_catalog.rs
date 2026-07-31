@@ -248,6 +248,77 @@ async fn read_device_range_catalog_for_iqr_unit_reports_unit_profile() {
     );
 }
 
+#[tokio::test]
+async fn device_range_catalog_propagates_plc_end_codes_without_boundary_inference() {
+    for end_code in [0xC061, 0xC200, 0xCEE0, 0xD123] {
+        let server = MultiResponseServer::start_with_end_codes(vec![(end_code, Vec::new())])
+            .await
+            .unwrap();
+        let mut options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            1025,
+            plc_comm_slmp::SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        options.port = server.port;
+        let client = SlmpClient::connect(options).await.unwrap();
+
+        let error = client.read_device_range_catalog().await.unwrap_err();
+
+        assert_eq!(error.end_code, Some(end_code));
+        assert_eq!(server.request_count().await, 1);
+    }
+}
+
+#[tokio::test]
+async fn device_range_catalog_propagates_protocol_failure_without_a_probe() {
+    let server = MultiResponseServer::start(vec![vec![0x12]]).await.unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error = client.read_device_range_catalog().await.unwrap_err();
+
+    assert!(
+        error.message.contains("payload size mismatch"),
+        "unexpected protocol error: {}",
+        error.message
+    );
+    assert_eq!(server.request_count().await, 1);
+}
+
+#[tokio::test]
+async fn device_range_catalog_propagates_timeout_without_a_probe() {
+    let server = MultiResponseServer::start_silent(std::time::Duration::from_millis(100))
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        1025,
+        plc_comm_slmp::SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.port = server.port;
+    options.timeout = std::time::Duration::from_millis(10);
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    let error = client.read_device_range_catalog().await.unwrap_err();
+
+    assert!(error.is_timeout());
+    assert_eq!(server.request_count().await, 1);
+}
+
 fn entry<'a>(
     catalog: &'a plc_comm_slmp::SlmpDeviceRangeCatalog,
     device: &str,
@@ -279,23 +350,49 @@ struct MultiResponseServer {
 
 impl MultiResponseServer {
     async fn start(response_payloads: Vec<Vec<u8>>) -> std::io::Result<Self> {
+        Self::start_with_end_codes(
+            response_payloads
+                .into_iter()
+                .map(|payload| (0, payload))
+                .collect(),
+        )
+        .await
+    }
+
+    async fn start_with_end_codes(responses: Vec<(u16, Vec<u8>)>) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
         let requests = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()));
         let request_sink = requests.clone();
         tokio::spawn(async move {
             if let Ok((mut stream, _)) = listener.accept().await {
-                let mut pending = std::collections::VecDeque::from(response_payloads);
-                while let Some(payload) = pending.pop_front() {
+                let mut pending = std::collections::VecDeque::from(responses);
+                while let Some((end_code, payload)) = pending.pop_front() {
                     let Some(request) = read_request(&mut stream).await else {
                         return;
                     };
                     request_sink.lock().await.push(request.clone());
 
-                    let response = build_response(&request, &payload);
+                    let response = build_response(&request, end_code, &payload);
                     if stream.write_all(&response).await.is_err() {
                         return;
                     }
+                }
+            }
+        });
+        Ok(Self { port, requests })
+    }
+
+    async fn start_silent(delay: std::time::Duration) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let requests = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let request_sink = requests.clone();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                if let Some(request) = read_request(&mut stream).await {
+                    request_sink.lock().await.push(request);
+                    tokio::time::sleep(delay).await;
                 }
             }
         });
@@ -326,8 +423,9 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
     Some(request)
 }
 
-fn build_response(request: &[u8], response_data: &[u8]) -> Vec<u8> {
+fn build_response(request: &[u8], end_code: u16, response_data: &[u8]) -> Vec<u8> {
     let mut payload = vec![0u8; 2 + response_data.len()];
+    payload[..2].copy_from_slice(&end_code.to_le_bytes());
     payload[2..].copy_from_slice(response_data);
 
     if request.starts_with(&[0x50, 0x00]) {
