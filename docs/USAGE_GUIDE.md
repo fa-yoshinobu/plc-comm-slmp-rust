@@ -569,6 +569,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `.n` | `D50.3` | Bit `n` inside a word, where `n` is `0` through `F`. |
 
 Named addresses used with `read_named`, `write_named`, and `poll_named` must include the intended type, for example `D100:U` or `M100:BIT`.
+## Request payload limits
+
+One SLMP request can carry at most 65,529 command-payload bytes over TCP. UDP must also fit one
+complete datagram, so the command-payload maximum is 65,492 bytes for 3E and 65,488 bytes for 4E.
+Array and random label requests use even-sized payloads and therefore have a largest
+protocol-representable payload of 65,528 bytes before the lower UDP limit is applied.
+
+Oversized requests return `SlmpError` before send, traffic counters, request-frame publication, or
+4E serial allocation. They are never truncated or split automatically; applications that issue
+several requests must define ordering, partial-success, and write-atomicity behavior.
+
 ## Traffic statistics
 
 `client.traffic_stats().await` returns the client-lifetime `request_count`, `tx_bytes`, and

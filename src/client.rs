@@ -30,6 +30,8 @@ use tokio::time::{Instant, timeout_at};
 
 const MAX_RUNTIME_RANGE_PROBE_COUNT: u32 = 1_048_576;
 const UDP_RECEIVE_BUFFER_SIZE: usize = 65_535;
+const MAX_REQUEST_PAYLOAD_LENGTH: usize = u16::MAX as usize - 6;
+const MAX_IPV4_UDP_DATAGRAM_LENGTH: usize = 65_507;
 const TCP_WRITE_TIMEOUT_MESSAGE: &str = "tcp write timed out";
 const TCP_READ_TIMEOUT_MESSAGE: &str = "tcp read timed out";
 const UDP_SEND_TIMEOUT_MESSAGE: &str = "udp send timed out";
@@ -2265,7 +2267,7 @@ impl ClientInner {
         let data = self
             .request(SlmpCommand::LabelArrayRead, 0x0000, &payload, true)
             .await?;
-        Self::parse_array_label_read_response(&data, points.len())
+        Self::parse_array_label_read_response(&data, points)
     }
 
     async fn write_array_labels(
@@ -2309,8 +2311,11 @@ impl ClientInner {
         rules::validate_non_empty_u16_count(points.len(), "array label points")?;
         rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
-        payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
-        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        Self::append_label_payload(&mut payload, &(points.len() as u16).to_le_bytes())?;
+        Self::append_label_payload(
+            &mut payload,
+            &(abbreviation_labels.len() as u16).to_le_bytes(),
+        )?;
         for label in abbreviation_labels {
             Self::append_label_name(&mut payload, label)?;
         }
@@ -2318,9 +2323,8 @@ impl ClientInner {
             Self::validate_abbreviation_references(&point.label, abbreviation_labels.len())?;
             Self::append_label_name(&mut payload, &point.label)?;
             Self::label_array_data_bytes(point.unit_specification, point.array_data_length)?;
-            payload.push(point.unit_specification);
-            payload.push(0x00);
-            payload.extend_from_slice(&point.array_data_length.to_le_bytes());
+            Self::append_label_payload(&mut payload, &[point.unit_specification, 0x00])?;
+            Self::append_label_payload(&mut payload, &point.array_data_length.to_le_bytes())?;
         }
         Ok(payload)
     }
@@ -2332,8 +2336,11 @@ impl ClientInner {
         rules::validate_non_empty_u16_count(points.len(), "array label points")?;
         rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
-        payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
-        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        Self::append_label_payload(&mut payload, &(points.len() as u16).to_le_bytes())?;
+        Self::append_label_payload(
+            &mut payload,
+            &(abbreviation_labels.len() as u16).to_le_bytes(),
+        )?;
         for label in abbreviation_labels {
             Self::append_label_name(&mut payload, label)?;
         }
@@ -2348,10 +2355,9 @@ impl ClientInner {
                 )));
             }
             Self::append_label_name(&mut payload, &point.label)?;
-            payload.push(point.unit_specification);
-            payload.push(0x00);
-            payload.extend_from_slice(&point.array_data_length.to_le_bytes());
-            payload.extend_from_slice(&point.data);
+            Self::append_label_payload(&mut payload, &[point.unit_specification, 0x00])?;
+            Self::append_label_payload(&mut payload, &point.array_data_length.to_le_bytes())?;
+            Self::append_label_payload(&mut payload, &point.data)?;
         }
         Ok(payload)
     }
@@ -2363,8 +2369,11 @@ impl ClientInner {
         rules::validate_non_empty_u16_count(labels.len(), "labels")?;
         rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
-        payload.extend_from_slice(&(labels.len() as u16).to_le_bytes());
-        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        Self::append_label_payload(&mut payload, &(labels.len() as u16).to_le_bytes())?;
+        Self::append_label_payload(
+            &mut payload,
+            &(abbreviation_labels.len() as u16).to_le_bytes(),
+        )?;
         for label in abbreviation_labels {
             Self::append_label_name(&mut payload, label)?;
         }
@@ -2382,37 +2391,47 @@ impl ClientInner {
         rules::validate_non_empty_u16_count(points.len(), "random label points")?;
         rules::validate_u16_count(abbreviation_labels.len(), "abbreviation labels")?;
         let mut payload = Vec::new();
-        payload.extend_from_slice(&(points.len() as u16).to_le_bytes());
-        payload.extend_from_slice(&(abbreviation_labels.len() as u16).to_le_bytes());
+        Self::append_label_payload(&mut payload, &(points.len() as u16).to_le_bytes())?;
+        Self::append_label_payload(
+            &mut payload,
+            &(abbreviation_labels.len() as u16).to_le_bytes(),
+        )?;
         for label in abbreviation_labels {
             Self::append_label_name(&mut payload, label)?;
         }
         for point in points {
             Self::validate_abbreviation_references(&point.label, abbreviation_labels.len())?;
-            rules::validate_u16_count(point.data.len(), "write data length")?;
+            rules::validate_non_empty_u16_count(point.data.len(), "write data length")?;
+            if point.data.len() % 2 != 0 {
+                return Err(SlmpError::new(format!(
+                    "write data length must be even: {}",
+                    point.data.len()
+                )));
+            }
             Self::append_label_name(&mut payload, &point.label)?;
-            payload.extend_from_slice(&(point.data.len() as u16).to_le_bytes());
-            payload.extend_from_slice(&point.data);
+            Self::append_label_payload(&mut payload, &(point.data.len() as u16).to_le_bytes())?;
+            Self::append_label_payload(&mut payload, &point.data)?;
         }
         Ok(payload)
     }
 
     fn parse_array_label_read_response(
         data: &[u8],
-        expected_points: usize,
+        requested_points: &[SlmpLabelArrayReadPoint],
     ) -> Result<Vec<SlmpLabelArrayReadResult>, SlmpError> {
         if data.len() < 2 {
             return Err(SlmpError::new("array label read response too short"));
         }
         let count = u16::from_le_bytes([data[0], data[1]]) as usize;
-        if count != expected_points {
+        if count != requested_points.len() {
             return Err(SlmpError::new(format!(
-                "array label read point count mismatch: expected={expected_points} actual={count}"
+                "array label read point count mismatch: expected={} actual={count}",
+                requested_points.len()
             )));
         }
         let mut offset = 2usize;
         let mut results = Vec::with_capacity(count);
-        for _ in 0..count {
+        for (index, requested) in requested_points.iter().enumerate() {
             if offset + 4 > data.len() {
                 return Err(SlmpError::new(
                     "array label read response truncated before metadata",
@@ -2422,6 +2441,14 @@ impl ClientInner {
             let unit_specification = data[offset + 1];
             let array_data_length = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
             offset += 4;
+            if unit_specification != requested.unit_specification
+                || array_data_length != requested.array_data_length
+            {
+                return Err(SlmpError::new(format!(
+                    "array label read metadata mismatch at index {index}: expected unit={} length={}; actual unit={unit_specification} length={array_data_length}",
+                    requested.unit_specification, requested.array_data_length
+                )));
+            }
             let data_size = Self::label_array_data_bytes(unit_specification, array_data_length)?;
             if offset + data_size > data.len() {
                 return Err(SlmpError::new(
@@ -2469,6 +2496,11 @@ impl ClientInner {
             let spare = data[offset + 1];
             let read_data_length = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
             offset += 4;
+            if read_data_length == 0 || read_data_length % 2 != 0 {
+                return Err(SlmpError::new(format!(
+                    "label random read response data length must be positive and even: {read_data_length}"
+                )));
+            }
             let data_size = read_data_length as usize;
             if offset + data_size > data.len() {
                 return Err(SlmpError::new(
@@ -2497,9 +2529,33 @@ impl ClientInner {
         }
         let utf16: Vec<u16> = label.encode_utf16().collect();
         rules::validate_u16_count(utf16.len(), "label name length")?;
+        let encoded_length = utf16
+            .len()
+            .checked_mul(2)
+            .and_then(|length| length.checked_add(2))
+            .ok_or_else(|| SlmpError::new("request payload length overflow"))?;
+        Self::validate_label_payload_addition(payload.len(), encoded_length)?;
         payload.extend_from_slice(&(utf16.len() as u16).to_le_bytes());
         for ch in utf16 {
             payload.extend_from_slice(&ch.to_le_bytes());
+        }
+        Ok(())
+    }
+
+    fn append_label_payload(payload: &mut Vec<u8>, part: &[u8]) -> Result<(), SlmpError> {
+        Self::validate_label_payload_addition(payload.len(), part.len())?;
+        payload.extend_from_slice(part);
+        Ok(())
+    }
+
+    fn validate_label_payload_addition(current: usize, addition: usize) -> Result<(), SlmpError> {
+        let actual = current
+            .checked_add(addition)
+            .ok_or_else(|| SlmpError::new("request payload length overflow"))?;
+        if actual > MAX_REQUEST_PAYLOAD_LENGTH {
+            return Err(SlmpError::new(format!(
+                "request payload length out of range: actual={actual}, maximum={MAX_REQUEST_PAYLOAD_LENGTH}"
+            )));
         }
         Ok(())
     }
@@ -2543,10 +2599,13 @@ impl ClientInner {
         array_data_length: u16,
     ) -> Result<usize, SlmpError> {
         match unit_specification {
-            0 => Ok(array_data_length as usize * 2),
-            1 => Ok(array_data_length as usize),
+            0 | 1 if array_data_length == 0 => Err(SlmpError::new(
+                "array_data_length must be in range 1..65535",
+            )),
+            0 => Ok((array_data_length as usize).div_ceil(16) * 2),
+            1 => Ok((array_data_length as usize).div_ceil(2) * 2),
             other => Err(SlmpError::new(format!(
-                "unit_specification must be 0(word) or 1(byte): {other}"
+                "unit_specification must be 0(bit) or 1(byte): {other}"
             ))),
         }
     }
@@ -2780,11 +2839,34 @@ impl ClientInner {
         payload: &[u8],
     ) -> Result<(), SlmpError> {
         Self::request_data_length(command, subcommand, payload.len())?;
+        let maximum = self.request_payload_limit();
+        if payload.len() > maximum {
+            return Err(SlmpError::with_context(
+                format!(
+                    "request payload length out of range: actual={}, maximum={maximum}",
+                    payload.len()
+                ),
+                None,
+                Some(command),
+                Some(subcommand),
+            ));
+        }
         if matches!(command, SlmpCommand::MonitorRegister) && matches!(subcommand, 0x0000 | 0x0002)
         {
             self.validate_plain_monitor_register_payload(self.options.compatibility_mode, payload)?;
         }
         Ok(())
+    }
+
+    fn request_payload_limit(&self) -> usize {
+        if !matches!(self.options.transport_mode, SlmpTransportMode::Udp) {
+            return MAX_REQUEST_PAYLOAD_LENGTH;
+        }
+        let request_header_size = match self.options.frame_type {
+            SlmpFrameType::Frame4E => 19,
+            SlmpFrameType::Frame3E => 15,
+        };
+        MAX_IPV4_UDP_DATAGRAM_LENGTH - request_header_size
     }
 
     fn request_data_length(
@@ -2794,7 +2876,9 @@ impl ClientInner {
     ) -> Result<u16, SlmpError> {
         let total = payload_len.checked_add(6).ok_or_else(|| {
             SlmpError::with_context(
-                format!("request data length overflow: payload={payload_len}"),
+                format!(
+                    "request payload length out of range: actual={payload_len}, maximum={MAX_REQUEST_PAYLOAD_LENGTH}"
+                ),
                 None,
                 Some(command),
                 Some(subcommand),
@@ -2802,7 +2886,9 @@ impl ClientInner {
         })?;
         u16::try_from(total).map_err(|_| {
             SlmpError::with_context(
-                format!("request data length must be <= 65535 bytes: payload={payload_len}, total={total}"),
+                format!(
+                    "request payload length out of range: actual={payload_len}, maximum={MAX_REQUEST_PAYLOAD_LENGTH}"
+                ),
                 None,
                 Some(command),
                 Some(subcommand),
@@ -2865,6 +2951,7 @@ impl ClientInner {
         subcommand: u16,
         payload: &[u8],
     ) -> Result<(), SlmpError> {
+        self.validate_request_payload(command, subcommand, payload)?;
         let request_data_length = Self::request_data_length(command, subcommand, payload.len())?;
         let header_size = match self.options.frame_type {
             SlmpFrameType::Frame4E => 19,
@@ -3368,7 +3455,7 @@ mod tests {
             options: SlmpConnectionOptions::new(
                 "127.0.0.1",
                 1025,
-                SlmpTransportMode::Tcp,
+                SlmpTransportMode::Udp,
                 SlmpTargetAddress::default(),
                 plc_profile,
             )
@@ -3378,6 +3465,174 @@ mod tests {
             last_request_frame: Vec::new(),
             last_response_frame: Vec::new(),
             traffic_stats: SlmpTrafficStats::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn request_payload_boundaries_preserve_frame_and_serial_on_rejection() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        for (transport_mode, frame_type, maximum, frame_length) in [
+            (
+                SlmpTransportMode::Tcp,
+                SlmpFrameType::Frame3E,
+                65_529usize,
+                65_544usize,
+            ),
+            (
+                SlmpTransportMode::Tcp,
+                SlmpFrameType::Frame4E,
+                65_529usize,
+                65_548usize,
+            ),
+            (
+                SlmpTransportMode::Udp,
+                SlmpFrameType::Frame3E,
+                65_492usize,
+                65_507usize,
+            ),
+            (
+                SlmpTransportMode::Udp,
+                SlmpFrameType::Frame4E,
+                65_488usize,
+                65_507usize,
+            ),
+        ] {
+            inner.options.transport_mode = transport_mode;
+            inner.options.frame_type = frame_type;
+            inner.serial = 41;
+            inner.last_request_frame.clear();
+
+            inner
+                .build_request_frame(SlmpCommand::ClearError, 0, &vec![0; maximum])
+                .unwrap();
+            assert_eq!(inner.last_request_frame.len(), frame_length);
+            let length_offset = if matches!(frame_type, SlmpFrameType::Frame4E) {
+                11
+            } else {
+                7
+            };
+            assert_eq!(
+                u16::from_le_bytes([
+                    inner.last_request_frame[length_offset],
+                    inner.last_request_frame[length_offset + 1],
+                ]),
+                (maximum + 6) as u16
+            );
+
+            let frame_before = inner.last_request_frame.clone();
+            let serial_before = inner.serial;
+            let error = inner
+                .build_request_frame(SlmpCommand::ClearError, 0, &vec![0; maximum + 1])
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("actual={}", maximum + 1))
+            );
+            assert!(error.to_string().contains(&format!("maximum={maximum}")));
+            assert_eq!(inner.last_request_frame, frame_before);
+            assert_eq!(inner.serial, serial_before);
+            assert_eq!(inner.traffic_stats, SlmpTrafficStats::default());
+        }
+    }
+
+    #[test]
+    fn label_payload_builders_enforce_aggregate_protocol_boundary() {
+        let array_read = ClientInner::build_label_array_read_payload(
+            &[SlmpLabelArrayReadPoint {
+                label: "A".repeat(32_759),
+                unit_specification: 1,
+                array_data_length: 1,
+            }],
+            &[],
+        )
+        .unwrap();
+        let array_write = ClientInner::build_label_array_write_payload(
+            &[SlmpLabelArrayWritePoint {
+                label: "A".into(),
+                unit_specification: 1,
+                array_data_length: 65_516,
+                data: vec![0; 65_516],
+            }],
+            &[],
+        )
+        .unwrap();
+        let random_read =
+            ClientInner::build_label_random_read_payload(&["A".repeat(32_761)], &[]).unwrap();
+        let random_write = ClientInner::build_label_random_write_payload(
+            &[SlmpLabelRandomWritePoint {
+                label: "A".into(),
+                data: vec![0; 65_518],
+            }],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            [
+                array_read.len(),
+                array_write.len(),
+                random_read.len(),
+                random_write.len()
+            ],
+            [65_528; 4]
+        );
+
+        let errors = [
+            ClientInner::build_label_array_read_payload(
+                &[SlmpLabelArrayReadPoint {
+                    label: "A".repeat(32_760),
+                    unit_specification: 1,
+                    array_data_length: 1,
+                }],
+                &[],
+            )
+            .unwrap_err(),
+            ClientInner::build_label_array_write_payload(
+                &[SlmpLabelArrayWritePoint {
+                    label: "A".into(),
+                    unit_specification: 1,
+                    array_data_length: 65_518,
+                    data: vec![0; 65_518],
+                }],
+                &[],
+            )
+            .unwrap_err(),
+            ClientInner::build_label_random_read_payload(&["A".repeat(32_762)], &[]).unwrap_err(),
+            ClientInner::build_label_random_write_payload(
+                &[SlmpLabelRandomWritePoint {
+                    label: "A".into(),
+                    data: vec![0; 65_520],
+                }],
+                &[],
+            )
+            .unwrap_err(),
+            ClientInner::build_label_random_read_payload(
+                &["A".into(), "B".into()],
+                &["R".repeat(32_761)],
+            )
+            .unwrap_err(),
+            ClientInner::build_label_random_read_payload(
+                &["A".repeat(16_381), "B".repeat(16_381)],
+                &[],
+            )
+            .unwrap_err(),
+        ];
+        assert!(
+            errors
+                .iter()
+                .all(|error| error.to_string().contains("maximum=65529"))
+        );
+
+        for length in [65_536usize, 65_537usize] {
+            let error = ClientInner::build_label_random_write_payload(
+                &[SlmpLabelRandomWritePoint {
+                    label: "A".into(),
+                    data: vec![0; length],
+                }],
+                &[],
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("write data length"));
         }
     }
 

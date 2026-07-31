@@ -588,3 +588,90 @@ Acceptance evidence:
 
 Disposition: all supplemental live checks passed. The `R32768` result is PLC-side address evidence,
 not authority to add a communication-library profile-range guard.
+
+## RUST-LABEL-001 — Deterministic label-command wire contract
+
+Scope: async array/random label read and write APIs.
+
+Target contract: implement `GOAL-SLMP-LABEL-001` from the workspace decision record. Unit `0` is a
+logical bit count padded per 16 bits, unit `1` is a logical byte count padded per two bytes, caller
+write buffers are exact and even, and response count/metadata/length/trailing data are validated.
+
+Compatibility impact: zero lengths, odd random-label data, unpadded array data, and malformed or
+uncorrelated responses that were previously tolerated now return `SlmpError` before transport or
+during response validation.
+
+Acceptance criteria:
+
+1. The shared bit and byte boundary vectors produce the approved padded wire lengths.
+2. Invalid caller data leaves the request frame and traffic counters unchanged.
+3. Response count, array metadata, positive/even length, truncation, and full consumption are checked.
+4. Unknown data type IDs and random spare values remain observable.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added for every local acceptance criterion.
+- [x] Formatting, Clippy, complete tests, docs, and package checks passed.
+- [x] Codex self-review completed and accepted findings corrected.
+- [x] Live PLC verification is not required for deterministic arithmetic and injected response vectors.
+- [x] Documentation, migration note, changelog, and package contents agree.
+- [x] Final acceptance verified.
+
+Verification evidence:
+
+- Rustfmt, Clippy for all targets with CLI features and warnings denied, all unit/integration/doc
+  tests, and the Node crate check passed.
+- `cargo package --allow-dirty` packaged 57 files and its verification compile passed against the
+  final source and test state.
+- The no-auto-publish guard and `git diff --check` passed.
+
+Self-review disposition:
+
+- Accepted: the first arithmetic implementation triggered Clippy's manual-division-ceiling
+  finding. It now uses the standard integer `div_ceil` operation.
+- Accepted: invalid request-unit and truncated item-header cases were missing from the first test
+  draft. Those cases were added and reverified.
+- No rejected, duplicate, or deferred finding changes this contract.
+
+## RUST-REQUEST-001 — Representable and transport-safe request payloads
+
+Scope: async request submission plus Array/Random Label Read/Write payload construction.
+
+Target contract: implement `GOAL-SLMP-REQUEST-001` from the workspace decision record. TCP command
+payloads are limited to 65,529 bytes. UDP 3E/4E payloads are limited to 65,492/65,488 bytes so the
+complete frame is at most 65,507 bytes. Rejection precedes send, counters, request-frame publication,
+and 4E serial allocation. Label aggregate growth is checked before extending the payload vector.
+
+Compatibility impact: oversized inputs now return `SlmpError` deterministically and are never
+truncated or split automatically.
+
+Acceptance criteria:
+
+1. TCP 3E/4E and UDP 3E/4E boundary frames encode the exact request-data length and UDP datagram size.
+2. Boundary-plus-one rejection preserves serial, counters, and the last request frame.
+3. All four label builders accept 65,528 bytes and reject 65,530-byte aggregates, including
+   abbreviation, multiple-point, and write-data cases.
+4. Random Label Write rejects individual data lengths 65,536 and 65,537 before wire conversion.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added for every local acceptance criterion.
+- [x] Formatting, Clippy, complete tests, docs, and package checks passed.
+- [x] Codex self-review completed and accepted findings corrected.
+- [x] Live PLC verification is not required for deterministic field/datagram arithmetic.
+- [x] Documentation, migration note, changelog, and generated API agree.
+- [x] Final acceptance verified.
+
+Verification evidence:
+
+- `run_ci.bat` passed Rustfmt, Clippy for all targets with CLI features and warnings denied, all
+  unit/integration/doc tests, and the Node crate check.
+- `cargo package --allow-dirty` packaged 57 files and verified the packaged crate by compiling it.
+- Canonical profile drift, the no-auto-publish guard, and `git diff --check` passed.
+
+Self-review disposition:
+
+- Accepted: the frame builder retains a defense-in-depth protocol guard in addition to the earlier
+  transport-aware request guard, so future internal callers cannot wrap the length field.
+- Rejected: request-time connection prevention is not applicable because this client connects during
+  construction. Oversized rejection still precedes every request-time send, statistic, last-frame,
+  and serial mutation, which is the native state-transition contract.
+- No duplicate or deferred finding changes this contract.

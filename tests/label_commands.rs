@@ -1,6 +1,6 @@
 use plc_comm_slmp::{
-    SlmpClient, SlmpConnectionOptions, SlmpLabelArrayWritePoint, SlmpLabelRandomWritePoint,
-    SlmpPlcProfile, SlmpTransportMode,
+    SlmpClient, SlmpConnectionOptions, SlmpLabelArrayReadPoint, SlmpLabelArrayWritePoint,
+    SlmpLabelRandomWritePoint, SlmpPlcProfile, SlmpTransportMode,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -63,8 +63,194 @@ async fn label_writes_build_expected_payloads() {
 }
 
 #[tokio::test]
+async fn label_array_lengths_use_padded_two_byte_wire_units() {
+    let cases = [
+        (0u8, 1u16, 2usize),
+        (0, 6, 2),
+        (0, 16, 2),
+        (0, 17, 4),
+        (0, 32, 4),
+        (1, 1, 2),
+        (1, 2, 2),
+        (1, 3, 4),
+        (1, 4, 4),
+    ];
+    let points: Vec<_> = cases
+        .iter()
+        .enumerate()
+        .map(
+            |(index, (unit_specification, array_data_length, _))| SlmpLabelArrayReadPoint {
+                label: format!("Label{index}"),
+                unit_specification: *unit_specification,
+                array_data_length: *array_data_length,
+            },
+        )
+        .collect();
+    let mut response = (points.len() as u16).to_le_bytes().to_vec();
+    for (unit_specification, array_data_length, wire_bytes) in cases {
+        response.extend_from_slice(&[0xfe, unit_specification]);
+        response.extend_from_slice(&array_data_length.to_le_bytes());
+        response.extend(vec![0xa5; wire_bytes]);
+    }
+    let server = SingleShotServer::start(response).await.unwrap();
+    let client = connect(server.port).await;
+    let values = client.read_array_labels(&points).await.unwrap();
+    assert_eq!(
+        values
+            .iter()
+            .map(|value| value.data.len())
+            .collect::<Vec<_>>(),
+        cases
+            .iter()
+            .map(|(_, _, wire_bytes)| *wire_bytes)
+            .collect::<Vec<_>>()
+    );
+    assert!(values.iter().all(|value| value.data_type_id == 0xfe));
+
+    let server = SingleShotServer::start(Vec::new()).await.unwrap();
+    let client = connect(server.port).await;
+    let writes: Vec<_> = cases
+        .iter()
+        .enumerate()
+        .map(
+            |(index, (unit_specification, array_data_length, wire_bytes))| {
+                SlmpLabelArrayWritePoint {
+                    label: format!("Label{index}"),
+                    unit_specification: *unit_specification,
+                    array_data_length: *array_data_length,
+                    data: vec![0; *wire_bytes],
+                }
+            },
+        )
+        .collect();
+    client.write_array_labels(&writes).await.unwrap();
+}
+
+#[tokio::test]
+async fn invalid_label_write_shapes_are_rejected_before_transport() {
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        9,
+        SlmpTransportMode::Udp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.transport_mode = SlmpTransportMode::Udp;
+    let client = SlmpClient::connect(options).await.unwrap();
+
+    assert!(
+        client
+            .read_array_labels(&[SlmpLabelArrayReadPoint {
+                label: "Zero".into(),
+                unit_specification: 0,
+                array_data_length: 0,
+            }])
+            .await
+            .is_err()
+    );
+    assert!(
+        client
+            .read_array_labels(&[SlmpLabelArrayReadPoint {
+                label: "BadUnit".into(),
+                unit_specification: 2,
+                array_data_length: 1,
+            }])
+            .await
+            .is_err()
+    );
+    for point in [
+        SlmpLabelArrayWritePoint {
+            label: "BadUnit".into(),
+            unit_specification: 2,
+            array_data_length: 1,
+            data: vec![0; 2],
+        },
+        SlmpLabelArrayWritePoint {
+            label: "Bit6".into(),
+            unit_specification: 0,
+            array_data_length: 6,
+            data: vec![0; 12],
+        },
+        SlmpLabelArrayWritePoint {
+            label: "Byte3".into(),
+            unit_specification: 1,
+            array_data_length: 3,
+            data: vec![0; 3],
+        },
+    ] {
+        assert!(client.write_array_labels(&[point]).await.is_err());
+    }
+    for point in [
+        SlmpLabelRandomWritePoint {
+            label: "Empty".into(),
+            data: Vec::new(),
+        },
+        SlmpLabelRandomWritePoint {
+            label: "Odd".into(),
+            data: vec![0; 3],
+        },
+    ] {
+        assert!(client.write_random_labels(&[point]).await.is_err());
+    }
+    assert!(client.last_request_frame().await.is_empty());
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn label_response_parsers_reject_uncorrelated_or_malformed_payloads() {
+    let point = SlmpLabelArrayReadPoint {
+        label: "Bit6".into(),
+        unit_specification: 0,
+        array_data_length: 6,
+    };
+    let array_cases = [
+        vec![0x00, 0x00],
+        vec![0x01, 0x00, 0x01, 0x02, 0x06, 0x00, 0x00, 0x00],
+        vec![0x01, 0x00, 0x01, 0x00, 0x06],
+        vec![0x01, 0x00, 0x01, 0x00, 0x00, 0x00],
+        vec![0x01, 0x00, 0x01, 0x00, 0x02],
+        vec![0x01, 0x00, 0x01, 0x01, 0x06, 0x00, 0, 0, 0, 0, 0, 0],
+        vec![0x01, 0x00, 0x01, 0x00, 0x05, 0x00, 0x00, 0x00],
+        vec![0x01, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00],
+        vec![0x01, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, 0x00, 0xff],
+    ];
+    for response in array_cases {
+        let server = SingleShotServer::start(response).await.unwrap();
+        let client = connect(server.port).await;
+        assert!(
+            client
+                .read_array_labels(std::slice::from_ref(&point))
+                .await
+                .is_err()
+        );
+    }
+
+    let random_cases = [
+        vec![0x00, 0x00],
+        vec![0x01, 0x00, 0x01, 0x00, 0x00, 0x00],
+        vec![0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0, 0, 0],
+        vec![0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0],
+        vec![0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0, 0, 0xff],
+    ];
+    for response in random_cases {
+        let server = SingleShotServer::start(response).await.unwrap();
+        let client = connect(server.port).await;
+        assert!(client.read_random_labels(&["LabelW".into()]).await.is_err());
+    }
+
+    let server = SingleShotServer::start(vec![0x01, 0x00, 0xfe, 0xff, 0x02, 0x00, 0x31, 0x00])
+        .await
+        .unwrap();
+    let client = connect(server.port).await;
+    let values = client.read_random_labels(&["LabelW".into()]).await.unwrap();
+    assert_eq!(values[0].data_type_id, 0xfe);
+    assert_eq!(values[0].spare, 0xff);
+}
+
+#[tokio::test]
 async fn label_abbreviation_omission_and_references_are_validated() {
-    let server = SingleShotServer::start(vec![0x01, 0x00, 0x09, 0x00, 0x00, 0x00])
+    let server = SingleShotServer::start(vec![0x01, 0x00, 0x09, 0x00, 0x02, 0x00, 0x00, 0x00])
         .await
         .unwrap();
     let client = connect(server.port).await;
@@ -127,8 +313,8 @@ async fn oversized_label_payload_is_rejected_before_request_length_wraps() {
         .await
         .unwrap_err();
 
-    assert!(err.to_string().contains("request data length"));
-    assert!(err.to_string().contains("65535"));
+    assert!(err.to_string().contains("request payload length"));
+    assert!(err.to_string().contains("65529"));
     assert!(client.last_request_frame().await.is_empty());
     assert_eq!(client.traffic_stats().await.request_count, 0);
 }

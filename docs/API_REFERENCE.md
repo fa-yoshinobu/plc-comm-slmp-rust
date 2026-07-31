@@ -52,6 +52,23 @@ Optional Z, LZ, and indirect modification uses `SlmpDeviceModification`.
 | Self-test loopback | `self_test_loopback` |
 | Clear PLC error | `clear_error` |
 
+Array label `unit_specification` is `0` for a logical bit count and `1` for a
+logical byte count. Both forms occupy whole two-byte wire units: bit counts use
+`ceil(array_data_length / 16) * 2` bytes and byte counts use
+`ceil(array_data_length / 2) * 2` bytes. The logical length must be positive,
+and `write_array_labels` requires the exact padded buffer length. Random label
+read and write data lengths must also be positive and even. Read responses must
+match the requested count and, for array labels, each requested unit and
+logical length; malformed or trailing data returns `SlmpError`.
+
+## Request payload limits
+
+TCP command payloads are limited to 65,529 bytes. UDP command payloads are limited to 65,492 bytes
+for 3E and 65,488 bytes for 4E so the complete frame fits one datagram. Oversized requests return
+`SlmpError` before send, request-frame publication, or 4E serial allocation and are never truncated
+or split automatically. Label builders enforce their aggregate size; their largest
+protocol-representable even payload is 65,528 bytes.
+
 CPU-buffer convenience helpers are not separate methods; use the
 extended-device `U3E0\HG...` route where the selected profile supports
 CPU-buffer access.
