@@ -54,7 +54,7 @@
 //!
 //!     let snapshot = read_named(
 //!         &client,
-//!         &["D100:U".into(), "X100:BIT".into(), "D50.3".into(), "LTN10:D".into()],
+//!         &["D100:U".into(), "X100:BIT".into(), "D50.3".into()],
 //!     )
 //!     .await?;
 //!     println!("{snapshot:?}");
@@ -74,14 +74,16 @@
 //! - Bit values in named helpers: `M100:BIT`, `X20:BIT`, `Y20:BIT`, `B10:BIT`
 //! - Typed suffixes: `D200:F`, `D300:D`, `D400:L`
 //! - Bit-in-word form: `D50.3`
-//! - Long current values: `LTN10:D`, `LSTN20:D`, `LCN30:D`
+//! - Long current values through `read_typed`: `LTN10:D`, `LSTN20:D`, `LCN30:D`
 //! - Extended devices: `J1\\W10`, `U3\\G100`, `U3E0\\HG0`
 //!
-//! `.bit` notation is only valid for word devices. Long timer state reads
-//! (`LTS`, `LTC`, `LSTS`, `LSTC`) are decoded through the corresponding
-//! current-value blocks. Long counter state reads (`LCS`, `LCC`) use direct bit
-//! read. `LCN` current values use random dword access in the high-level helpers,
-//! and high-level state writes use random bit write (`0x1402`).
+//! `.bit` notation is only valid for word devices. `read_named` emits one random
+//! read and rejects long-timer entries that require the Direct long-timer route;
+//! use `read_typed` or the explicit long-timer helpers for those entries. Long
+//! timer state reads (`LTS`, `LTC`, `LSTS`, `LSTC`) are decoded through the
+//! corresponding current-value blocks. Long counter state reads (`LCS`, `LCC`)
+//! use direct bit read. `LCN` current values use random dword access in the typed
+//! helper, and high-level state writes use random bit write (`0x1402`).
 //!
 //! # Examples
 //!

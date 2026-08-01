@@ -1,6 +1,7 @@
+use futures_util::StreamExt;
 use plc_comm_slmp::{
     SlmpClient, SlmpCommand, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpPlcProfile, SlmpValue, read_named,
+    SlmpPlcProfile, SlmpValue, poll_named, read_named,
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -235,6 +236,36 @@ async fn read_named_rejects_long_counter_state_direct_bit_fallback() {
     let requests = server.requests().await;
     assert!(error.message.contains("one random-read request"));
     assert!(requests.is_empty());
+}
+
+#[tokio::test]
+async fn read_and_poll_named_reject_long_timer_direct_routes_before_transport() {
+    let rejected = [
+        "LTN10:D",
+        "LSTN10:L",
+        "LTS10:BIT",
+        "LTC10:BIT",
+        "LSTS10:BIT",
+        "LSTC10:BIT",
+    ];
+    for address in rejected {
+        let server = CapturingServer::start(vec![]).await.unwrap();
+        let client = connect_client(server.port, SlmpPlcProfile::IqR).await;
+        let addresses = strings(&["D100:U", address]);
+
+        let error = read_named(&client, &addresses).await.unwrap_err();
+        assert!(error.message.contains("explicit long-timer helper"));
+        assert!(server.requests().await.is_empty());
+
+        let mut stream = Box::pin(poll_named(
+            &client,
+            &addresses,
+            std::time::Duration::from_millis(1),
+        ));
+        let poll_error = stream.next().await.unwrap().unwrap_err();
+        assert!(poll_error.message.contains("explicit long-timer helper"));
+        assert!(server.requests().await.is_empty());
+    }
 }
 
 #[tokio::test]

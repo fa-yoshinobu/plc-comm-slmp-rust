@@ -476,8 +476,6 @@ async fn assert_long_timer_state_reads(
     let device = parse_device_for_client(client, address).await?;
     let (base_device, contact) = long_timer_state_base(device)
         .ok_or_else(|| make_error(format!("{address} is not a long timer state device")))?;
-    let named_address = named_bit_address(address);
-    let named = read_named(client, std::slice::from_ref(&named_address)).await?;
     let typed = read_typed(client, device, "BIT").await?.as_bool()?;
     let block_words = client.read_words_raw(base_device, 4).await?;
     let request_words = request_plain_read_words(client, mode, base_device, 4).await?;
@@ -504,7 +502,6 @@ async fn assert_long_timer_state_reads(
     };
     let observed = [
         ("read_typed", typed),
-        ("read_named", value_from_named_bool(&named, &named_address)?),
         (
             "read_words_raw(4)",
             decode_long_state(&block_words, contact)?,
@@ -523,11 +520,9 @@ async fn assert_long_timer_current_reads(
     client: &SlmpClient,
     mode: SlmpCompatibilityMode,
     address: &str,
-    named_address: &str,
     expected: u32,
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
-    let named = read_named(client, &[named_address.to_string()]).await?;
     let typed = match read_typed(client, device, "D").await? {
         SlmpValue::U32(value) => value,
         other => {
@@ -551,7 +546,6 @@ async fn assert_long_timer_current_reads(
     };
     let observed = [
         ("read_typed", typed),
-        ("read_named", value_from_named_u32(&named, named_address)?),
         ("read_words_raw(4)", decode_long_current(&block_words)?),
         ("request_block(4)", decode_long_current(&request_words)?),
         ("dedicated", dedicated),
@@ -677,11 +671,7 @@ async fn compare_bit_device(
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
     if long_timer_state_base(device).is_some() {
-        let named_address = named_bit_address(address);
-        let original = value_from_named_bool(
-            &read_named(client, std::slice::from_ref(&named_address)).await?,
-            &named_address,
-        )?;
+        let original = read_typed(client, device, "BIT").await?.as_bool()?;
         let result: Result<(), Box<dyn Error>> = async {
             assert_long_timer_state_reads(client, mode, address, original).await?;
             for (writer, value) in [
@@ -810,14 +800,18 @@ async fn compare_dword_device(
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
     if matches!(device.code(), SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN) {
-        let original = value_from_named_u32(
-            &read_named(client, &[named_address.to_string()]).await?,
-            named_address,
-        )?;
+        let original = match read_typed(client, device, "D").await? {
+            SlmpValue::U32(value) => value,
+            other => {
+                return Err(make_error(format!(
+                    "expected U32 for {address}, got {other:?}"
+                )));
+            }
+        };
         let value_a = seeded_u32(address, 0x33);
         let value_b = seeded_u32(address, 0x44);
         let result: Result<(), Box<dyn Error>> = async {
-            assert_long_timer_current_reads(client, mode, address, named_address, original).await?;
+            assert_long_timer_current_reads(client, mode, address, original).await?;
             for (writer, value) in [
                 ("write_random_words:a", value_a),
                 ("write_random_words:b", value_b),
@@ -839,8 +833,7 @@ async fn compare_dword_device(
                         write_named(client, &updates).await?;
                     }
                 }
-                assert_long_timer_current_reads(client, mode, address, named_address, value)
-                    .await?;
+                assert_long_timer_current_reads(client, mode, address, value).await?;
             }
             Ok(())
         }

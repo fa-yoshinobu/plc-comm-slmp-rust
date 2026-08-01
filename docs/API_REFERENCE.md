@@ -48,6 +48,13 @@ direct, extended, random, typed, named, and bit-in-word operations; no numeric
 or string compatibility API is exposed. Packed bit-block words are a distinct
 wire-level input and remain `u16` values.
 
+Semantic unit validation is exact. Bit-unit direct, extended, random, block,
+typed, and named APIs accept only bit devices. Typed/named `BIT` accepts only a
+bit device, while numeric/string dtypes accept only word devices. Explicit
+low-level word APIs may still access a bit device as one packed 16-bit word.
+Word-device bit access uses `.n` or `write_bit_in_word`; no implicit mask,
+read-modify-write, or route fallback is performed.
+
 Extended random APIs use the 008x subcommands. Use `parse_qualified_device`
 or `SlmpQualifiedDeviceAddress` for routed devices such as `U1\G0`,
 `U3E0\HG0`, or `J2\SW10`. Route fields are derived from the qualified address.
@@ -103,7 +110,7 @@ CPU-buffer access.
 | Connection options and profile descriptors | `SlmpConnectionOptions`, `plc_profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
 | Address parsing | `SlmpAddress::parse`, `SlmpAddress::try_parse`, `SlmpAddress::format`, `SlmpAddress::normalize`, `parse_device`, `parse_qualified_device` (all parsing requires `SlmpPlcProfile`) |
 | Typed values | `read_typed`, `write_typed` |
-| Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection) |
+| Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection; Direct long-timer routes are excluded) |
 | Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
 | Bit-in-word write | `write_bit_in_word` (explicit non-atomic RMW; read and write occupy one client FIFO turn) |
 | Traffic counters | `traffic_stats` |
@@ -111,9 +118,12 @@ CPU-buffer access.
 
 One client connection admits ordinary operations in FIFO order and permits one wire transaction at
 a time. Its absolute request deadline spans send, receive, correlation, parse, and payload decode.
-`close` invalidates active and queued work for that exact connection; separate client instances are
-independent. `raw_command` uses the supplied `SlmpCommand` to apply the same conservative
-state-changing outcome classification as semantic APIs.
+`close` invalidates incomplete active and queued work for that exact connection. A complete,
+correlated, protocol-checked, command-decoded success or PLC end code remains definitive even if a
+concurrent `close` or a deadline observed only after decode wins the later transport-state race;
+the affected transport is still retired. Separate client instances are independent.
+`raw_command` uses the supplied `SlmpCommand` to apply the same conservative state-changing outcome
+classification as semantic APIs.
 
 ## Target Module I/O Constants
 

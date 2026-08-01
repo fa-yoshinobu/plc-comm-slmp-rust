@@ -1,4 +1,5 @@
-use crate::address::SlmpAddress;
+use crate::address::{SlmpAddress, ensure_device_supported_for_family};
+use crate::capability_profiles::{self, SlmpProfileFeature, SlmpProfileFeatureState};
 use crate::client::SlmpClient;
 use crate::device_ranges::{
     SlmpDeviceRangeCatalog, SlmpDeviceRangeCategory, SlmpDeviceRangeEntry, SlmpDeviceRangeNotation,
@@ -440,11 +441,9 @@ async fn validate_random_read(
 ) -> Result<String, SlmpError> {
     let word = parse_for_client(client, &options.word_device).await?;
     let dword = parse_for_client(client, &options.dword_device).await?;
-    let lz = parse_for_client(client, &options.lz_device).await?;
-    let random = client.read_random(&[word], &[dword, lz]).await?;
+    let random = client.read_random(&[word], &[dword]).await?;
     let direct_word = client.read_words_raw(word, 1).await?[0];
     let direct_dword = client.read_dwords_raw(dword, 1).await?[0];
-    let typed_lz = expect_u32(read_typed(client, lz, "D").await?)?;
 
     if random.word_values != vec![direct_word] {
         return Err(SlmpError::new(format!(
@@ -452,15 +451,15 @@ async fn validate_random_read(
             random.word_values
         )));
     }
-    if random.dword_values != vec![direct_dword, typed_lz] {
+    if random.dword_values != vec![direct_dword] {
         return Err(SlmpError::new(format!(
-            "random dword mismatch: direct=[{direct_dword}, {typed_lz}] random={:?}",
+            "random dword mismatch: direct=[{direct_dword}] random={:?}",
             random.dword_values
         )));
     }
     Ok(format!(
-        "word={} dword={} lz={}",
-        options.word_device, options.dword_device, options.lz_device
+        "word={} dword={}",
+        options.word_device, options.dword_device
     ))
 }
 
@@ -470,34 +469,29 @@ async fn validate_random_write(
 ) -> Result<String, SlmpError> {
     let word = parse_for_client(client, &options.word_device).await?;
     let dword = parse_for_client(client, &options.dword_device).await?;
-    let lz = parse_for_client(client, &options.lz_device).await?;
     let bit = parse_for_client(client, &options.bit_device).await?;
 
     let original_word = client.read_words_raw(word, 1).await?[0];
     let original_dword = client.read_dwords_raw(dword, 1).await?[0];
-    let original_lz = expect_u32(read_typed(client, lz, "D").await?)?;
     let original_bit = client.read_bits(bit, 1).await?[0];
     let write_word = alternate_u16(original_word, 0x2468);
     let write_dword = alternate_u32(original_dword, 0x1357_2468);
-    let write_lz = alternate_u32(original_lz, 0x2468_1357);
     let write_bit = !original_bit;
 
     let test_result: Result<(), SlmpError> = async {
         client
-            .write_random_words(&[(word, write_word)], &[(dword, write_dword), (lz, write_lz)])
+            .write_random_words(&[(word, write_word)], &[(dword, write_dword)])
             .await?;
         client.write_random_bits(&[(bit, write_bit)]).await?;
         let observed_word = client.read_words_raw(word, 1).await?[0];
         let observed_dword = client.read_dwords_raw(dword, 1).await?[0];
-        let observed_lz = expect_u32(read_typed(client, lz, "D").await?)?;
         let observed_bit = client.read_bits(bit, 1).await?[0];
         if observed_word != write_word
             || observed_dword != write_dword
-            || observed_lz != write_lz
             || observed_bit != write_bit
         {
             return Err(SlmpError::new(format!(
-                "random write mismatch: word {observed_word}/{write_word}, dword {observed_dword}/{write_dword}, lz {observed_lz}/{write_lz}, bit {observed_bit}/{write_bit}"
+                "random write mismatch: word {observed_word}/{write_word}, dword {observed_dword}/{write_dword}, bit {observed_bit}/{write_bit}"
             )));
         }
         Ok(())
@@ -506,21 +500,19 @@ async fn validate_random_write(
 
     let restore_word = client.write_words(word, &[original_word]).await;
     let restore_dword = client.write_dwords(dword, &[original_dword]).await;
-    let restore_lz = client.write_random_words(&[], &[(lz, original_lz)]).await;
     let restore_bit = client.write_bits(bit, &[original_bit]).await;
     finish_with_restore(
         test_result,
         &[
             ("restore random word", restore_word),
             ("restore random dword", restore_dword),
-            ("restore random lz", restore_lz),
             ("restore random bit", restore_bit),
         ],
     )?;
 
     Ok(format!(
-        "word={} dword={} lz={} bit={}",
-        options.word_device, options.dword_device, options.lz_device, options.bit_device
+        "word={} dword={} bit={}",
+        options.word_device, options.dword_device, options.bit_device
     ))
 }
 
@@ -1084,20 +1076,24 @@ fn expected_range_end_code(plc_profile: SlmpPlcProfile) -> u16 {
 }
 
 fn route_capabilities(plc_profile: SlmpPlcProfile) -> RouteCapabilities {
-    match plc_profile {
-        SlmpPlcProfile::QCpu
-        | SlmpPlcProfile::LCpu
-        | SlmpPlcProfile::QnU
-        | SlmpPlcProfile::QnUDV => RouteCapabilities {
-            block: false,
-            random: false,
-            lz: false,
-        },
-        _ => RouteCapabilities {
-            block: true,
-            random: true,
-            lz: true,
-        },
+    let feature_available = |feature| {
+        capability_profiles::profile_feature(plc_profile, feature).is_some_and(|entry| {
+            !matches!(
+                entry.state,
+                SlmpProfileFeatureState::Blocked | SlmpProfileFeatureState::Unverified
+            )
+        })
+    };
+    RouteCapabilities {
+        block: feature_available(SlmpProfileFeature::Block),
+        random: feature_available(SlmpProfileFeature::Random),
+        lz: feature_available(SlmpProfileFeature::Lz32BitPath)
+            && ensure_device_supported_for_family(
+                "LZ",
+                crate::model::SlmpDeviceCode::LZ,
+                plc_profile,
+            )
+            .is_ok(),
     }
 }
 
@@ -1137,4 +1133,63 @@ fn _is_word_like_category(category: SlmpDeviceRangeCategory) -> bool {
             | SlmpDeviceRangeCategory::FileRegister
             | SlmpDeviceRangeCategory::TimerCounter
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ql_unit_and_base_profiles_follow_canonical_route_capabilities() {
+        for profile in [
+            SlmpPlcProfile::QCpuQj71E71100,
+            SlmpPlcProfile::LCpuLj71E71100,
+            SlmpPlcProfile::QnUQj71E71100,
+            SlmpPlcProfile::QnUDVQj71E71100,
+        ] {
+            let actual = route_capabilities(profile);
+            assert!(actual.block, "{profile:?} must run Block validation");
+            assert!(actual.random, "{profile:?} must run Random validation");
+            assert!(!actual.lz, "{profile:?} must skip LZ validation");
+        }
+
+        for profile in [
+            SlmpPlcProfile::QCpu,
+            SlmpPlcProfile::LCpu,
+            SlmpPlcProfile::QnU,
+            SlmpPlcProfile::QnUDV,
+        ] {
+            let actual = route_capabilities(profile);
+            assert!(!actual.block, "{profile:?} must skip Block validation");
+            assert!(actual.random, "{profile:?} must run Random validation");
+            assert!(!actual.lz, "{profile:?} must skip LZ validation");
+        }
+    }
+
+    #[test]
+    fn every_profile_route_capability_matches_canonical_feature_and_address_rules() {
+        for profile in SlmpPlcProfile::ALL {
+            let actual = route_capabilities(profile);
+            let available = |feature| {
+                capability_profiles::profile_feature(profile, feature).is_some_and(|entry| {
+                    !matches!(
+                        entry.state,
+                        SlmpProfileFeatureState::Blocked | SlmpProfileFeatureState::Unverified
+                    )
+                })
+            };
+            assert_eq!(actual.block, available(SlmpProfileFeature::Block));
+            assert_eq!(actual.random, available(SlmpProfileFeature::Random));
+            assert_eq!(
+                actual.lz,
+                available(SlmpProfileFeature::Lz32BitPath)
+                    && ensure_device_supported_for_family(
+                        "LZ",
+                        crate::model::SlmpDeviceCode::LZ,
+                        profile,
+                    )
+                    .is_ok()
+            );
+        }
+    }
 }

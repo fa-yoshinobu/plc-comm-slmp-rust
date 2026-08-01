@@ -962,3 +962,176 @@ Self-review disposition:
   target would create a second contract source without new coverage. Exact
   filters keep the repository-owned tests authoritative.
 - Duplicate findings: none. Deferred findings: none.
+
+## GOAL-SLMP-REVIEW-R1-001 — Single-request named reads
+
+Implementation scope: Rust named-read planning and polling, long-timer route
+selection, tests, examples, rustdoc, user documentation, and changelog.
+
+Target contract: `read_named` and every `poll_named` cycle emit exactly one
+canonical Random Read or reject the complete plan before transport. `LTN`,
+`LSTN`, `LTS`, `LTC`, `LSTS`, and `LSTC` entries that require the Direct
+long-timer route use `read_typed` or an explicit long-timer helper and never an
+implicit named-read fallback.
+
+Compatibility impact: contradictory examples and unreachable fallback code are
+removed. A long-timer Direct entry in a named plan deterministically fails with
+zero requests; supported typed and explicit long-timer APIs remain available.
+
+Machine-verifiable acceptance criteria:
+
+1. Representative current and state entries, including a mixed `D100:U` plan,
+   fail before send in both `read_named` and `poll_named`.
+2. No named execution branch can issue a second Direct Read.
+3. Quick Start, examples, guides, rustdoc, and API reference contain no such
+   named-read usage and identify the explicit migration.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, tests, examples, documentation, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required; planning and zero-send behavior are deterministic local properties.
+- [x] Documentation, migration notes, changelog, and API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## GOAL-SLMP-REVIEW-R2-001 — Canonical route-validation capabilities
+
+Implementation scope: Rust route-validation planning, canonical profile lookup,
+generic Random cases, LZ-specific cases, tests, maintainer documentation, and
+changelog.
+
+Target contract: Block, Random, and LZ admission comes from the canonical
+profile and address-family rules. Q/L E71 unit profiles run Block and Random but
+skip LZ; base Q/L profiles run Random without Block; generic Random cases never
+parse or use an inapplicable LZ sample.
+
+Compatibility impact: diagnostic false failures and false skips are corrected.
+Runtime SLMP APIs, profile capabilities, and wire behavior do not change.
+
+Machine-verifiable acceptance criteria:
+
+1. Every selectable profile's effective Block, Random, and LZ decisions match
+   canonical profile state and address-family admission.
+2. All four Q/L E71 profiles run generic Block and Random while skipping LZ.
+3. Base Q/L profiles run Random, skip Block, and skip LZ without parsing LZ.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, tests, examples, documentation, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required; canonical planning is a deterministic local property.
+- [x] Documentation, migration notes, changelog, and API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## GOAL-SLMP-REVIEW-D1-001 — Definitive result precedence
+
+Implementation scope: Rust TCP/UDP response completion, concurrent close state
+transitions, success and PLC-end-code behavior, tests, user and maintainer
+documentation, and changelog.
+
+Target contract: after complete correlation, protocol validation, and
+command-specific result or PLC-end-code decode, that definitive result wins over
+a concurrent close or a local deadline observed only after decode. The local
+condition still promptly retires the transport. Before definitive completion,
+close and timeout classification take precedence over a malformed payload or
+command-decode failure; incomplete reads return `Closed`/`Timeout`, possibly
+transmitted incomplete writes return the corresponding `OutcomeUnknown`, and
+queued retired-generation calls send nothing.
+
+Compatibility impact: a narrow close/deadline race now returns the
+already-established success or PLC error instead of replacing it with a local
+lifecycle result. Conversely, an incomplete malformed/decode failure now keeps
+an already-observed close or timeout classification. Reconnect behavior is
+unchanged.
+
+Machine-verifiable acceptance criteria:
+
+1. Deterministic TCP and UDP races preserve decoded success and PLC end code for
+   representative reads and writes across concurrent close and post-decode
+   deadline observation.
+2. Close or timeout before definitive completion retains
+   closed/timeout/outcome-unknown behavior, including malformed payload and
+   command-decode failures.
+3. The preserved result does not restore a retired transport or admit queued
+   work from the retired generation.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, tests, examples, documentation, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required; lifecycle races use deterministic local transports.
+- [x] Documentation, migration notes, changelog, and API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+Final audit disposition (2026-08-01): accepted and corrected a
+deadline-boundary coverage gap. A deterministic unit test now proves that a
+command-decode error with an already-expired local deadline returns `Timeout`,
+retires the transport, and clears the pending decode state. After adding that
+test, the current-worktree source-archive gate reran the complete local gate,
+including all 71 library unit tests, integration and documentation tests, the
+Node binding, the 38-file generated crate, and its isolated consumer. Canonical
+profile drift, no-auto-publish policy, and `git diff --check` passed on the
+final source state.
+
+## GOAL-SLMP-REVIEW-N1-001 — Exact semantic device units
+
+Implementation scope: Rust Direct, Extended Device, Random bit-write, Block
+bit-entry, typed/named helpers, canonical device metadata, tests, user and
+maintainer documentation, and changelog.
+
+Target contract: every semantic bit-unit or bit-entry API accepts only a bit
+device. Typed/named `BIT` accepts only bit devices and numeric/string dtypes
+accept only word devices. Explicit low-level word APIs retain packed 16-bit
+access to bit devices. A word-device bit uses `.n` or `write_bit_in_word`; no
+invalid semantic call is translated into masking, RMW, another route, or retry.
+
+Compatibility impact: previously emitted invalid word-device bit-unit calls and
+numeric typed access to bit devices now fail locally. Explicit packed-word and
+bit-in-word operations remain supported.
+
+Machine-verifiable acceptance criteria:
+
+1. Direct, extended, random-write, block-bit, typed, and named wrong-unit calls
+   reject before request counters or transport.
+2. Qualified `G/HG` bit access rejects while valid bit-device routes remain.
+3. An explicit low-level word read of a bit device still emits word-unit access.
+4. Tests and documentation distinguish bit-device bits, packed bit-device
+   words, and word-device bit-in-word access.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, tests, examples, documentation, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required; device classification and zero-send behavior are deterministic local properties.
+- [x] Documentation, migration notes, changelog, and API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## 2026-08-01 review-item self-review disposition
+
+| Finding | Disposition | Resolution |
+| --- | --- | --- |
+| RUST-REVIEW-20260801-01 | Accepted | Removed two remaining runtime error messages that still directed Direct long-family callers to `read_named`; all such guidance now names `read_typed` or an explicit long helper. |
+| RUST-REVIEW-20260801-02 | Accepted | Initial unit coverage proved only the final command-decode helper. Added deterministic TCP and UDP barriers for decoded reads, acknowledged writes, PLC end codes, and close-before-decode behavior. |
+| RUST-REVIEW-20260801-03 | Accepted | Initial unit validation covered bit blocks only. Added the approved inverse word-block/device check and zero-send tests for both wrong directions. |
+| RUST-REVIEW-20260801-04 | Accepted | Replaced two independent bit/word device lists with one exhaustive `SlmpDeviceUnit` classifier used by both public predicates. |
+| RUST-REVIEW-20260801-05 | Accepted | The first source-archive command used its default committed `HEAD`, so it was rejected as evidence for this dirty worktree. The final gate explicitly used `-Worktree` and passed on the synthetic tree containing all current changes. |
+| RUST-REVIEW-20260801-06 | Rejected | Restoring a post-decode close override would contradict definitive-result precedence and could encourage retry after an acknowledged write; the transport is retired while the established result is preserved. |
+| RUST-REVIEW-20260801-07 | Duplicate | Existing FIFO/close tests already prove queued retired-generation work sends nothing and incomplete transmitted writes remain `OutcomeUnknown`/`Closed`; retained them in the final full gate. |
+| RUST-REVIEW-20260801-08 | Deferred | Live PLC verification is not required for deterministic planning, canonical local capability selection, unit classification, or lifecycle barriers. No live communication was performed. |
+| RUST-REVIEW-20260801-09 | Accepted | Non-definitive malformed payload and command-decode failures could retain malformed classification after concurrent close. TCP and UDP now apply close/timeout classification before returning an unconfirmed decode failure, with deterministic read and unexpected-write-payload races. |
+| RUST-REVIEW-20260801-10 | Accepted | A deadline checked after successful command decoding or framed PLC-error construction could overwrite that definitive result. Deadline checks now bracket the non-definitive decode phase while an established success or PLC end code remains definitive and retires the expired transport; unit and TCP/UDP deadline barriers cover both result forms. |
+
+Final verification evidence for the reviewed worktree:
+
+- `cargo fmt --all -- --check`, Clippy with all targets/features and warnings denied,
+  all-target/all-feature tests, rustdoc with warnings denied, and the no-auto-publish
+  guard passed.
+- The generated crate check produced a 39-file crate, compiled all 13 packaged
+  examples and rustdoc, and compiled an isolated consumer from only the extracted
+  package.
+- `scripts/check_source_archive.ps1 -Worktree` created the synthetic current-tree
+  archive, reran the complete local gate including the Node binding, generated the
+  38-file no-checkout crate expected inside a Git archive, and passed its isolated
+  consumer check.
+- `git diff --check` passed. No live PLC communication, commit, push, release, or
+  registry publication was performed.

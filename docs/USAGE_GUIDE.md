@@ -248,6 +248,12 @@ inspect `outcome_unknown_reason` for the structured cause. Do not automatically 
 command. A nonzero PLC end code remains the definitive `PlcEndCode` result and does not by itself
 retire a fully correlated connection.
 
+Once the complete response has been correlated, protocol-checked, and decoded, that definitive
+success or PLC end code wins over a concurrent `close` or a deadline observed only after decode.
+The transport is still retired when either local condition occurred. A close that arrives before
+definitive decode still returns `Closed` for a read or `OutcomeUnknown`/`Closed` for a transmitted
+state-changing command; an unfinished decode may likewise retain timeout classification.
+
 Dropping a Rust future (including an outer `tokio::time::timeout`) cannot deliver a library
 `Result`; it retires an in-flight transport. If the dropped command was state-changing, the caller
 must treat its outcome as unknown and must not resend it automatically.
@@ -379,10 +385,11 @@ post-send interruption of its write reports `OutcomeUnknown`. Do not retry it au
 Clones of one `SlmpClient` share one FIFO admission queue and allow at most one wire transaction at
 a time. Arguments are fixed for the queued call; cancelling a waiting Rust future removes that
 waiter without sending and without delaying later waiters. Calling `close` invalidates the exact
-client connection generation immediately: an active read returns `Closed`, an active transmitted
-state-changing command returns `OutcomeUnknown` with reason `Closed`, and queued calls return
-`Closed` without sending. Separate `SlmpClient` instances have independent queues and can progress
-concurrently.
+client connection generation immediately. An active incomplete read returns `Closed`, an active
+incomplete transmitted state-changing command returns `OutcomeUnknown` with reason `Closed`, and
+queued calls return `Closed` without sending. A fully correlated and decoded response remains the
+definitive result even if `close` wins the later transport-state race. Separate `SlmpClient`
+instances have independent queues and can progress concurrently.
 
 ## Single-request range reads
 
@@ -517,7 +524,7 @@ SLMP_PORT=1025 \
 SLMP_TRANSPORT=tcp \
 SLMP_TARGET=SELF \
 SLMP_PLC_PROFILE=melsec:iq-f \
-SLMP_NAMED_ADDRESSES='D100:U,D200:F,D50.3,LTN10:D,LTS10:BIT' \
+SLMP_NAMED_ADDRESSES='D100:U,D200:F,D50.3,M100:BIT' \
 cargo run --example named_helpers
 ```
 
@@ -576,11 +583,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Long device families
 
-`LTN`, `LSTN`, `LCN`, and `LZ` are 32-bit families. Always use `:D` or `:L` suffixes in named addresses.
+`LTN`, `LSTN`, `LCN`, and `LZ` are 32-bit families. Use `read_typed` with `D` or `L` for one scalar
+value. `LTN` and `LSTN` use the Direct long-timer route and therefore cannot be included in
+`read_named` or `poll_named`, whose contract is exactly one Random Read request.
 
 ```rust
 use plc_comm_slmp::{
-    read_named, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
+    read_typed, SlmpAddress, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
 };
 
 #[tokio::main]
@@ -588,19 +597,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = SlmpConnectionOptions::new("192.168.250.100", 1025, plc_comm_slmp::SlmpTransportMode::Tcp, plc_comm_slmp::SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 
     let client = SlmpClient::connect(options).await?;
-    let addresses = vec![
-        "LCN30:D".to_string(),
-        "LZ0:D".to_string(),
-    ];
-    let snapshot = read_named(&client, &addresses).await?;
-    println!("{:?}", snapshot);
+    let timer = read_typed(
+        &client,
+        SlmpAddress::parse("LTN10", SlmpPlcProfile::IqR)?,
+        "D",
+    ).await?;
+    let counter = read_typed(
+        &client,
+        SlmpAddress::parse("LCN30", SlmpPlcProfile::IqR)?,
+        "D",
+    ).await?;
+    println!("timer={timer:?}, counter={counter:?}");
     client.close().await?;
 
     Ok(())
 }
 ```
 
-> **Caution:** Plain word access to LTN/LSTN/LCN/LZ is rejected by the guarded low-level routes. Use helper APIs with `:D` or `:L`.
+> **Caution:** Plain word access to LTN/LSTN/LCN/LZ is rejected by guarded semantic routes. Use
+> `read_typed`/`write_typed` with `D` or `L`, or an explicit long-device helper. Low-level explicit
+> packed-word APIs remain separate wire-level operations.
 
 ## Address reference table
 
@@ -614,7 +630,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `:BIT` | `M100:BIT` | Boolean bit device value. |
 | `.n` | `D50.3` | Bit `n` inside a word, where `n` is `0` through `F`. |
 
-Named addresses used with `read_named`, `write_named`, and `poll_named` must include the intended type, for example `D100:U` or `M100:BIT`.
+Named addresses used with `read_named`, `write_named`, and `poll_named` must include the intended
+type, for example `D100:U` or `M100:BIT`. `BIT` is valid only for bit devices; numeric/string dtypes
+are valid only for word devices. A word-device bit is written explicitly with `.n` or
+`write_bit_in_word`; no helper performs an implicit mask, read-modify-write, or fallback.
 ## Request payload limits
 
 One SLMP request can carry at most 65,529 command-payload bytes over TCP. UDP must also fit one

@@ -445,6 +445,12 @@ pub enum SlmpDeviceCode {
     HG = 0x002E,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SlmpDeviceUnit {
+    Bit,
+    Word,
+}
+
 impl SlmpDeviceCode {
     pub fn as_u16(self) -> u16 {
         self as u16
@@ -508,56 +514,57 @@ impl SlmpDeviceCode {
     }
 
     pub fn is_bit_device(self) -> bool {
-        matches!(
-            self,
-            Self::SM
-                | Self::X
-                | Self::Y
-                | Self::M
-                | Self::L
-                | Self::F
-                | Self::V
-                | Self::B
-                | Self::S
-                | Self::TS
-                | Self::TC
-                | Self::LTS
-                | Self::LTC
-                | Self::STS
-                | Self::STC
-                | Self::LSTS
-                | Self::LSTC
-                | Self::CS
-                | Self::CC
-                | Self::LCS
-                | Self::LCC
-                | Self::SB
-                | Self::DX
-                | Self::DY
-        )
+        matches!(self.device_unit(), SlmpDeviceUnit::Bit)
     }
 
     pub fn is_word_device(self) -> bool {
-        matches!(
-            self,
+        matches!(self.device_unit(), SlmpDeviceUnit::Word)
+    }
+
+    fn device_unit(self) -> SlmpDeviceUnit {
+        match self {
+            Self::SM
+            | Self::X
+            | Self::Y
+            | Self::M
+            | Self::L
+            | Self::F
+            | Self::V
+            | Self::B
+            | Self::S
+            | Self::TS
+            | Self::TC
+            | Self::LTS
+            | Self::LTC
+            | Self::STS
+            | Self::STC
+            | Self::LSTS
+            | Self::LSTC
+            | Self::CS
+            | Self::CC
+            | Self::LCS
+            | Self::LCC
+            | Self::SB
+            | Self::DX
+            | Self::DY => SlmpDeviceUnit::Bit,
             Self::SD
-                | Self::D
-                | Self::W
-                | Self::TN
-                | Self::LTN
-                | Self::STN
-                | Self::LSTN
-                | Self::CN
-                | Self::LCN
-                | Self::SW
-                | Self::Z
-                | Self::LZ
-                | Self::R
-                | Self::ZR
-                | Self::RD
-                | Self::G
-                | Self::HG
-        )
+            | Self::D
+            | Self::W
+            | Self::TN
+            | Self::LTN
+            | Self::STN
+            | Self::LSTN
+            | Self::CN
+            | Self::LCN
+            | Self::SW
+            | Self::Z
+            | Self::LZ
+            | Self::R
+            | Self::ZR
+            | Self::RD
+            | Self::G
+            | Self::HG => SlmpDeviceUnit::Word,
+        }
     }
 
     pub fn is_word_batchable(self) -> bool {

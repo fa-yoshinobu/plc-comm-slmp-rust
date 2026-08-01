@@ -59,6 +59,10 @@ struct ClientInner {
     traffic_stats: SlmpTrafficStats,
     close_rx: watch::Receiver<bool>,
     response_decode_deadline: Option<Instant>,
+    #[cfg(test)]
+    response_parsed_test_barrier: Option<Arc<std::sync::Barrier>>,
+    #[cfg(test)]
+    command_decoded_test_barrier: Option<Arc<std::sync::Barrier>>,
 }
 
 impl SlmpClient {
@@ -103,6 +107,10 @@ impl SlmpClient {
                 traffic_stats: SlmpTrafficStats::default(),
                 close_rx,
                 response_decode_deadline: None,
+                #[cfg(test)]
+                response_parsed_test_barrier: None,
+                #[cfg(test)]
+                command_decoded_test_barrier: None,
             })),
             close_tx,
         };
@@ -1383,12 +1391,7 @@ impl ClientInner {
         )?;
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
-        if !matches!(
-            device.device().code(),
-            SlmpDeviceCode::G | SlmpDeviceCode::HG
-        ) {
-            rules::validate_direct_bit_read(device.device())?;
-        }
+        rules::validate_direct_bit_read(device.device())?;
         let payload =
             self.build_read_write_payload_extended(device.device(), points, None, extension, true);
         let sub = if extension.direct_memory_specification == 0xF9
@@ -1422,12 +1425,7 @@ impl ClientInner {
         )?;
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
-        if !matches!(
-            device.device().code(),
-            SlmpDeviceCode::G | SlmpDeviceCode::HG
-        ) {
-            rules::validate_direct_bit_write(device.device(), self.options.plc_profile)?;
-        }
+        rules::validate_direct_bit_write(device.device(), self.options.plc_profile)?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload = self.build_read_write_payload_extended(
             device.device(),
@@ -2914,7 +2912,6 @@ impl ClientInner {
                     drop(stream);
                     return Ok(Vec::new());
                 }
-                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
                 Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE).map_err(
                     |error| {
                         Self::classify_exchange_error(
@@ -2926,20 +2923,33 @@ impl ClientInner {
                         )
                     },
                 )?;
-                if *close_rx.borrow() {
-                    drop(stream);
-                    return Err(Self::classify_exchange_error(
-                        SlmpError::closed("SLMP client was closed during response decoding"),
-                        state_changing,
-                        true,
-                        command,
-                        subcommand,
-                    ));
-                }
+                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
+                #[cfg(test)]
+                Self::wait_at_test_barrier(&self.response_parsed_test_barrier);
                 match parsed {
                     Ok(payload) => {
                         if state_changing && !payload.is_empty() {
                             drop(stream);
+                            if Instant::now() >= deadline {
+                                return Err(Self::classify_exchange_error(
+                                    SlmpError::timeout("response decoding timed out"),
+                                    true,
+                                    true,
+                                    command,
+                                    subcommand,
+                                ));
+                            }
+                            if *close_rx.borrow() {
+                                return Err(Self::classify_exchange_error(
+                                    SlmpError::closed(
+                                        "SLMP client was closed before definitive response completion",
+                                    ),
+                                    true,
+                                    true,
+                                    command,
+                                    subcommand,
+                                ));
+                            }
                             return Err(SlmpError::outcome_unknown(
                                 SlmpOutcomeUnknownReason::MalformedResponse,
                                 SlmpError::malformed_with_context(
@@ -2952,17 +2962,51 @@ impl ClientInner {
                             ));
                         }
                         if !state_changing {
+                            if *close_rx.borrow() {
+                                drop(stream);
+                                return Err(SlmpError::closed(
+                                    "SLMP client was closed before command response decoding",
+                                ));
+                            }
                             self.response_decode_deadline = Some(deadline);
                         }
-                        self.transport = Transport::Tcp(stream);
+                        if *close_rx.borrow() || (state_changing && Instant::now() >= deadline) {
+                            drop(stream);
+                        } else {
+                            self.transport = Transport::Tcp(stream);
+                        }
                         Ok(payload)
                     }
                     Err(error) if matches!(error.kind, SlmpErrorKind::PlcEndCode) => {
-                        self.transport = Transport::Tcp(stream);
+                        if *close_rx.borrow() || Instant::now() >= deadline {
+                            drop(stream);
+                        } else {
+                            self.transport = Transport::Tcp(stream);
+                        }
                         Err(error)
                     }
                     Err(error) => {
                         drop(stream);
+                        if Instant::now() >= deadline {
+                            return Err(Self::classify_exchange_error(
+                                SlmpError::timeout("response decoding timed out"),
+                                state_changing,
+                                true,
+                                command,
+                                subcommand,
+                            ));
+                        }
+                        if *close_rx.borrow() {
+                            return Err(Self::classify_exchange_error(
+                                SlmpError::closed(
+                                    "SLMP client was closed before definitive response completion",
+                                ),
+                                state_changing,
+                                true,
+                                command,
+                                subcommand,
+                            ));
+                        }
                         Err(Self::classify_exchange_error(
                             error,
                             state_changing,
@@ -3037,7 +3081,6 @@ impl ClientInner {
                 if !expect_response {
                     return Ok(Vec::new());
                 }
-                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
                 Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE).map_err(
                     |error| {
                         Self::classify_exchange_error(
@@ -3049,20 +3092,33 @@ impl ClientInner {
                         )
                     },
                 )?;
-                if *close_rx.borrow() {
-                    drop(socket);
-                    return Err(Self::classify_exchange_error(
-                        SlmpError::closed("SLMP client was closed during response decoding"),
-                        state_changing,
-                        true,
-                        command,
-                        subcommand,
-                    ));
-                }
+                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
+                #[cfg(test)]
+                Self::wait_at_test_barrier(&self.response_parsed_test_barrier);
                 match parsed {
                     Ok(payload) => {
                         if state_changing && !payload.is_empty() {
                             drop(socket);
+                            if Instant::now() >= deadline {
+                                return Err(Self::classify_exchange_error(
+                                    SlmpError::timeout("response decoding timed out"),
+                                    true,
+                                    true,
+                                    command,
+                                    subcommand,
+                                ));
+                            }
+                            if *close_rx.borrow() {
+                                return Err(Self::classify_exchange_error(
+                                    SlmpError::closed(
+                                        "SLMP client was closed before definitive response completion",
+                                    ),
+                                    true,
+                                    true,
+                                    command,
+                                    subcommand,
+                                ));
+                            }
                             return Err(SlmpError::outcome_unknown(
                                 SlmpOutcomeUnknownReason::MalformedResponse,
                                 SlmpError::malformed_with_context(
@@ -3075,17 +3131,51 @@ impl ClientInner {
                             ));
                         }
                         if !state_changing {
+                            if *close_rx.borrow() {
+                                drop(socket);
+                                return Err(SlmpError::closed(
+                                    "SLMP client was closed before command response decoding",
+                                ));
+                            }
                             self.response_decode_deadline = Some(deadline);
                         }
-                        self.transport = Transport::Udp(socket);
+                        if *close_rx.borrow() || (state_changing && Instant::now() >= deadline) {
+                            drop(socket);
+                        } else {
+                            self.transport = Transport::Udp(socket);
+                        }
                         Ok(payload)
                     }
                     Err(error) if matches!(error.kind, SlmpErrorKind::PlcEndCode) => {
-                        self.transport = Transport::Udp(socket);
+                        if *close_rx.borrow() || Instant::now() >= deadline {
+                            drop(socket);
+                        } else {
+                            self.transport = Transport::Udp(socket);
+                        }
                         Err(error)
                     }
                     Err(error) => {
                         drop(socket);
+                        if Instant::now() >= deadline {
+                            return Err(Self::classify_exchange_error(
+                                SlmpError::timeout("response decoding timed out"),
+                                state_changing,
+                                true,
+                                command,
+                                subcommand,
+                            ));
+                        }
+                        if *close_rx.borrow() {
+                            return Err(Self::classify_exchange_error(
+                                SlmpError::closed(
+                                    "SLMP client was closed before definitive response completion",
+                                ),
+                                state_changing,
+                                true,
+                                command,
+                                subcommand,
+                            ));
+                        }
                         Err(Self::classify_exchange_error(
                             error,
                             state_changing,
@@ -3110,6 +3200,14 @@ impl ClientInner {
             if close_rx.changed().await.is_err() {
                 std::future::pending::<()>().await;
             }
+        }
+    }
+
+    #[cfg(test)]
+    fn wait_at_test_barrier(barrier: &Option<Arc<std::sync::Barrier>>) {
+        if let Some(barrier) = barrier {
+            barrier.wait();
+            barrier.wait();
         }
     }
 
@@ -3154,20 +3252,25 @@ impl ClientInner {
                 subcommand,
             )
         })?;
-        if *self.close_rx.borrow() {
-            self.transport = Transport::Closed;
-            return Err(SlmpError::closed(
-                "SLMP client was closed during response decoding",
-            ));
-        }
-        if Instant::now() >= deadline {
-            self.transport = Transport::Closed;
-            return Err(SlmpError::timeout("response decoding timed out"));
-        }
+        #[cfg(test)]
+        Self::wait_at_test_barrier(&self.command_decoded_test_barrier);
         match result {
-            Ok(value) => Ok(value),
+            Ok(value) => {
+                if *self.close_rx.borrow() || Instant::now() >= deadline {
+                    self.transport = Transport::Closed;
+                }
+                Ok(value)
+            }
             Err(error) => {
                 self.transport = Transport::Closed;
+                if Instant::now() >= deadline {
+                    return Err(SlmpError::timeout("response decoding timed out"));
+                }
+                if *self.close_rx.borrow() {
+                    return Err(SlmpError::closed(
+                        "SLMP client was closed before command response decoding completed",
+                    ));
+                }
                 Err(Self::as_malformed_response(error, command, subcommand))
             }
         }
@@ -3273,7 +3376,7 @@ impl ClientInner {
             };
             if code == SlmpDeviceCode::LCS.as_u16() || code == SlmpDeviceCode::LCC.as_u16() {
                 return Err(SlmpError::new(
-                    "Entry Monitor Device (0x0801) does not support LCS/LCC. Poll them through read_typed/read_named instead.",
+                    "Entry Monitor Device (0x0801) does not support LCS/LCC. Poll them through read_typed instead.",
                 ));
             }
             if code == SlmpDeviceCode::G.as_u16() || code == SlmpDeviceCode::HG.as_u16() {
@@ -3786,6 +3889,7 @@ pub fn encode_raw_device_spec(
 mod tests {
     use super::*;
     use crate::model::SlmpModuleIo;
+    use std::sync::Barrier;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tokio::net::TcpListener;
 
@@ -3809,6 +3913,382 @@ mod tests {
             traffic_stats: SlmpTrafficStats::default(),
             close_rx,
             response_decode_deadline: None,
+            response_parsed_test_barrier: None,
+            command_decoded_test_barrier: None,
+        }
+    }
+
+    fn response_3e(request: &[u8], end_code: u16, payload: &[u8]) -> Vec<u8> {
+        assert!(request.len() >= 9);
+        assert_eq!(&request[0..2], &[0x50, 0x00]);
+        let data_length = u16::try_from(2 + payload.len()).unwrap();
+        let mut response = vec![
+            0xD0, 0x00, request[2], request[3], request[4], request[5], request[6],
+        ];
+        response.extend_from_slice(&data_length.to_le_bytes());
+        response.extend_from_slice(&end_code.to_le_bytes());
+        response.extend_from_slice(payload);
+        response
+    }
+
+    async fn client_with_one_response(
+        transport_mode: SlmpTransportMode,
+        end_code: u16,
+        payload: Vec<u8>,
+    ) -> (SlmpClient, tokio::task::JoinHandle<()>) {
+        let (port, server) = match transport_mode {
+            SlmpTransportMode::Tcp => {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let port = listener.local_addr().unwrap().port();
+                let server = tokio::spawn(async move {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let mut header = [0u8; 9];
+                    stream.read_exact(&mut header).await.unwrap();
+                    let body_length = u16::from_le_bytes([header[7], header[8]]) as usize;
+                    let mut request = Vec::from(header);
+                    request.resize(9 + body_length, 0);
+                    stream.read_exact(&mut request[9..]).await.unwrap();
+                    let response = response_3e(&request, end_code, &payload);
+                    stream.write_all(&response).await.unwrap();
+                });
+                (port, server)
+            }
+            SlmpTransportMode::Udp => {
+                let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+                let port = socket.local_addr().unwrap().port();
+                let server = tokio::spawn(async move {
+                    let mut request = vec![0u8; 65_535];
+                    let (length, peer) = socket.recv_from(&mut request).await.unwrap();
+                    request.truncate(length);
+                    let response = response_3e(&request, end_code, &payload);
+                    socket.send_to(&response, peer).await.unwrap();
+                });
+                (port, server)
+            }
+        };
+        let mut options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            port,
+            transport_mode,
+            SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        options.frame_type = SlmpFrameType::Frame3E;
+        (SlmpClient::connect(options).await.unwrap(), server)
+    }
+
+    fn close_at_barrier(client: SlmpClient, barrier: Arc<Barrier>) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            barrier.wait();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            runtime.block_on(client.close()).unwrap();
+            barrier.wait();
+        })
+    }
+
+    fn delay_at_barrier(
+        barrier: Arc<Barrier>,
+        duration: std::time::Duration,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            barrier.wait();
+            std::thread::sleep(duration);
+            barrier.wait();
+        })
+    }
+
+    async fn assert_closed_after_definitive_result(client: &SlmpClient) {
+        let error = client
+            .read_words_raw(
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 101, SlmpPlcProfile::IqR),
+                1,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind, SlmpErrorKind::Closed);
+        assert_eq!(client.traffic_stats().await.request_count, 1);
+    }
+
+    #[tokio::test]
+    async fn definitive_command_decode_result_survives_concurrent_close() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        let (close_tx, close_rx) = watch::channel(false);
+        inner.close_rx = close_rx;
+        inner.response_decode_deadline = Some(Instant::now() + std::time::Duration::from_secs(1));
+        close_tx.send_replace(true);
+
+        let value = inner
+            .finish_response_decode(
+                SlmpCommand::DeviceRead,
+                inner.word_subcommand(false),
+                Ok::<u16, SlmpError>(0x1234),
+            )
+            .unwrap();
+
+        assert_eq!(value, 0x1234);
+        assert!(matches!(inner.transport, Transport::Closed));
+        assert!(inner.response_decode_deadline.is_none());
+    }
+
+    #[tokio::test]
+    async fn definitive_command_decode_result_survives_expired_local_deadline() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        inner.response_decode_deadline = Some(Instant::now());
+
+        let value = inner
+            .finish_response_decode(
+                SlmpCommand::DeviceRead,
+                inner.word_subcommand(false),
+                Ok::<u16, SlmpError>(0x5678),
+            )
+            .unwrap();
+
+        assert_eq!(value, 0x5678);
+        assert!(matches!(inner.transport, Transport::Closed));
+        assert!(inner.response_decode_deadline.is_none());
+    }
+
+    #[tokio::test]
+    async fn incomplete_command_decode_error_observes_concurrent_close() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        let (close_tx, close_rx) = watch::channel(false);
+        inner.close_rx = close_rx;
+        inner.response_decode_deadline = Some(Instant::now() + std::time::Duration::from_secs(1));
+        close_tx.send_replace(true);
+
+        let error = inner
+            .finish_response_decode::<u16>(
+                SlmpCommand::DeviceRead,
+                inner.word_subcommand(false),
+                Err(SlmpError::new("payload decode failed")),
+            )
+            .unwrap_err();
+
+        assert_eq!(error.kind, SlmpErrorKind::Closed);
+        assert!(matches!(inner.transport, Transport::Closed));
+        assert!(inner.response_decode_deadline.is_none());
+    }
+
+    #[tokio::test]
+    async fn incomplete_command_decode_error_observes_expired_local_deadline() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        inner.response_decode_deadline = Some(Instant::now());
+
+        let error = inner
+            .finish_response_decode::<u16>(
+                SlmpCommand::DeviceRead,
+                inner.word_subcommand(false),
+                Err(SlmpError::new("payload decode failed")),
+            )
+            .unwrap_err();
+
+        assert_eq!(error.kind, SlmpErrorKind::Timeout);
+        assert!(matches!(inner.transport, Transport::Closed));
+        assert!(inner.response_decode_deadline.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_decoded_read_results_survive_concurrent_close() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) =
+                client_with_one_response(transport_mode, 0, 0x1234u16.to_le_bytes().to_vec()).await;
+            let barrier = Arc::new(Barrier::new(2));
+            client.inner.lock().await.command_decoded_test_barrier = Some(Arc::clone(&barrier));
+            let close = close_at_barrier(client.clone(), barrier);
+
+            let values = client
+                .read_words_raw(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    1,
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(values, vec![0x1234]);
+            close.join().unwrap();
+            server.await.unwrap();
+            assert_closed_after_definitive_result(&client).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_close_before_command_decode_remains_closed() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) =
+                client_with_one_response(transport_mode, 0, 0x1234u16.to_le_bytes().to_vec()).await;
+            let barrier = Arc::new(Barrier::new(2));
+            client.inner.lock().await.response_parsed_test_barrier = Some(Arc::clone(&barrier));
+            let close = close_at_barrier(client.clone(), barrier);
+
+            let error = client
+                .read_words_raw(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    1,
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.kind, SlmpErrorKind::Closed);
+            close.join().unwrap();
+            server.await.unwrap();
+            assert_eq!(client.traffic_stats().await.request_count, 1);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_command_decode_failures_observe_concurrent_close() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) = client_with_one_response(transport_mode, 0, Vec::new()).await;
+            let barrier = Arc::new(Barrier::new(2));
+            client.inner.lock().await.command_decoded_test_barrier = Some(Arc::clone(&barrier));
+            let close = close_at_barrier(client.clone(), barrier);
+
+            let error = client
+                .read_words_raw(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    1,
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.kind, SlmpErrorKind::Closed);
+            close.join().unwrap();
+            server.await.unwrap();
+            assert_closed_after_definitive_result(&client).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_acknowledged_writes_survive_concurrent_close() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) = client_with_one_response(transport_mode, 0, Vec::new()).await;
+            let barrier = Arc::new(Barrier::new(2));
+            client.inner.lock().await.response_parsed_test_barrier = Some(Arc::clone(&barrier));
+            let close = close_at_barrier(client.clone(), barrier);
+
+            client
+                .write_words(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    &[0x4321],
+                )
+                .await
+                .unwrap();
+
+            close.join().unwrap();
+            server.await.unwrap();
+            assert_closed_after_definitive_result(&client).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_unexpected_write_payloads_observe_concurrent_close() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) = client_with_one_response(transport_mode, 0, vec![0xAA]).await;
+            let barrier = Arc::new(Barrier::new(2));
+            client.inner.lock().await.response_parsed_test_barrier = Some(Arc::clone(&barrier));
+            let close = close_at_barrier(client.clone(), barrier);
+
+            let error = client
+                .write_words(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    &[0x4321],
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.kind, SlmpErrorKind::OutcomeUnknown);
+            assert_eq!(
+                error.outcome_unknown_reason,
+                Some(SlmpOutcomeUnknownReason::Closed)
+            );
+            close.join().unwrap();
+            server.await.unwrap();
+            assert_closed_after_definitive_result(&client).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_plc_end_codes_survive_concurrent_close() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) =
+                client_with_one_response(transport_mode, 0xC051, Vec::new()).await;
+            let barrier = Arc::new(Barrier::new(2));
+            client.inner.lock().await.response_parsed_test_barrier = Some(Arc::clone(&barrier));
+            let close = close_at_barrier(client.clone(), barrier);
+
+            let error = client
+                .read_words_raw(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    1,
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.kind, SlmpErrorKind::PlcEndCode);
+            assert_eq!(error.end_code, Some(0xC051));
+            close.join().unwrap();
+            server.await.unwrap();
+            assert_closed_after_definitive_result(&client).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_decoded_read_results_survive_deadline_expiry() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) =
+                client_with_one_response(transport_mode, 0, 0x1234u16.to_le_bytes().to_vec()).await;
+            let barrier = Arc::new(Barrier::new(2));
+            {
+                let mut inner = client.inner.lock().await;
+                inner.options.timeout = std::time::Duration::from_secs(1);
+                inner.command_decoded_test_barrier = Some(Arc::clone(&barrier));
+            }
+            let delay = delay_at_barrier(barrier, std::time::Duration::from_millis(1100));
+
+            let values = client
+                .read_words_raw(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    1,
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(values, vec![0x1234]);
+            delay.join().unwrap();
+            server.await.unwrap();
+            assert_closed_after_definitive_result(&client).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tcp_and_udp_plc_end_codes_survive_deadline_expiry_after_decode() {
+        for transport_mode in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+            let (client, server) =
+                client_with_one_response(transport_mode, 0xC051, Vec::new()).await;
+            let barrier = Arc::new(Barrier::new(2));
+            {
+                let mut inner = client.inner.lock().await;
+                inner.options.timeout = std::time::Duration::from_secs(1);
+                inner.response_parsed_test_barrier = Some(Arc::clone(&barrier));
+            }
+            let delay = delay_at_barrier(barrier, std::time::Duration::from_millis(1100));
+
+            let error = client
+                .read_words_raw(
+                    SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                    1,
+                )
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.kind, SlmpErrorKind::PlcEndCode);
+            assert_eq!(error.end_code, Some(0xC051));
+            delay.join().unwrap();
+            server.await.unwrap();
+            assert_closed_after_definitive_result(&client).await;
         }
     }
 

@@ -20,11 +20,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     print_connection_banner("named_helpers")?;
     let client = connect_from_env().await?;
 
-    // Named reads let you collect mixed word, float, bit-in-word, and long-family values.
-    let addresses = env_csv(
-        "SLMP_NAMED_ADDRESSES",
-        "D100:U,D200:F,D50.3,LTN10:D,LTS10:BIT",
-    );
+    // Named reads collect values that fit one random-read request.
+    let addresses = env_csv("SLMP_NAMED_ADDRESSES", "D100:U,D200:F,D50.3,M100:BIT");
     let values = read_named(&client, &addresses).await?;
     print_collection("named typed collection", &values);
 

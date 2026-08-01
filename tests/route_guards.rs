@@ -1296,6 +1296,107 @@ async fn read_named_rejects_explicit_word_dtype_for_lz() {
 }
 
 #[tokio::test]
+async fn semantic_bit_apis_reject_word_devices_and_typed_unit_mismatches_before_transport() {
+    let client = udp_client().await;
+    let word = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
+    let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, SlmpPlcProfile::IqR);
+
+    for error in [
+        client.read_bits(word, 1).await.unwrap_err(),
+        client.write_bits(word, &[true]).await.unwrap_err(),
+        client
+            .read_bits_extended(SlmpQualifiedDeviceAddress::new(word), 1)
+            .await
+            .unwrap_err(),
+        client
+            .write_bits_extended(SlmpQualifiedDeviceAddress::new(word), &[true])
+            .await
+            .unwrap_err(),
+        client.write_random_bits(&[(word, true)]).await.unwrap_err(),
+        client
+            .read_bit_blocks(&[SlmpBlockRead {
+                device: word,
+                points: 1,
+            }])
+            .await
+            .unwrap_err(),
+        client
+            .write_bit_blocks(&[SlmpBlockWrite {
+                device: word,
+                values: vec![1],
+            }])
+            .await
+            .unwrap_err(),
+        client
+            .read_word_blocks(&[SlmpBlockRead {
+                device: bit,
+                points: 1,
+            }])
+            .await
+            .unwrap_err(),
+        client
+            .write_word_blocks(&[SlmpBlockWrite {
+                device: bit,
+                values: vec![1],
+            }])
+            .await
+            .unwrap_err(),
+        read_typed(&client, word, "BIT").await.unwrap_err(),
+        write_typed(&client, word, "BIT", &SlmpValue::Bool(true))
+            .await
+            .unwrap_err(),
+        read_typed(&client, bit, "U").await.unwrap_err(),
+        write_typed(&client, bit, "U", &SlmpValue::U16(1))
+            .await
+            .unwrap_err(),
+    ] {
+        assert!(
+            error.message.contains("bit device") || error.message.contains("word device"),
+            "unexpected error: {error}"
+        );
+    }
+
+    for address in ["D100:BIT", "M100:U"] {
+        let error = read_named(&client, &[address.to_string()])
+            .await
+            .unwrap_err();
+        assert!(
+            error.message.contains("bit device") || error.message.contains("only valid for bit")
+        );
+    }
+
+    let mut word_as_bit = NamedAddress::new();
+    word_as_bit.insert("D100:BIT".to_string(), SlmpValue::Bool(true));
+    assert!(write_named(&client, &word_as_bit).await.is_err());
+    let mut bit_as_word = NamedAddress::new();
+    bit_as_word.insert("M100:U".to_string(), SlmpValue::U16(1));
+    assert!(write_named(&client, &bit_as_word).await.is_err());
+
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn explicit_word_api_retains_packed_word_access_to_bit_devices() {
+    let server = CapturingResponseServer::start(vec![(0, word_payload(&[0x1234]))])
+        .await
+        .unwrap();
+    let mut options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    options.port = server.port;
+    let client = SlmpClient::connect(options).await.unwrap();
+    let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, SlmpPlcProfile::IqR);
+
+    assert_eq!(client.read_words_raw(bit, 1).await.unwrap(), vec![0x1234]);
+    assert_eq!(server.requests().await.len(), 1);
+}
+
+#[tokio::test]
 async fn direct_extended_bit_write_rejects_long_timer_state_devices() {
     let client = udp_client().await;
     let err = client
@@ -1460,46 +1561,27 @@ async fn extended_g_hg_reject_unqualified_device_addresses() {
 }
 
 #[tokio::test]
-async fn qualified_g_hg_extended_bit_routes_reach_transport() {
-    let server = CapturingResponseServer::start(vec![(0, vec![0x10]), (0, Vec::new())])
-        .await
-        .unwrap();
-    let mut options = SlmpConnectionOptions::new(
-        "127.0.0.1",
-        1025,
-        plc_comm_slmp::SlmpTransportMode::Tcp,
-        plc_comm_slmp::SlmpTargetAddress::default(),
-        SlmpPlcProfile::IqR,
-    )
-    .unwrap();
-    options.port = server.port;
-    let client = SlmpClient::connect(options).await.unwrap();
+async fn qualified_g_hg_extended_bit_routes_are_rejected_before_transport() {
+    let client = udp_client().await;
 
-    let values = client
+    let read_error = client
         .read_bits_extended(
             parse_qualified_device(r"U3E0\G10", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap(),
             1,
         )
         .await
-        .unwrap();
-    assert_eq!(values, vec![true]);
+        .unwrap_err();
+    assert!(read_error.message.contains("word-addressable"));
 
-    client
+    let write_error = client
         .write_bits_extended(
             parse_qualified_device(r"U3E0\HG11", plc_comm_slmp::SlmpPlcProfile::IqR).unwrap(),
             &[true],
         )
         .await
-        .unwrap();
-
-    let requests = server.requests().await;
-    assert_eq!(requests.len(), 2);
-    let read_body = &requests[0][13..];
-    assert_eq!(u16::from_le_bytes([read_body[2], read_body[3]]), 0x0401);
-    assert_eq!(u16::from_le_bytes([read_body[4], read_body[5]]), 0x0083);
-    let write_body = &requests[1][13..];
-    assert_eq!(u16::from_le_bytes([write_body[2], write_body[3]]), 0x1401);
-    assert_eq!(u16::from_le_bytes([write_body[4], write_body[5]]), 0x0083);
+        .unwrap_err();
+    assert!(write_error.message.contains("word-addressable"));
+    assert_eq!(client.traffic_stats().await.request_count, 0);
 }
 
 #[tokio::test]

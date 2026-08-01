@@ -343,6 +343,12 @@ fn validate_block_points(points: usize, name: &str) -> Result<usize, SlmpError> 
 }
 
 pub(crate) fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), SlmpError> {
+    if !device.code().is_bit_device() {
+        return Err(SlmpError::new(format!(
+            "Direct bit read requires a bit device; {} is word-addressable. Use an explicit bit-in-word operation for a bit inside a word device.",
+            device.code()
+        )));
+    }
     if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
@@ -352,7 +358,7 @@ pub(crate) fn validate_direct_bit_read(device: SlmpDeviceAddress) -> Result<(), 
     // Do not send direct bit read (0x0401) for these devices.
     if is_long_timer_state_device(device.code()) {
         return Err(SlmpError::new(
-            "Direct bit read is not supported for long timer state devices. Use read_typed/read_named or a 4-word current-value block read.",
+            "Direct bit read is not supported for long timer state devices. Use read_typed or an explicit long-timer helper.",
         ));
     }
     Ok(())
@@ -362,6 +368,12 @@ pub(crate) fn validate_direct_bit_write(
     device: SlmpDeviceAddress,
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
+    if !device.code().is_bit_device() {
+        return Err(SlmpError::new(format!(
+            "Direct bit write requires a bit device; {} is word-addressable. Use an explicit bit-in-word operation for a bit inside a word device.",
+            device.code()
+        )));
+    }
     if is_qualified_only_device(device.code()) {
         return Err(SlmpError::new(
             "Direct device access does not support standalone G/HG. Use U-qualified extended access.",
@@ -374,7 +386,7 @@ pub(crate) fn validate_direct_bit_write(
     // supported write path is write_typed/write_named, which selects 0x1402.
     if requires_random_bit_write(device.code()) {
         return Err(SlmpError::new(
-            "Direct bit write is not supported for long-family state devices. Use write_typed/write_named so random bit write (0x1402) is selected.",
+            "Direct bit write is not supported for long-family state devices. Use write_typed so random bit write (0x1402) is selected.",
         ));
     }
     Ok(())
@@ -432,7 +444,7 @@ pub(crate) fn validate_direct_dword_read(device: SlmpDeviceAddress) -> Result<()
     }
     if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code()) {
         return Err(SlmpError::new(
-            "Direct dword read is not supported for LTN/LSTN/LCN/LZ. Use read_typed/read_named or the supported long-family helper route.",
+            "Direct dword read is not supported for LTN/LSTN/LCN/LZ. Use read_typed or the supported long-family helper route.",
         ));
     }
     Ok(())
@@ -474,13 +486,13 @@ pub(crate) fn validate_random_read_devices(
         // not readable by Read Random (0x0403); use status-block reads.
         if is_long_timer_state_device(device.code()) {
             return Err(SlmpError::new(format!(
-                "{command_label} does not support LTS/LTC/LSTS/LSTC. Use read_typed/read_named or a 4-word current-value block read."
+                "{command_label} does not support LTS/LTC/LSTS/LSTC. Use read_typed or an explicit long-timer helper."
             )));
         }
 
         if matches!(device.code(), SlmpDeviceCode::LCS | SlmpDeviceCode::LCC) {
             return Err(SlmpError::new(format!(
-                "{command_label} does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected."
+                "{command_label} does not support LCS/LCC. Use read_typed so direct bit read is selected."
             )));
         }
     }
@@ -488,7 +500,7 @@ pub(crate) fn validate_random_read_devices(
         if is_long_current_value_device(device.code()) || is_dword_only_scalar_device(device.code())
         {
             return Err(SlmpError::new(format!(
-                "{command_label} does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed/read_named with ':D' or ':L' instead."
+                "{command_label} does not support LTN/LSTN/LCN/LZ as word entries. Use dword entries or read_typed with ':D' or ':L' instead."
             )));
         }
     }
@@ -590,6 +602,12 @@ pub(crate) fn validate_random_bit_write_devices(
                 "Write Random (0x1402) does not support standalone G/HG bit entries. Use U-qualified word access.",
             ));
         }
+        if !device.code().is_bit_device() {
+            return Err(SlmpError::new(format!(
+                "write_random_bits requires bit devices; {} is word-addressable",
+                device.code()
+            )));
+        }
     }
     Ok(())
 }
@@ -633,6 +651,22 @@ pub(crate) fn validate_no_lcs_lcc_block_read(
     bit_blocks: &[SlmpBlockRead],
 ) -> Result<(), SlmpError> {
     for block in word_blocks {
+        if !block.device.code().is_word_device() {
+            return Err(SlmpError::new(format!(
+                "Read Block word entries require word devices; {} is bit-addressable.",
+                block.device.code()
+            )));
+        }
+    }
+    for block in bit_blocks {
+        if !block.device.code().is_bit_device() {
+            return Err(SlmpError::new(format!(
+                "Read Block bit entries require bit devices; {} is word-addressable.",
+                block.device.code()
+            )));
+        }
+    }
+    for block in word_blocks {
         if is_qualified_only_device(block.device.code()) {
             return Err(SlmpError::new(
                 "Read Block (0x0406) does not support standalone G/HG. Use U-qualified extended access.",
@@ -666,7 +700,7 @@ pub(crate) fn validate_no_lcs_lcc_block_read(
             SlmpDeviceCode::LCS | SlmpDeviceCode::LCC
         ) {
             return Err(SlmpError::new(
-                "Read Block (0x0406) does not support LCS/LCC. Use read_typed/read_named so direct bit read is selected.",
+                "Read Block (0x0406) does not support LCS/LCC. Use read_typed so direct bit read is selected.",
             ));
         }
     }
@@ -678,6 +712,22 @@ pub(crate) fn validate_no_lcs_lcc_block_write(
     bit_blocks: &[SlmpBlockWrite],
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
+    for block in word_blocks {
+        if !block.device.code().is_word_device() {
+            return Err(SlmpError::new(format!(
+                "Write Block word entries require word devices; {} is bit-addressable.",
+                block.device.code()
+            )));
+        }
+    }
+    for block in bit_blocks {
+        if !block.device.code().is_bit_device() {
+            return Err(SlmpError::new(format!(
+                "Write Block bit entries require bit devices; {} is word-addressable.",
+                block.device.code()
+            )));
+        }
+    }
     for block in word_blocks.iter().chain(bit_blocks.iter()) {
         if is_read_only_device(block.device.code(), plc_profile) {
             return Err(SlmpError::new(format!(

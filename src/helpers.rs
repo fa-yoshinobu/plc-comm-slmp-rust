@@ -51,7 +51,6 @@ struct NamedReadEntry {
     device: SlmpDeviceAddress,
     dtype: String,
     bit_word_read: Option<BitWordRead>,
-    long_timer_read: Option<LongTimerReadSpec>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +81,7 @@ pub async fn read_typed(
         )));
     }
     validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
+    validate_typed_device_dtype(device, &normalized_dtype)?;
     if matches!(device.code(), SlmpDeviceCode::LZ) && matches!(normalized_dtype.as_str(), "D" | "L")
     {
         let raw = read_random_dword_scalar(client, device).await?;
@@ -139,6 +139,7 @@ pub async fn write_typed(
         validate_long_timer_entry(&device.to_string(), device, &normalized_dtype)?;
     }
     validate_dword_only_entry(&device.to_string(), device, &normalized_dtype)?;
+    validate_typed_device_dtype(device, &normalized_dtype)?;
     let route = resolve_write_route(device, &normalized_dtype);
     match route {
         NamedWriteRoute::RandomBits => {
@@ -355,6 +356,13 @@ fn compile_read_plan(
             validate_named_device_dtype(address, device, &dtype)?;
             validate_long_timer_entry(address, device, &dtype)?;
             validate_dword_only_entry(address, device, &dtype)?;
+            if long_timer_read_spec(device.code()).is_some()
+                && !matches!(device.code(), SlmpDeviceCode::LCN)
+            {
+                return Err(SlmpError::new(format!(
+                    "read_named accepts only addresses that fit one random-read request; use read_typed or an explicit long-timer helper for '{address}'."
+                )));
+            }
             let mut bit_word_read = None;
             if dtype == "BIT" {
                 bit_word_read = plain_bit_word_read(device);
@@ -381,18 +389,13 @@ fn compile_read_plan(
             device,
             dtype,
             bit_word_read,
-            long_timer_read: long_timer_read_spec(device.code()),
         });
     }
 
     let unsupported = entries
         .iter()
         .filter(|entry| {
-            let supported = if let Some(spec) = &entry.long_timer_read {
-                matches!(entry.device.code(), SlmpDeviceCode::LCN)
-                    && matches!(spec.kind, LongTimerReadKind::Current)
-                    && dword_devices.contains(&entry.device)
-            } else if let Some(read) = entry.bit_word_read {
+            let supported = if let Some(read) = entry.bit_word_read {
                 word_devices.contains(&read.device)
             } else {
                 match entry.dtype.as_str() {
@@ -425,90 +428,76 @@ async fn read_named_compiled(
     let mut result = NamedAddress::new();
     let (word_values, dword_values) =
         read_random_maps(client, &plan.word_devices, &plan.dword_devices).await?;
-    let mut long_timer_cache: HashMap<(SlmpDeviceCode, u32), SlmpLongTimerResult> =
-        HashMap::with_capacity(plan.entries.len());
 
     for entry in &plan.entries {
-        let value = if let Some(spec) = &entry.long_timer_read {
-            if matches!(spec.base_code, SlmpDeviceCode::LCN)
-                && matches!(spec.kind, LongTimerReadKind::Current)
-            {
-                let raw = if let Some(value) = dword_values.get(&entry.device) {
-                    *value
-                } else {
-                    read_random_dword_scalar(client, entry.device).await?
-                };
-                if entry.dtype == "L" {
-                    SlmpValue::I32(raw as i32)
-                } else {
-                    SlmpValue::U32(raw)
-                }
-            } else if is_long_counter_state_device(entry.device.code()) {
-                SlmpValue::Bool(client.read_bits(entry.device, 1).await?[0])
-            } else {
-                let key = (spec.base_code, entry.device.number());
-                if let std::collections::hash_map::Entry::Vacant(vacant) =
-                    long_timer_cache.entry(key)
-                {
-                    let timer =
-                        read_long_like_point(client, spec.base_code, entry.device.number()).await?;
-                    vacant.insert(timer);
-                }
-                decode_long_like_value(&entry.dtype, spec, long_timer_cache.get(&key).unwrap())?
-            }
-        } else if entry.dtype == "BIT_IN_WORD" {
+        let value = if entry.dtype == "BIT_IN_WORD" {
             let read = entry
                 .bit_word_read
                 .ok_or_else(|| missing_bit_in_word_index_error(&entry.address))?;
-            let word = if let Some(word) = word_values.get(&read.device) {
-                *word
-            } else {
-                client.read_words_raw(read.device, 1).await?[0]
-            };
+            let word = *word_values.get(&read.device).ok_or_else(|| {
+                SlmpError::new(format!(
+                    "read_named random-read response omitted required word device {}",
+                    read.device
+                ))
+            })?;
             SlmpValue::Bool(((word >> read.bit_index) & 1) != 0)
         } else if entry.dtype == "BIT" {
             if let Some(read) = entry.bit_word_read {
-                let word = if let Some(word) = word_values.get(&read.device) {
-                    *word
-                } else {
-                    client.read_words_raw(read.device, 1).await?[0]
-                };
+                let word = *word_values.get(&read.device).ok_or_else(|| {
+                    SlmpError::new(format!(
+                        "read_named random-read response omitted required word device {}",
+                        read.device
+                    ))
+                })?;
                 SlmpValue::Bool(((word >> read.bit_index) & 1) != 0)
             } else {
-                read_typed(client, entry.device, &entry.dtype).await?
+                return Err(SlmpError::new(format!(
+                    "read_named plan contains an unsupported direct-bit fallback for '{}'",
+                    entry.address
+                )));
             }
         } else if entry.dtype == "S" {
-            if let Some(value) = word_values.get(&entry.device) {
-                SlmpValue::I16(*value as i16)
-            } else {
-                read_typed(client, entry.device, &entry.dtype).await?
-            }
+            SlmpValue::I16(*word_values.get(&entry.device).ok_or_else(|| {
+                SlmpError::new(format!(
+                    "read_named random-read response omitted required word device {}",
+                    entry.device
+                ))
+            })? as i16)
         } else if entry.dtype == "U" {
-            if let Some(value) = word_values.get(&entry.device) {
-                SlmpValue::U16(*value)
-            } else {
-                read_typed(client, entry.device, &entry.dtype).await?
-            }
+            SlmpValue::U16(*word_values.get(&entry.device).ok_or_else(|| {
+                SlmpError::new(format!(
+                    "read_named random-read response omitted required word device {}",
+                    entry.device
+                ))
+            })?)
         } else if entry.dtype == "F" {
-            if let Some(value) = dword_values.get(&entry.device) {
-                SlmpValue::F32(f32::from_bits(*value))
-            } else {
-                read_typed(client, entry.device, &entry.dtype).await?
-            }
+            SlmpValue::F32(f32::from_bits(
+                *dword_values.get(&entry.device).ok_or_else(|| {
+                    SlmpError::new(format!(
+                        "read_named random-read response omitted required dword device {}",
+                        entry.device
+                    ))
+                })?,
+            ))
         } else if entry.dtype == "L" {
-            if let Some(value) = dword_values.get(&entry.device) {
-                SlmpValue::I32(*value as i32)
-            } else {
-                read_typed(client, entry.device, &entry.dtype).await?
-            }
+            SlmpValue::I32(*dword_values.get(&entry.device).ok_or_else(|| {
+                SlmpError::new(format!(
+                    "read_named random-read response omitted required dword device {}",
+                    entry.device
+                ))
+            })? as i32)
         } else if entry.dtype == "D" {
-            if let Some(value) = dword_values.get(&entry.device) {
-                SlmpValue::U32(*value)
-            } else {
-                read_typed(client, entry.device, &entry.dtype).await?
-            }
+            SlmpValue::U32(*dword_values.get(&entry.device).ok_or_else(|| {
+                SlmpError::new(format!(
+                    "read_named random-read response omitted required dword device {}",
+                    entry.device
+                ))
+            })?)
         } else {
-            read_typed(client, entry.device, &entry.dtype).await?
+            return Err(SlmpError::new(format!(
+                "read_named plan contains unsupported dtype '{}' for '{}'",
+                entry.dtype, entry.address
+            )));
         };
         result.insert(entry.address.clone(), value);
     }
@@ -670,6 +659,22 @@ fn validate_named_device_dtype(
     if !device.code().is_bit_device() && dtype == "BIT" {
         return Err(SlmpError::new(format!(
             "Address '{address}' uses ':BIT', which is only valid for bit devices. Use '.bit' notation for a bit inside a word device."
+        )));
+    }
+    Ok(())
+}
+
+fn validate_typed_device_dtype(device: SlmpDeviceAddress, dtype: &str) -> Result<(), SlmpError> {
+    if device.code().is_bit_device() && dtype != "BIT" {
+        return Err(SlmpError::new(format!(
+            "{} is a bit device and requires dtype 'BIT'; use an explicit word API for packed bit-device access.",
+            device.code()
+        )));
+    }
+    if !device.code().is_bit_device() && dtype == "BIT" {
+        return Err(SlmpError::new(format!(
+            "{} is a word device and cannot use dtype 'BIT'; use explicit bit-in-word access for a bit inside a word device.",
+            device.code()
         )));
     }
     Ok(())

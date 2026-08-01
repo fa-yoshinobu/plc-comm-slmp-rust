@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- BREAKING: Typed and named semantic units are now exact: `BIT` and every bit-unit operation require a bit device, while numeric/string dtypes require a word device. Explicit low-level word APIs remain available for packed 16-bit access to bit devices.
+- BREAKING: `read_named` and `poll_named` reject `LTN`/`LSTN` current values and `LTS`/`LTC`/`LSTS`/`LSTC` states before transport because they require the Direct long-timer route. Use `read_typed` or an explicit long-timer helper.
+- Library: Route validation now derives Random Read/Write, Block Read/Write, and LZ coverage from the canonical profile. Q/L Ethernet-unit profiles keep Random and Block coverage while base Q/L profiles omit Block; generic Random validation no longer parses or sends LZ.
+- Library: A fully correlated, protocol-checked, command-decoded success or PLC end code now remains definitive when `close` races or the local deadline is observed after decode. The affected transport is still retired; incomplete active operations retain conservative closed, timeout, or outcome-unknown classification.
 - Library: TCP and UDP connection establishment now uses one monotonic absolute deadline covering IPv4 DNS, all selected TCP candidates, UDP bind/connect, TCP socket configuration, and final client adoption. Late results are discarded; deadline expiry is Timeout while pre-deadline candidate exhaustion remains Transport.
 - Library: Shared-client operations now use one FIFO admission order with one wire transaction at a time. Cancelling a waiting future sends nothing, `close` immediately invalidates active and queued work for the exact connection generation, and separate clients remain independent.
 - Library: One monotonic request deadline now covers send, complete TCP/UDP receive, correlation, protocol parsing, and command-specific payload decoding. Timeout, close, cancellation, transport, and malformed-response paths retire the affected transport without resend.
