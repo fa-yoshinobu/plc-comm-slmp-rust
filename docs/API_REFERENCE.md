@@ -48,12 +48,26 @@ direct, extended, random, typed, named, and bit-in-word operations; no numeric
 or string compatibility API is exposed. Packed bit-block words are a distinct
 wire-level input and remain `u16` values.
 
+All contiguous device operations validate the complete consumed span against
+the selected 24-bit Q/L-compatible or 32-bit iQ-R wire address field before
+transport. A J-qualified link-direct request always remains a 24-bit Q/L layout,
+even on an iQ-R client; other iQ-R Extended Device layouts use 32 bits. Ordinary
+word devices consume one address per word and two per
+DWord/Float32 value; packed word access to bit devices consumes 16 addresses per
+word, and a bit-block point consumes 16 bit addresses. Direct long-timer status
+blocks consume one `LTN`/`LSTN` address per four returned words. Random,
+monitor-registration, Block, and applicable Extended Device routes follow the
+same route-specific widths. This is wire-field validation, not a PLC
+device-range policy check.
+
 Semantic unit validation is exact. Bit-unit direct, extended, random, block,
 typed, and named APIs accept only bit devices. Typed/named `BIT` accepts only a
 bit device, while numeric/string dtypes accept only word devices. Explicit
 low-level word APIs may still access a bit device as one packed 16-bit word.
 Word-device bit access uses `.n` or `write_bit_in_word`; no implicit mask,
-read-modify-write, or route fallback is performed.
+read-modify-write, or route fallback is performed. `write_bit_in_word` requires a
+word device and preflights writability before its read request, so an invalid or
+non-writable target sends neither half of the explicit two-request sequence.
 
 Extended random APIs use the 008x subcommands. Use `parse_qualified_device`
 or `SlmpQualifiedDeviceAddress` for routed devices such as `U1\G0`,

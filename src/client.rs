@@ -217,6 +217,16 @@ impl SlmpClient {
     ) -> Result<(), SlmpError> {
         let mut inner = self.inner.lock().await;
         inner.ensure_address_profile(device)?;
+        inner.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
+        rules::validate_direct_access_points(
+            1,
+            false,
+            true,
+            "write_bit_in_word",
+            inner.options.plc_profile,
+        )?;
+        rules::validate_direct_word_write(device, inner.options.plc_profile)?;
+        inner.validate_direct_device_span(device, 1, false, "write_bit_in_word")?;
         let mut current = inner.read_words_raw(device, 1).await?[0];
         if value {
             current |= 1 << bit_index;
@@ -454,6 +464,18 @@ impl SlmpClient {
                 .chain(dword_entries.iter().map(|(device, _)| device)),
         )?;
         inner.write_random_words(word_entries, dword_entries).await
+    }
+
+    pub(crate) async fn validate_random_native_dword_sequence(
+        &self,
+        start: SlmpDeviceAddress,
+        count: usize,
+        name: &str,
+    ) -> Result<(), SlmpError> {
+        let inner = self.inner.lock().await;
+        inner.ensure_address_profile(start)?;
+        inner.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
+        inner.validate_direct_device_span(start, count, false, name)
     }
 
     pub async fn write_random_u16s(
@@ -1005,54 +1027,159 @@ impl ClientInner {
         Ok(())
     }
 
+    fn validate_direct_device_span(
+        &self,
+        device: SlmpDeviceAddress,
+        wire_points: usize,
+        bit_unit: bool,
+        name: &str,
+    ) -> Result<(), SlmpError> {
+        let maximum = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            0x00FF_FFFF
+        } else {
+            u32::MAX
+        };
+        rules::validate_direct_device_span(device, wire_points, bit_unit, maximum, name)
+    }
+
+    fn validate_direct_word_device_span(
+        &self,
+        device: SlmpDeviceAddress,
+        wire_points: usize,
+        name: &str,
+    ) -> Result<(), SlmpError> {
+        let maximum = if matches!(
+            self.options.compatibility_mode,
+            SlmpCompatibilityMode::Legacy
+        ) {
+            0x00FF_FFFF
+        } else {
+            u32::MAX
+        };
+        rules::validate_direct_device_span_with_semantics(
+            device,
+            wire_points,
+            false,
+            matches!(device.code(), SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN),
+            maximum,
+            name,
+        )
+    }
+
+    fn validate_extended_device_span(
+        &self,
+        device: SlmpDeviceAddress,
+        wire_points: usize,
+        bit_unit: bool,
+        extension: SlmpExtensionSpec,
+        name: &str,
+    ) -> Result<(), SlmpError> {
+        let maximum = if extension.direct_memory_specification == 0xF9
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
+            0x00FF_FFFF
+        } else {
+            u32::MAX
+        };
+        rules::validate_direct_device_span(device, wire_points, bit_unit, maximum, name)
+    }
+
+    fn validate_extended_word_device_span(
+        &self,
+        device: SlmpDeviceAddress,
+        wire_points: usize,
+        extension: SlmpExtensionSpec,
+        name: &str,
+    ) -> Result<(), SlmpError> {
+        let maximum = if extension.direct_memory_specification == 0xF9
+            || matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) {
+            0x00FF_FFFF
+        } else {
+            u32::MAX
+        };
+        rules::validate_direct_device_span_with_semantics(
+            device,
+            wire_points,
+            false,
+            matches!(device.code(), SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN),
+            maximum,
+            name,
+        )
+    }
+
+    fn dword_entry_wire_points(device: SlmpDeviceAddress) -> usize {
+        if rules::is_long_current_value_device(device.code())
+            || rules::is_dword_only_scalar_device(device.code())
+        {
+            1
+        } else {
+            2
+        }
+    }
+
     fn validate_qualified_random_write_overlap(
+        &self,
         word_entries: &[(SlmpQualifiedDeviceAddress, u16)],
+        word_extensions: &[SlmpExtensionSpec],
         dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
+        dword_extensions: &[SlmpExtensionSpec],
     ) -> Result<(), SlmpError> {
         let mut spans = Vec::with_capacity(word_entries.len() + dword_entries.len());
-        spans.extend(word_entries.iter().map(|(device, _)| {
-            (
+        for ((device, _), extension) in word_entries.iter().zip(word_extensions) {
+            spans.push((
                 *device,
+                *extension,
                 if device.device().code().is_bit_device() {
                     16u32
                 } else {
                     1u32
                 },
-            )
-        }));
-        spans.extend(dword_entries.iter().map(|(device, _)| {
-            (
+            ));
+        }
+        for ((device, _), extension) in dword_entries.iter().zip(dword_extensions) {
+            spans.push((
                 *device,
-                if device.device().code().is_bit_device() {
-                    32u32
-                } else {
-                    2u32
-                },
-            )
-        }));
-        for (index, (left, left_width)) in spans.iter().enumerate() {
+                *extension,
+                u32::try_from(Self::dword_entry_wire_points(device.device()))
+                    .map_err(|_| SlmpError::new("extended random write width is too large"))?
+                    * if device.device().code().is_bit_device() {
+                        16
+                    } else {
+                        1
+                    },
+            ));
+        }
+        for (index, (left, left_extension, left_width)) in spans.iter().enumerate() {
             let left_device = left.device();
-            let left_end = left_device
-                .number()
-                .checked_add(*left_width - 1)
-                .ok_or_else(|| SlmpError::new("extended random write device span overflows u32"))?;
-            for (right, right_width) in &spans[index + 1..] {
+            let left_end = rules::checked_span_end_wide(
+                left_device.number(),
+                *left_width as usize,
+                "write_random_words_ext",
+            )?;
+            for (right, right_extension, right_width) in &spans[index + 1..] {
                 let right_device = right.device();
                 if left_device.plc_profile() != right_device.plc_profile()
                     || left_device.code() != right_device.code()
-                    || left.extension_specification() != right.extension_specification()
-                    || left.direct_memory_specification() != right.direct_memory_specification()
-                    || left.modification() != right.modification()
+                    || left_extension != right_extension
                 {
                     continue;
                 }
-                let right_end = right_device
-                    .number()
-                    .checked_add(*right_width - 1)
-                    .ok_or_else(|| {
-                        SlmpError::new("extended random write device span overflows u32")
-                    })?;
-                if left_device.number() <= right_end && right_device.number() <= left_end {
+                let right_end = rules::checked_span_end_wide(
+                    right_device.number(),
+                    *right_width as usize,
+                    "write_random_words_ext",
+                )?;
+                if u64::from(left_device.number()) <= right_end
+                    && u64::from(right_device.number()) <= left_end
+                {
                     return Err(SlmpError::new(
                         "extended random write device ranges must not overlap within one request",
                     ));
@@ -1127,6 +1254,7 @@ impl ClientInner {
             self.options.plc_profile,
         )?;
         rules::validate_direct_word_read(device, points)?;
+        self.validate_direct_word_device_span(device, points as usize, "read_words")?;
         let payload = self.build_read_write_payload(device, points, None, false);
         let sub = self.word_subcommand(false);
         let data = self
@@ -1157,6 +1285,7 @@ impl ClientInner {
             self.options.plc_profile,
         )?;
         rules::validate_direct_word_write(device, self.options.plc_profile)?;
+        self.validate_direct_device_span(device, values.len(), false, "write_words")?;
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(values), false);
         let sub = self.word_subcommand(false);
@@ -1180,6 +1309,7 @@ impl ClientInner {
             self.options.plc_profile,
         )?;
         rules::validate_direct_bit_read(device)?;
+        self.validate_direct_device_span(device, points as usize, true, "read_bits")?;
         let payload = self.build_read_write_payload(device, points, None, true);
         let data = self
             .request(
@@ -1207,6 +1337,7 @@ impl ClientInner {
             self.options.plc_profile,
         )?;
         rules::validate_direct_bit_write(device, self.options.plc_profile)?;
+        self.validate_direct_device_span(device, values.len(), true, "write_bits")?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload =
             self.build_read_write_payload(device, values.len() as u16, Some(&words), true);
@@ -1236,6 +1367,7 @@ impl ClientInner {
             "read_dwords",
             self.options.plc_profile,
         )?;
+        self.validate_direct_device_span(device, word_points, false, "read_dwords")?;
         let words = self.read_words_raw(device, word_points as u16).await?;
         Ok(words
             .chunks_exact(2)
@@ -1250,14 +1382,19 @@ impl ClientInner {
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_dword_write(device, self.options.plc_profile)?;
+        let word_points = values
+            .len()
+            .checked_mul(2)
+            .ok_or_else(|| SlmpError::new("write_dwords device span is too large"))?;
         rules::validate_direct_access_points(
-            values.len() * 2,
+            word_points,
             false,
             true,
             "write_dwords",
             self.options.plc_profile,
         )?;
-        let mut words = Vec::with_capacity(values.len() * 2);
+        self.validate_direct_device_span(device, word_points, false, "write_dwords")?;
+        let mut words = Vec::with_capacity(word_points);
         for value in values {
             words.push((value & 0xFFFF) as u16);
             words.push((value >> 16) as u16);
@@ -1283,6 +1420,20 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         values: &[f32],
     ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
+        rules::validate_direct_dword_write(device, self.options.plc_profile)?;
+        let word_points = values
+            .len()
+            .checked_mul(2)
+            .ok_or_else(|| SlmpError::new("write_float32s device span is too large"))?;
+        rules::validate_direct_access_points(
+            word_points,
+            false,
+            true,
+            "write_float32s",
+            self.options.plc_profile,
+        )?;
+        self.validate_direct_device_span(device, word_points, false, "write_float32s")?;
         let values: Vec<u32> = values.iter().map(|value| value.to_bits()).collect();
         self.write_dwords(device, &values).await
     }
@@ -1308,6 +1459,12 @@ impl ClientInner {
         ) {
             rules::validate_direct_word_read(device.device(), points)?;
         }
+        self.validate_extended_word_device_span(
+            device.device(),
+            points as usize,
+            extension,
+            "read_words_ext",
+        )?;
         let payload =
             self.build_read_write_payload_extended(device.device(), points, None, extension, false);
         let sub = if extension.direct_memory_specification == 0xF9
@@ -1354,6 +1511,13 @@ impl ClientInner {
         ) {
             rules::validate_direct_word_write(device.device(), self.options.plc_profile)?;
         }
+        self.validate_extended_device_span(
+            device.device(),
+            values.len(),
+            false,
+            extension,
+            "write_words_ext",
+        )?;
         let payload = self.build_read_write_payload_extended(
             device.device(),
             values.len() as u16,
@@ -1392,6 +1556,13 @@ impl ClientInner {
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
         rules::validate_direct_bit_read(device.device())?;
+        self.validate_extended_device_span(
+            device.device(),
+            points as usize,
+            true,
+            extension,
+            "read_bits_ext",
+        )?;
         let payload =
             self.build_read_write_payload_extended(device.device(), points, None, extension, true);
         let sub = if extension.direct_memory_specification == 0xF9
@@ -1426,6 +1597,13 @@ impl ClientInner {
         let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
         self.ensure_extended_profile_feature_allowed(device, extension)?;
         rules::validate_direct_bit_write(device.device(), self.options.plc_profile)?;
+        self.validate_extended_device_span(
+            device.device(),
+            values.len(),
+            true,
+            extension,
+            "write_bits_ext",
+        )?;
         let words: Vec<u16> = values.iter().map(|value| u16::from(*value)).collect();
         let payload = self.build_read_write_payload_extended(
             device.device(),
@@ -1472,6 +1650,17 @@ impl ClientInner {
             SlmpProfileLimit::RandomReadWord,
             "read_random",
         )?;
+        for device in word_devices {
+            self.validate_direct_device_span(*device, 1, false, "word_devices")?;
+        }
+        for device in dword_devices {
+            self.validate_direct_device_span(
+                *device,
+                Self::dword_entry_wire_points(*device),
+                false,
+                "dword_devices",
+            )?;
+        }
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
         payload.resize(
@@ -1557,6 +1746,13 @@ impl ClientInner {
             link_direct |= is_link_direct;
             other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            self.validate_extended_device_span(
+                device.device(),
+                1,
+                false,
+                extension,
+                "word_devices",
+            )?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
         }
@@ -1566,6 +1762,13 @@ impl ClientInner {
             link_direct |= is_link_direct;
             other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            self.validate_extended_device_span(
+                device.device(),
+                Self::dword_entry_wire_points(device.device()),
+                false,
+                extension,
+                "dword_devices",
+            )?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
         }
@@ -1637,6 +1840,17 @@ impl ClientInner {
             SlmpProfileLimit::MonitorRegisterWord,
             "register_monitor_devices",
         )?;
+        for device in word_devices {
+            self.validate_direct_device_span(*device, 1, false, "word_devices")?;
+        }
+        for device in dword_devices {
+            self.validate_direct_device_span(
+                *device,
+                Self::dword_entry_wire_points(*device),
+                false,
+                "dword_devices",
+            )?;
+        }
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
         payload.resize(
@@ -1688,12 +1902,35 @@ impl ClientInner {
         let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
         let mut link_direct = false;
         let mut other_layout = false;
-        for device in word_devices.iter().chain(dword_devices.iter()) {
+        for device in word_devices {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             let is_link_direct = extension.direct_memory_specification == 0xF9;
             link_direct |= is_link_direct;
             other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            self.validate_extended_device_span(
+                device.device(),
+                1,
+                false,
+                extension,
+                "word_devices",
+            )?;
+            payload
+                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
+        }
+        for device in dword_devices {
+            let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
+            let is_link_direct = extension.direct_memory_specification == 0xF9;
+            link_direct |= is_link_direct;
+            other_layout |= !is_link_direct;
+            self.ensure_extended_profile_feature_allowed(*device, extension)?;
+            self.validate_extended_device_span(
+                device.device(),
+                Self::dword_entry_wire_points(device.device()),
+                false,
+                extension,
+                "dword_devices",
+            )?;
             payload
                 .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
         }
@@ -1787,6 +2024,18 @@ impl ClientInner {
             SlmpProfileLimit::RandomWriteWord,
             "write_random_words",
         )?;
+        for (device, _) in word_entries {
+            self.validate_direct_device_span(*device, 1, false, "word_entries")?;
+        }
+        for (device, _) in dword_entries {
+            self.validate_direct_device_span(
+                *device,
+                Self::dword_entry_wire_points(*device),
+                false,
+                "dword_entries",
+            )?;
+        }
+        rules::validate_random_write_word_overlap(word_entries, dword_entries)?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let size =
             2 + (word_entries.len() * (spec_size + 2)) + (dword_entries.len() * (spec_size + 4));
@@ -1850,30 +2099,39 @@ impl ClientInner {
             self.options.plc_profile,
             true,
         )?;
-        Self::validate_qualified_random_write_overlap(word_entries, dword_entries)?;
-
-        let mut payload = vec![word_entries.len() as u8, dword_entries.len() as u8];
+        let mut word_extensions = Vec::with_capacity(word_entries.len());
+        let mut dword_extensions = Vec::with_capacity(dword_entries.len());
         let mut link_direct = false;
         let mut other_layout = false;
-        for (device, value) in word_entries {
+        for (device, _) in word_entries {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             let is_link_direct = extension.direct_memory_specification == 0xF9;
             link_direct |= is_link_direct;
             other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
-            payload.extend_from_slice(&value.to_le_bytes());
+            self.validate_extended_device_span(
+                device.device(),
+                1,
+                false,
+                extension,
+                "word_entries",
+            )?;
+            word_extensions.push(extension);
         }
-        for (device, value) in dword_entries {
+        for (device, _) in dword_entries {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
             let is_link_direct = extension.direct_memory_specification == 0xF9;
             link_direct |= is_link_direct;
             other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
-            payload.extend_from_slice(&value.to_le_bytes());
+            self.validate_extended_device_span(
+                device.device(),
+                Self::dword_entry_wire_points(device.device()),
+                false,
+                extension,
+                "dword_entries",
+            )?;
+            dword_extensions.push(extension);
         }
         Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
@@ -1881,6 +2139,24 @@ impl ClientInner {
             other_layout,
             "write_random_words_ext",
         )?;
+        self.validate_qualified_random_write_overlap(
+            word_entries,
+            &word_extensions,
+            dword_entries,
+            &dword_extensions,
+        )?;
+
+        let mut payload = vec![word_entries.len() as u8, dword_entries.len() as u8];
+        for ((device, value), extension) in word_entries.iter().zip(&word_extensions) {
+            payload
+                .extend_from_slice(&self.encode_extended_device_spec(device.device(), *extension));
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
+        for ((device, value), extension) in dword_entries.iter().zip(&dword_extensions) {
+            payload
+                .extend_from_slice(&self.encode_extended_device_spec(device.device(), *extension));
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
         let sub = if link_direct
             || matches!(
                 self.options.compatibility_mode,
@@ -1912,6 +2188,9 @@ impl ClientInner {
             "write_random_bits",
         )?;
         rules::validate_random_bit_write_devices(bit_entries, self.options.plc_profile, true)?;
+        for (device, _) in bit_entries {
+            self.validate_direct_device_span(*device, 1, true, "bit_entries")?;
+        }
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let bit_value_size = if matches!(
             self.options.compatibility_mode,
@@ -1972,36 +2251,17 @@ impl ClientInner {
             .map(|entry| (entry.0.device(), entry.1))
             .collect();
         rules::validate_random_bit_write_devices(&bit_refs, self.options.plc_profile, false)?;
-        let mut seen = std::collections::HashSet::new();
-        for (device, _) in bit_entries {
-            if !seen.insert(*device) {
-                return Err(SlmpError::new(
-                    "extended random bit write devices must not be duplicated within one request",
-                ));
-            }
-        }
-
-        let mut payload = Vec::with_capacity(bit_entries.len() * 15 + 1);
-        payload.push(bit_entries.len() as u8);
+        let mut extensions = Vec::with_capacity(bit_entries.len());
         let mut link_direct = false;
         let mut other_layout = false;
-        for (device, value) in bit_entries {
+        for (device, _) in bit_entries {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
-            let ql_encoding = matches!(
-                self.options.compatibility_mode,
-                SlmpCompatibilityMode::Legacy
-            ) || extension.direct_memory_specification == 0xF9;
             let is_link_direct = extension.direct_memory_specification == 0xF9;
             link_direct |= is_link_direct;
             other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
-            if ql_encoding {
-                payload.push(u8::from(*value));
-            } else {
-                payload.extend_from_slice(&u16::from(*value).to_le_bytes());
-            }
+            self.validate_extended_device_span(device.device(), 1, true, extension, "bit_entries")?;
+            extensions.push(extension);
         }
         Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
@@ -2009,6 +2269,32 @@ impl ClientInner {
             other_layout,
             "write_random_bits_ext",
         )?;
+        let mut seen = Vec::with_capacity(bit_entries.len());
+        for ((device, _), extension) in bit_entries.iter().zip(&extensions) {
+            let target = (device.device(), *extension);
+            if seen.contains(&target) {
+                return Err(SlmpError::new(
+                    "extended random bit write devices must not be duplicated within one request",
+                ));
+            }
+            seen.push(target);
+        }
+
+        let mut payload = Vec::with_capacity(bit_entries.len() * 15 + 1);
+        payload.push(bit_entries.len() as u8);
+        for ((device, value), extension) in bit_entries.iter().zip(&extensions) {
+            let ql_encoding = matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) || extension.direct_memory_specification == 0xF9;
+            payload
+                .extend_from_slice(&self.encode_extended_device_spec(device.device(), *extension));
+            if ql_encoding {
+                payload.push(u8::from(*value));
+            } else {
+                payload.extend_from_slice(&u16::from(*value).to_le_bytes());
+            }
+        }
         let sub = if link_direct
             || matches!(
                 self.options.compatibility_mode,
@@ -2040,6 +2326,21 @@ impl ClientInner {
             bit_blocks,
             self.options.compatibility_mode,
         )?;
+        for block in word_blocks {
+            self.validate_direct_word_device_span(
+                block.device,
+                block.points as usize,
+                "word_blocks",
+            )?;
+        }
+        for block in bit_blocks {
+            self.validate_direct_device_span(
+                block.device,
+                block.points as usize,
+                false,
+                "bit_blocks",
+            )?;
+        }
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let total_word_points: usize = word_blocks.iter().map(|block| block.points as usize).sum();
         let total_bit_points: usize = bit_blocks.iter().map(|block| block.points as usize).sum();
@@ -2119,6 +2420,23 @@ impl ClientInner {
             bit_blocks,
             self.options.compatibility_mode,
         )?;
+        for block in word_blocks {
+            self.validate_direct_device_span(
+                block.device,
+                block.values.len(),
+                false,
+                "word_blocks",
+            )?;
+        }
+        for block in bit_blocks {
+            self.validate_direct_device_span(
+                block.device,
+                block.values.len(),
+                false,
+                "bit_blocks",
+            )?;
+        }
+        rules::validate_block_write_overlap(word_blocks, bit_blocks)?;
         let spec_size = device_spec_size(self.options.compatibility_mode);
         let total_word_points: usize = word_blocks.iter().map(|block| block.values.len()).sum();
         let total_bit_points: usize = bit_blocks.iter().map(|block| block.values.len()).sum();
@@ -2724,7 +3042,6 @@ impl ClientInner {
         points: usize,
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let word_points = Self::long_timer_word_points(points)?;
-        rules::checked_span_end(head_no, points, "long timer")?;
         let device = SlmpDeviceAddress::new(SlmpDeviceCode::LTN, head_no, self.options.plc_profile);
         ensure_device_supported_for_family("LTN", device.code(), self.options.plc_profile)?;
         self.ensure_address_profile(device)?;
@@ -2738,7 +3055,6 @@ impl ClientInner {
         points: usize,
     ) -> Result<Vec<SlmpLongTimerResult>, SlmpError> {
         let word_points = Self::long_timer_word_points(points)?;
-        rules::checked_span_end(head_no, points, "long retentive timer")?;
         let device =
             SlmpDeviceAddress::new(SlmpDeviceCode::LSTN, head_no, self.options.plc_profile);
         ensure_device_supported_for_family("LSTN", device.code(), self.options.plc_profile)?;

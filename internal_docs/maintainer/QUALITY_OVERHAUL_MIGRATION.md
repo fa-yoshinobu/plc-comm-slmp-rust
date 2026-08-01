@@ -1135,3 +1135,105 @@ Final verification evidence for the reviewed worktree:
   consumer check.
 - `git diff --check` passed. No live PLC communication, commit, push, release, or
   registry publication was performed.
+
+## GOAL-SLMP-SPAN-20260801 — Complete wire-address span admission
+
+Stable identifier: `SLMP-SPAN-20260801-RUST`.
+
+Implementation scope: Rust contiguous Direct word/bit/DWord/Float32 operations,
+Random entries, Monitor registration, Block routes, applicable Extended Device
+routes, long-timer Direct status blocks, validation ordering, tests, user/API
+documentation, migration notes, and changelog.
+
+Target contract: before request-counter mutation or transport, every applicable
+operation proves that its complete consumed device span fits the selected address
+field. Q/L-compatible and link-direct wire layouts use 24 bits and iQ-R layouts
+use 32 bits. Word devices consume one number per word, packed word access to bit
+devices consumes 16 numbers per word, ordinary DWord/Float32 values consume two
+word-device numbers, packed bit-device DWords consume 32 numbers, bit blocks
+consume 16 bit-device numbers per block point, and Direct LTN/LSTN status blocks
+consume one logical device per four wire words. Random/Monitor long scalar
+entries retain their existing one-device semantic width. This is wire
+representability only; canonical profile usable ranges are not pre-send guards.
+
+Compatibility impact: requests that previously wrapped or truncated their final
+device number, or reached transport with an unrepresentable span, now fail
+locally with `SlmpError`. Exact-boundary requests remain admitted. No
+compatibility alias or silent split is retained.
+
+Machine-verifiable acceptance criteria:
+
+1. Q/L-compatible 24-bit and iQ-R 32-bit Direct word/bit read and write accept
+   one point at the maximum and reject a two-point span from that maximum with
+   zero request-counter or transport effects.
+2. Ordinary DWord/Float32 read and write accept one value at maximum-minus-one,
+   reject two values there, and reject one value at the maximum.
+3. Packed bit-device word/DWord and bit-block routes use 16/32-device expansion;
+   Direct long-timer status blocks use one logical device per four wire words.
+4. Random and Monitor DWord entries and word/bit Block reads and writes apply the
+   same route-specific span rules, including Extended Device layouts where that
+   contiguous-width contract applies.
+5. Validation uses checked wide arithmetic, runs before request-counter mutation
+   or transport, and does not consult the profile device-range catalog.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required; wire-field arithmetic and zero-send admission are deterministic local properties.
+- [x] Documentation, migration notes, changelog, and API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+Self-review disposition (2026-08-01):
+
+- Accepted: the initial shared width helper treated every `LTN`/`LSTN` use as a
+  four-word Direct status block, which would have misclassified Random/Monitor
+  scalar entries. Direct long-status semantics and scalar DWord-entry semantics
+  are now explicit and independently tested.
+- Accepted: existing Random/Extended Random and Block write-overlap checks still
+  used fixed logical widths and 32-bit end arithmetic. They now use the same
+  packed bit-device 16/32-width model as admission, with overlap regression tests
+  and wide end arithmetic.
+- Accepted: ordinary Random-write overlap still treated every DWord entry as two
+  devices. Native `LTN`/`LSTN`/`LCN`/`LZ` DWord entries now use their one-device
+  width, with adjacent-entry transport coverage.
+- Accepted: ordinary and qualified Random writes and Block writes originally ran
+  overlap checks before complete selected-field span admission. They now resolve
+  every applicable route, validate every span, then check overlap and construct
+  payloads. Combined invalid-span-plus-overlap tests pin the wire-field error and
+  zero-request result for all three write families.
+- Accepted: selected-field comparison initially reused a `u32` span-end helper,
+  so an iQ-R overflow could be classified as arithmetic overflow before the
+  selected wire maximum was compared. Admission now computes in `u64` and emits
+  the stable wire-field error.
+- Accepted: long-timer, long-retentive-timer, and LZ single-request helpers still
+  ran the older `u32` span-end check before selected-wire validation. Their
+  admission now uses the shared wide selected-field validator; decode-time
+  checked arithmetic remains as defensive response handling.
+- Accepted: `write_bit_in_word` preflight originally happened only after its read
+  and did not reject a bit-device target. It now requires a word device and runs
+  all write-policy and span admission before the read; S/M regressions prove an
+  invalid target sends neither half of the sequence.
+- Accepted: initial coverage did not exercise packed bit-device DWord/Float32,
+  link-direct 24-bit Extended Device, or long-timer exact-boundary behavior.
+  Focused zero-send and exact-boundary tests now cover each applicable route.
+- Accepted: the initial Rust wording did not state that J-qualified link-direct
+  stays 24-bit on an iQ-R client. The user and API guides now state that selected
+  layout explicitly, matching the other implementations.
+- Rejected: enforcing the configured PLC device-range catalog here would turn a
+  wire-representability invariant into profile policy and contradict the
+  approved contract; no such guard was added.
+- Rejected: moving every Rust admission check ahead of the shared-client mutex is
+  not required by the approved contract, which requires completion before
+  request-counter mutation or transport. Validation remains inside the serialized
+  turn where appropriate.
+- Deferred: none. Live PLC communication is not required for deterministic
+  arithmetic and pre-transport state assertions.
+
+Verification evidence: after every accepted self-review correction,
+`run_ci.bat` passed formatting, Clippy with warnings denied, rustdoc with warnings
+denied, all unit/integration/doc tests, the Node crate check, and the generated
+39-file crate plus all 13 packaged examples and an isolated consumer. The route
+guard suite passed all 78 tests, and the package contract also passed on the
+declared Rust 1.85 minimum toolchain. `git diff --check` passed; no live PLC
+communication, registry operation, commit, push, or publication was performed.

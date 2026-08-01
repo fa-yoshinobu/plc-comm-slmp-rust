@@ -237,26 +237,44 @@ pub(crate) fn validate_block_write_limits(
             "write_block total device points out of range (<=960): weighted={weighted}, total_points={total_points}"
         )));
     }
-    validate_block_write_overlap(word_blocks, bit_blocks)?;
     Ok(())
 }
 
-fn validate_block_write_overlap(
+pub(crate) fn validate_block_write_overlap(
     word_blocks: &[SlmpBlockWrite],
     bit_blocks: &[SlmpBlockWrite],
 ) -> Result<(), SlmpError> {
     let blocks: Vec<_> = word_blocks.iter().chain(bit_blocks.iter()).collect();
     for (index, left) in blocks.iter().enumerate() {
-        let left_end = checked_span_end(left.device.number(), left.values.len(), "write_block")?;
+        let left_width = if left.device.code().is_bit_device() {
+            left.values
+                .len()
+                .checked_mul(16)
+                .ok_or_else(|| SlmpError::new("write_block device span is too large"))?
+        } else {
+            left.values.len()
+        };
+        let left_end = checked_span_end_wide(left.device.number(), left_width, "write_block")?;
         for right in &blocks[index + 1..] {
             if left.device.plc_profile() != right.device.plc_profile()
                 || left.device.code() != right.device.code()
             {
                 continue;
             }
+            let right_width = if right.device.code().is_bit_device() {
+                right
+                    .values
+                    .len()
+                    .checked_mul(16)
+                    .ok_or_else(|| SlmpError::new("write_block device span is too large"))?
+            } else {
+                right.values.len()
+            };
             let right_end =
-                checked_span_end(right.device.number(), right.values.len(), "write_block")?;
-            if left.device.number() <= right_end && right.device.number() <= left_end {
+                checked_span_end_wide(right.device.number(), right_width, "write_block")?;
+            if u64::from(left.device.number()) <= right_end
+                && u64::from(right.device.number()) <= left_end
+            {
                 return Err(SlmpError::new(
                     "write_block device ranges must not overlap within one request",
                 ));
@@ -266,12 +284,73 @@ fn validate_block_write_overlap(
     Ok(())
 }
 
-pub(crate) fn checked_span_end(start: u32, points: usize, name: &str) -> Result<u32, SlmpError> {
-    let length = u32::try_from(points)
+pub(crate) fn checked_span_end_wide(
+    start: u32,
+    points: usize,
+    name: &str,
+) -> Result<u64, SlmpError> {
+    let length = u64::try_from(points)
         .map_err(|_| SlmpError::new(format!("{name} device span is too large")))?;
-    start
+    u64::from(start)
         .checked_add(length.saturating_sub(1))
-        .ok_or_else(|| SlmpError::new(format!("{name} device span overflows u32")))
+        .ok_or_else(|| SlmpError::new(format!("{name} device span is too large")))
+}
+
+pub(crate) fn validate_direct_device_span(
+    device: SlmpDeviceAddress,
+    wire_points: usize,
+    bit_unit: bool,
+    maximum_device_number: u32,
+    name: &str,
+) -> Result<(), SlmpError> {
+    validate_direct_device_span_with_semantics(
+        device,
+        wire_points,
+        bit_unit,
+        false,
+        maximum_device_number,
+        name,
+    )
+}
+
+pub(crate) fn validate_direct_device_span_with_semantics(
+    device: SlmpDeviceAddress,
+    wire_points: usize,
+    bit_unit: bool,
+    long_current_block: bool,
+    maximum_device_number: u32,
+    name: &str,
+) -> Result<(), SlmpError> {
+    let consumed_device_numbers = if bit_unit {
+        wire_points
+    } else if long_current_block
+        && matches!(device.code(), SlmpDeviceCode::LTN | SlmpDeviceCode::LSTN)
+    {
+        wire_points / 4
+    } else if device.code().is_bit_device() {
+        wire_points
+            .checked_mul(16)
+            .ok_or_else(|| SlmpError::new(format!("{name} device span is too large")))?
+    } else {
+        wire_points
+    };
+    if consumed_device_numbers == 0 {
+        return Err(SlmpError::new(format!(
+            "{name} consumed device span must be positive"
+        )));
+    }
+    let consumed_device_numbers = u64::try_from(consumed_device_numbers)
+        .map_err(|_| SlmpError::new(format!("{name} device span is too large")))?;
+    let end = u64::from(device.number())
+        .checked_add(consumed_device_numbers - 1)
+        .ok_or_else(|| SlmpError::new(format!("{name} device span is too large")))?;
+    if end > u64::from(maximum_device_number) {
+        return Err(SlmpError::new(format!(
+            "{name} device span exceeds the selected wire address field: start={}, consumed_device_numbers={consumed_device_numbers}, end={end}, maximum={maximum_device_number}",
+            device.number()
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_memory_word_length(word_length: usize, name: &str) -> Result<(), SlmpError> {
@@ -541,41 +620,50 @@ pub(crate) fn validate_random_write_word_devices(
             ));
         }
     }
-    if !allow_qualified_only_devices {
-        let mut spans = Vec::with_capacity(word_entries.len() + dword_entries.len());
-        spans.extend(word_entries.iter().map(|(device, _)| {
-            (
-                *device,
-                if device.code().is_bit_device() {
-                    16usize
-                } else {
-                    1usize
-                },
-            )
-        }));
-        spans.extend(dword_entries.iter().map(|(device, _)| {
-            (
-                *device,
-                if device.code().is_bit_device() {
-                    32usize
-                } else {
-                    2usize
-                },
-            )
-        }));
-        for (index, (left, left_width)) in spans.iter().enumerate() {
-            let left_end = checked_span_end(left.number(), *left_width, "write_random_words")?;
-            for (right, right_width) in &spans[index + 1..] {
-                if left.plc_profile() != right.plc_profile() || left.code() != right.code() {
-                    continue;
-                }
-                let right_end =
-                    checked_span_end(right.number(), *right_width, "write_random_words")?;
-                if left.number() <= right_end && right.number() <= left_end {
-                    return Err(SlmpError::new(
-                        "write_random_words device ranges must not overlap within one request",
-                    ));
-                }
+    Ok(())
+}
+
+pub(crate) fn validate_random_write_word_overlap(
+    word_entries: &[(SlmpDeviceAddress, u16)],
+    dword_entries: &[(SlmpDeviceAddress, u32)],
+) -> Result<(), SlmpError> {
+    let mut spans = Vec::with_capacity(word_entries.len() + dword_entries.len());
+    spans.extend(word_entries.iter().map(|(device, _)| {
+        (
+            *device,
+            if device.code().is_bit_device() {
+                16usize
+            } else {
+                1usize
+            },
+        )
+    }));
+    spans.extend(dword_entries.iter().map(|(device, _)| {
+        (
+            *device,
+            if device.code().is_bit_device() {
+                32usize
+            } else if is_long_current_value_device(device.code())
+                || is_dword_only_scalar_device(device.code())
+            {
+                1usize
+            } else {
+                2usize
+            },
+        )
+    }));
+    for (index, (left, left_width)) in spans.iter().enumerate() {
+        let left_end = checked_span_end_wide(left.number(), *left_width, "write_random_words")?;
+        for (right, right_width) in &spans[index + 1..] {
+            if left.plc_profile() != right.plc_profile() || left.code() != right.code() {
+                continue;
+            }
+            let right_end =
+                checked_span_end_wide(right.number(), *right_width, "write_random_words")?;
+            if u64::from(left.number()) <= right_end && u64::from(right.number()) <= left_end {
+                return Err(SlmpError::new(
+                    "write_random_words device ranges must not overlap within one request",
+                ));
             }
         }
     }

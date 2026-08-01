@@ -398,6 +398,22 @@ one logical read into multiple requests because the first and last values would
 then be sampled at different times. If multiple requests are intentional, build
 that sequence in the application and handle the temporal split explicitly.
 
+Every contiguous request must also fit the address field selected by the wire
+format: Q/L-compatible and link-direct layouts use 24 bits, while iQ-R layouts
+use 32 bits. A J-qualified link-direct request always uses the 24-bit Q/L layout,
+even when the client profile is iQ-R; other iQ-R Extended Device layouts use
+32 bits. Admission uses the complete consumed span, not the configured PLC
+device-range catalog. Word-unit access to a word device consumes one device per
+word; word-unit packed access to a bit device consumes 16 bit devices per word;
+ordinary DWord/Float32 access consumes two word devices per value (32 bit-device
+numbers per value when packed through a bit family); and one bit-block point
+consumes 16 bit devices. The long-timer Direct status block is the explicit
+exception: four returned words consume one `LTN`/`LSTN` device. Random and
+monitor DWord entries use the same route-specific logical widths. A span that
+crosses the wire maximum is rejected before request counters or transport; the
+library does not substitute profile usable-range policy for this
+wire-representability check.
+
 ```rust
 use plc_comm_slmp::{
     read_words_single_request, SlmpAddress, SlmpClient, SlmpConnectionOptions,
@@ -422,6 +438,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Bit in word
 
 Use `.n` notation when reading through `read_named`, and use `write_bit_in_word` when you need to update one bit inside a word.
+The helper requires a word device and preflights writability before sending its
+read request, so an invalid or non-writable target sends neither half of the
+read-modify-write sequence.
 
 ```rust
 use plc_comm_slmp::{
