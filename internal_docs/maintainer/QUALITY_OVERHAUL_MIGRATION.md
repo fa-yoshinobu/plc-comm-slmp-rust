@@ -941,17 +941,22 @@ Machine-verifiable acceptance criteria:
 - [x] Implementation completed in this repository.
 - [x] Existing deterministic tests explicitly selected for every acceptance criterion.
 - [x] The exact six-command representative selector passed locally on Windows with Rust 1.95 stable.
-- [ ] The new Windows CI job passed on GitHub for the final source state.
+- [x] The new Windows CI job passed on GitHub for the final source state.
 - [x] Codex self-review completed after the local representative and complete verification runs.
 - [x] Live PLC checks are not required; all selected behavior uses localhost loopback.
 - [x] Maintainer CI documentation agrees with the workflow; no user migration note or changelog entry is required.
-- [ ] Final acceptance criteria verified and the item marked complete.
+- [x] Final acceptance criteria verified and the item marked complete.
 
-Verification disposition: the exact selector passed on the local Windows host.
+Verification evidence: the exact selector passed on the local Windows host.
 The complete local stable gate, exact Rust 1.85 MSRV check, package consumer,
 current-worktree source archive, canonical profile, no-auto-publish, and
 `git diff --check` also passed on the reviewed source state. The GitHub-hosted
-Ubuntu and Windows jobs were not run locally, so no hosted-CI pass is claimed.
+Windows representative job passed for reviewed functional source commit
+`94558b4b8475c15048daca1b971f1bd7dbb2d0dd` in
+[PR #50](https://github.com/fa-yoshinobu/plc-comm-slmp-rust/pull/50), with the
+Ubuntu MSRV, full Rust, and sample checks also green. The follow-up change
+records that external evidence only and does not change runtime or workflow
+behavior.
 
 Self-review disposition:
 
