@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: Structured nonzero-end-code responses now require their embedded route, command, and subcommand to match the active request. A mismatch is malformed, retires the transport, and makes a transmitted state change outcome-unknown; matching trailing error data is retained in `SlmpErrorInfo.extra`.
 - BREAKING: Contiguous Direct, Random, Monitor-registration, Block, and applicable Extended Device operations now reject a request whose consumed device span exceeds the selected 24-bit or 32-bit wire address field before request-counter mutation or transport. Packed word access to bit devices consumes 16 device numbers per word, ordinary DWord/Float32 access consumes two word devices per value, and bit blocks consume 16 bit devices per block point. Direct `LTN`/`LSTN` status blocks consume one logical device per four wire words, while native Random/Monitor DWord entries for `LTN`/`LSTN`/`LCN`/`LZ` consume one device number. No configured PLC device-range limit is inferred.
 - Library: `write_bit_in_word` now requires a writable word-device target and validates it before its read request, so an invalid target sends neither half of the explicit read-modify-write sequence.
 - BREAKING: Typed and named semantic units are now exact: `BIT` and every bit-unit operation require a bit device, while numeric/string dtypes require a word device. Explicit low-level word APIs remain available for packed 16-bit access to bit devices.

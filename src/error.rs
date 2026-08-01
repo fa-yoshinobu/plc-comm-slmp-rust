@@ -27,6 +27,10 @@ pub enum SlmpOutcomeUnknownReason {
     MalformedResponse,
 }
 
+/// Structured information carried by a nonzero-end-code SLMP response.
+///
+/// `raw` contains the required nine-byte prefix. `extra` retains every byte
+/// following that prefix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlmpErrorInfo {
     pub network: u8,
@@ -36,6 +40,8 @@ pub struct SlmpErrorInfo {
     pub command: u16,
     pub subcommand: u16,
     pub raw: Vec<u8>,
+    /// Bytes following the required 9-byte error-information prefix.
+    pub extra: Vec<u8>,
 }
 
 impl SlmpErrorInfo {
@@ -52,6 +58,7 @@ impl SlmpErrorInfo {
             command: u16::from_le_bytes([raw[5], raw[6]]),
             subcommand: u16::from_le_bytes([raw[7], raw[8]]),
             raw,
+            extra: data[9..].to_vec(),
         })
     }
 }

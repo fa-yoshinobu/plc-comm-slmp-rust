@@ -130,6 +130,11 @@ CPU-buffer access.
 | Traffic counters | `traffic_stats` |
 | Errors and timeout classification | `SlmpError`, `SlmpErrorKind`, `SlmpOutcomeUnknownReason`, `SlmpError::is_timeout`, `SlmpError::is_outcome_unknown` |
 
+`SlmpErrorInfo` exposes the correlated error route, command, and subcommand.
+Its `raw` field is the required nine-byte prefix; `extra` retains all following
+error-data bytes. A prefix that identifies another request is malformed and
+invalidates the transport instead of becoming a definitive PLC end code.
+
 One client connection admits ordinary operations in FIFO order and permits one wire transaction at
 a time. Its absolute request deadline spans send, receive, correlation, parse, and payload decode.
 `close` invalidates incomplete active and queued work for that exact connection. A complete,

@@ -1,9 +1,9 @@
 use plc_comm_slmp::{
     NamedAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCommand, SlmpConnectionOptions,
-    SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpPlcProfile, SlmpQualifiedDeviceAddress,
-    SlmpTransportMode, SlmpValue, parse_device, parse_qualified_device, parse_scalar_for_named,
-    read_dwords_single_request, read_named, read_typed, write_bit_in_word, write_named,
-    write_typed,
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpOutcomeUnknownReason, SlmpPlcProfile,
+    SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue, parse_device, parse_qualified_device,
+    parse_scalar_for_named, read_dwords_single_request, read_named, read_typed, write_bit_in_word,
+    write_named, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
@@ -71,6 +71,60 @@ impl MultiResponseServer {
 struct CapturingResponseServer {
     port: u16,
     requests: std::sync::Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
+}
+
+#[derive(Clone, Copy)]
+enum ErrorIdentityField {
+    Network,
+    Station,
+    ModuleIo,
+    Multidrop,
+    Command,
+    Subcommand,
+}
+
+struct ErrorCorrelationServer {
+    port: u16,
+}
+
+impl ErrorCorrelationServer {
+    async fn start(
+        transport: SlmpTransportMode,
+        mismatch: Option<ErrorIdentityField>,
+        extra: Vec<u8>,
+    ) -> std::io::Result<Self> {
+        match transport {
+            SlmpTransportMode::Tcp => {
+                let listener = TcpListener::bind("127.0.0.1:0").await?;
+                let port = listener.local_addr()?.port();
+                tokio::spawn(async move {
+                    if let Ok((mut stream, _)) = listener.accept().await {
+                        let Some(request) = read_slmp_request_frame(&mut stream).await else {
+                            return;
+                        };
+                        let mut response = build_response_with_end_code(&request, 0xC051, &extra);
+                        mutate_error_identity(&mut response, mismatch);
+                        let _ = stream.write_all(&response).await;
+                    }
+                });
+                Ok(Self { port })
+            }
+            SlmpTransportMode::Udp => {
+                let socket = UdpSocket::bind("127.0.0.1:0").await?;
+                let port = socket.local_addr()?.port();
+                tokio::spawn(async move {
+                    let mut request = vec![0u8; 65_536];
+                    if let Ok((length, peer)) = socket.recv_from(&mut request).await {
+                        request.truncate(length);
+                        let mut response = build_response_with_end_code(&request, 0xC051, &extra);
+                        mutate_error_identity(&mut response, mismatch);
+                        let _ = socket.send_to(&response, peer).await;
+                    }
+                });
+                Ok(Self { port })
+            }
+        }
+    }
 }
 
 impl CapturingResponseServer {
@@ -240,6 +294,152 @@ fn response_data_with_error_info(request: &[u8], end_code: u16, response_data: &
     data.extend_from_slice(&request[command_offset..command_offset + 4]);
     data.extend_from_slice(response_data);
     data
+}
+
+fn mutate_error_identity(response: &mut [u8], mismatch: Option<ErrorIdentityField>) {
+    let header_size = if response.starts_with(&[0xD0, 0x00]) {
+        9
+    } else {
+        13
+    };
+    let offset = header_size + 2;
+    match mismatch {
+        Some(ErrorIdentityField::Network) => response[offset] = response[offset].wrapping_add(1),
+        Some(ErrorIdentityField::Station) => {
+            response[offset + 1] = response[offset + 1].wrapping_add(1)
+        }
+        Some(ErrorIdentityField::ModuleIo) => {
+            response[offset + 2] = response[offset + 2].wrapping_add(1)
+        }
+        Some(ErrorIdentityField::Multidrop) => {
+            response[offset + 4] = response[offset + 4].wrapping_add(1)
+        }
+        Some(ErrorIdentityField::Command) => {
+            response[offset + 5] = response[offset + 5].wrapping_add(1)
+        }
+        Some(ErrorIdentityField::Subcommand) => {
+            response[offset + 7] = response[offset + 7].wrapping_add(1)
+        }
+        None => {}
+    }
+}
+
+async fn error_correlation_client(
+    transport: SlmpTransportMode,
+    frame_4e: bool,
+    port: u16,
+) -> SlmpClient {
+    let profile = if frame_4e {
+        SlmpPlcProfile::IqR
+    } else {
+        SlmpPlcProfile::IqF
+    };
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        port,
+        transport,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        profile,
+    )
+    .unwrap();
+    SlmpClient::connect(options).await.unwrap()
+}
+
+#[tokio::test]
+async fn structured_error_information_is_correlated_for_every_transport_frame_and_field() {
+    let fields = [
+        ErrorIdentityField::Network,
+        ErrorIdentityField::Station,
+        ErrorIdentityField::ModuleIo,
+        ErrorIdentityField::Multidrop,
+        ErrorIdentityField::Command,
+        ErrorIdentityField::Subcommand,
+    ];
+    for transport in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+        for frame_4e in [false, true] {
+            let profile = if frame_4e {
+                SlmpPlcProfile::IqR
+            } else {
+                SlmpPlcProfile::IqF
+            };
+            for field in fields {
+                let server = ErrorCorrelationServer::start(transport, Some(field), Vec::new())
+                    .await
+                    .unwrap();
+                let client = error_correlation_client(transport, frame_4e, server.port).await;
+                let read_error = client
+                    .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
+                    .await
+                    .unwrap_err();
+                assert_eq!(read_error.kind, SlmpErrorKind::MalformedResponse);
+                assert_eq!(read_error.end_code, None);
+                assert_eq!(
+                    client
+                        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
+                        .await
+                        .unwrap_err()
+                        .kind,
+                    SlmpErrorKind::Closed
+                );
+
+                let server = ErrorCorrelationServer::start(transport, Some(field), Vec::new())
+                    .await
+                    .unwrap();
+                let client = error_correlation_client(transport, frame_4e, server.port).await;
+                let write_error = client
+                    .write_words(
+                        SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile),
+                        &[0x1234],
+                    )
+                    .await
+                    .unwrap_err();
+                assert_eq!(write_error.kind, SlmpErrorKind::OutcomeUnknown);
+                assert_eq!(
+                    write_error.outcome_unknown_reason,
+                    Some(SlmpOutcomeUnknownReason::MalformedResponse)
+                );
+                assert_eq!(write_error.end_code, None);
+                assert_eq!(
+                    client
+                        .write_words(
+                            SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile),
+                            &[0x1234],
+                        )
+                        .await
+                        .unwrap_err()
+                        .kind,
+                    SlmpErrorKind::Closed
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn matching_structured_error_information_with_extra_data_remains_a_plc_error() {
+    for transport in [SlmpTransportMode::Tcp, SlmpTransportMode::Udp] {
+        for frame_4e in [false, true] {
+            for extra in [Vec::new(), vec![0xA5], vec![0xA5, 0x5A, 0xC3]] {
+                let expected_extra = extra.clone();
+                let server = ErrorCorrelationServer::start(transport, None, extra)
+                    .await
+                    .unwrap();
+                let client = error_correlation_client(transport, frame_4e, server.port).await;
+                let profile = if frame_4e {
+                    SlmpPlcProfile::IqR
+                } else {
+                    SlmpPlcProfile::IqF
+                };
+                let error = client
+                    .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.kind, SlmpErrorKind::PlcEndCode);
+                assert_eq!(error.end_code, Some(0xC051));
+                assert_eq!(error.error_info.as_ref().unwrap().extra, expected_extra);
+            }
+        }
+    }
 }
 
 fn build_dword_payload(values: &[u32]) -> Vec<u8> {
