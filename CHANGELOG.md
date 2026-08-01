@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- BREAKING: Contiguous Direct, Random, Monitor-registration, Block, and applicable Extended Device operations now reject a request whose consumed device span exceeds the selected 24-bit or 32-bit wire address field before request-counter mutation or transport. Packed word access to bit devices consumes 16 device numbers per word, ordinary DWord/Float32 access consumes two word devices per value, and bit blocks consume 16 bit devices per block point. Direct `LTN`/`LSTN` status blocks consume one logical device per four wire words, while native Random/Monitor DWord entries for `LTN`/`LSTN`/`LCN`/`LZ` consume one device number. No configured PLC device-range limit is inferred.
+- Library: `write_bit_in_word` now requires a writable word-device target and validates it before its read request, so an invalid target sends neither half of the explicit read-modify-write sequence.
 - BREAKING: Typed and named semantic units are now exact: `BIT` and every bit-unit operation require a bit device, while numeric/string dtypes require a word device. Explicit low-level word APIs remain available for packed 16-bit access to bit devices.
 - BREAKING: `read_named` and `poll_named` reject `LTN`/`LSTN` current values and `LTS`/`LTC`/`LSTS`/`LSTC` states before transport because they require the Direct long-timer route. Use `read_typed` or an explicit long-timer helper.
 - Library: Route validation now derives Random Read/Write, Block Read/Write, and LZ coverage from the canonical profile. Q/L Ethernet-unit profiles keep Random and Block coverage while base Q/L profiles omit Block; generic Random validation no longer parses or sends LZ.

@@ -2,7 +2,8 @@ use plc_comm_slmp::{
     NamedAddress, SlmpBlockRead, SlmpBlockWrite, SlmpClient, SlmpCommand, SlmpConnectionOptions,
     SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpPlcProfile, SlmpQualifiedDeviceAddress,
     SlmpTransportMode, SlmpValue, parse_device, parse_qualified_device, parse_scalar_for_named,
-    read_dwords_single_request, read_named, read_typed, write_named, write_typed,
+    read_dwords_single_request, read_named, read_typed, write_bit_in_word, write_named,
+    write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
@@ -868,17 +869,952 @@ async fn continuous_u32_address_overflow_is_rejected_before_transport() {
     let lz_error = read_dwords_single_request(&client, lz, 2)
         .await
         .unwrap_err();
-    assert!(lz_error.message.contains("span overflows u32"));
+    assert!(lz_error.message.contains("wire address field"));
 
     let timer_error = client.read_long_timer(u32::MAX, 2).await.unwrap_err();
-    assert!(timer_error.message.contains("span overflows u32"));
+    assert!(timer_error.message.contains("wire address field"));
 
     let retentive_error = client
         .read_long_retentive_timer(u32::MAX, 2)
         .await
         .unwrap_err();
-    assert!(retentive_error.message.contains("span overflows u32"));
+    assert!(retentive_error.message.contains("wire address field"));
     assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn write_span_errors_precede_overlap_and_transport() {
+    let client = udp_client().await;
+    let maximum_bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, u32::MAX, SlmpPlcProfile::IqR);
+    let qualified_maximum = SlmpQualifiedDeviceAddress::module_access(maximum_bit, 1).unwrap();
+
+    let ordinary_error = client
+        .write_random_words(&[(maximum_bit, 1), (maximum_bit, 2)], &[])
+        .await
+        .unwrap_err();
+    assert!(ordinary_error.message.contains("wire address field"));
+    assert!(!ordinary_error.message.contains("overlap"));
+
+    let qualified_error = client
+        .write_random_words_ext(&[(qualified_maximum, 1), (qualified_maximum, 2)], &[])
+        .await
+        .unwrap_err();
+    assert!(qualified_error.message.contains("wire address field"));
+    assert!(!qualified_error.message.contains("overlap"));
+
+    let block_error = client
+        .write_bit_blocks(&[
+            SlmpBlockWrite {
+                device: maximum_bit,
+                values: vec![1],
+            },
+            SlmpBlockWrite {
+                device: maximum_bit,
+                values: vec![2],
+            },
+        ])
+        .await
+        .unwrap_err();
+    assert!(block_error.message.contains("wire address field"));
+    assert!(!block_error.message.contains("overlap"));
+
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn direct_word_bit_dword_and_float_spans_accept_valid_wire_boundaries() {
+    for profile in [SlmpPlcProfile::IqR, SlmpPlcProfile::QnU] {
+        let server = CapturingResponseServer::start(vec![
+            (0, vec![0x34, 0x12]),
+            (0, Vec::new()),
+            (0, vec![0x10]),
+            (0, Vec::new()),
+            (0, vec![0x78, 0x56, 0x34, 0x12]),
+            (0, Vec::new()),
+            (0, 1.0f32.to_bits().to_le_bytes().to_vec()),
+            (0, Vec::new()),
+        ])
+        .await
+        .unwrap();
+        let options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            server.port,
+            SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            profile,
+        )
+        .unwrap();
+        let client = SlmpClient::connect(options).await.unwrap();
+        let maximum = if profile == SlmpPlcProfile::IqR {
+            u32::MAX
+        } else {
+            0x00FF_FFFF
+        };
+        let word = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum, profile);
+        let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum, profile);
+        let wide = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum - 1, profile);
+
+        assert_eq!(client.read_words_raw(word, 1).await.unwrap(), vec![0x1234]);
+        client.write_words(word, &[0x1234]).await.unwrap();
+        assert_eq!(client.read_bits(bit, 1).await.unwrap(), vec![true]);
+        client.write_bits(bit, &[true]).await.unwrap();
+        assert_eq!(
+            client.read_dwords_raw(wide, 1).await.unwrap(),
+            vec![0x1234_5678]
+        );
+        client.write_dwords(wide, &[0x1234_5678]).await.unwrap();
+        assert_eq!(client.read_float32s(wide, 1).await.unwrap(), vec![1.0]);
+        client.write_float32s(wide, &[1.0]).await.unwrap();
+
+        assert_eq!(client.traffic_stats().await.request_count, 8);
+        assert_eq!(server.requests().await.len(), 8);
+        client.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn direct_word_bit_dword_and_float_spans_reject_overflow_before_transport() {
+    for profile in [SlmpPlcProfile::IqR, SlmpPlcProfile::QnU] {
+        let client = udp_client_with_profile(profile).await;
+        let maximum = if profile == SlmpPlcProfile::IqR {
+            u32::MAX
+        } else {
+            0x00FF_FFFF
+        };
+        let word = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum, profile);
+        let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum, profile);
+        let valid_wide_start = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum - 1, profile);
+
+        assert!(
+            client
+                .read_words_raw(word, 2)
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_words(word, &[1, 2])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .read_bits(bit, 2)
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_bits(bit, &[true, false])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+
+        for start in [valid_wide_start, word] {
+            let count = if start == valid_wide_start { 2 } else { 1 };
+            let dword_values = vec![1; count as usize];
+            let float_values = vec![1.0; count as usize];
+            assert!(
+                client
+                    .read_dwords_raw(start, count)
+                    .await
+                    .unwrap_err()
+                    .message
+                    .contains("wire address field")
+            );
+            assert!(
+                client
+                    .write_dwords(start, &dword_values)
+                    .await
+                    .unwrap_err()
+                    .message
+                    .contains("wire address field")
+            );
+            assert!(
+                client
+                    .read_float32s(start, count)
+                    .await
+                    .unwrap_err()
+                    .message
+                    .contains("wire address field")
+            );
+            assert!(
+                client
+                    .write_float32s(start, &float_values)
+                    .await
+                    .unwrap_err()
+                    .message
+                    .contains("wire address field")
+            );
+        }
+
+        assert_eq!(client.traffic_stats().await.request_count, 0);
+    }
+}
+
+#[tokio::test]
+async fn packed_bit_device_word_spans_count_sixteen_device_numbers() {
+    for profile in [SlmpPlcProfile::IqR, SlmpPlcProfile::QnU] {
+        let client = udp_client_with_profile(profile).await;
+        let maximum = if profile == SlmpPlcProfile::IqR {
+            u32::MAX
+        } else {
+            0x00FF_FFFF
+        };
+        let valid_start = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum - 15, profile);
+        let valid_dword_start = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum - 31, profile);
+        let invalid_start = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum, profile);
+
+        assert!(
+            client
+                .read_words_raw(valid_start, 2)
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_words(valid_start, &[1, 2])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .read_words_raw(invalid_start, 1)
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_words(invalid_start, &[1])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .read_dwords_raw(valid_dword_start, 2)
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_dwords(valid_dword_start, &[1, 2])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .read_float32s(invalid_start, 1)
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_float32s(invalid_start, &[1.0])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert_eq!(client.traffic_stats().await.request_count, 0);
+    }
+}
+
+#[tokio::test]
+async fn packed_bit_device_dword_and_float_accept_exact_boundary() {
+    for profile in [SlmpPlcProfile::IqR, SlmpPlcProfile::QnU] {
+        let server = CapturingResponseServer::start(vec![
+            (0, vec![0x78, 0x56, 0x34, 0x12]),
+            (0, Vec::new()),
+            (0, 1.0f32.to_bits().to_le_bytes().to_vec()),
+            (0, Vec::new()),
+        ])
+        .await
+        .unwrap();
+        let options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            server.port,
+            SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            profile,
+        )
+        .unwrap();
+        let client = SlmpClient::connect(options).await.unwrap();
+        let maximum = if profile == SlmpPlcProfile::IqR {
+            u32::MAX
+        } else {
+            0x00FF_FFFF
+        };
+        let start = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum - 31, profile);
+
+        assert_eq!(
+            client.read_dwords_raw(start, 1).await.unwrap(),
+            vec![0x1234_5678]
+        );
+        client.write_dwords(start, &[0x1234_5678]).await.unwrap();
+        assert_eq!(client.read_float32s(start, 1).await.unwrap(), vec![1.0]);
+        client.write_float32s(start, &[1.0]).await.unwrap();
+
+        assert_eq!(client.traffic_stats().await.request_count, 4);
+        assert_eq!(server.requests().await.len(), 4);
+        client.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn long_timer_direct_blocks_count_one_device_per_four_words() {
+    let profile = SlmpPlcProfile::IqR;
+    let last_timer = SlmpDeviceAddress::new(SlmpDeviceCode::LTN, u32::MAX, profile);
+    let server = CapturingResponseServer::start(vec![(0, vec![0; 8]), (0, vec![0; 8])])
+        .await
+        .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        profile,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    assert_eq!(
+        client.read_words_raw(last_timer, 4).await.unwrap(),
+        vec![0; 4]
+    );
+    let block = client
+        .read_word_blocks(&[SlmpBlockRead {
+            device: last_timer,
+            points: 4,
+        }])
+        .await
+        .unwrap();
+    assert_eq!(block.word_values, vec![0; 4]);
+    assert_eq!(client.traffic_stats().await.request_count, 2);
+    client.close().await.unwrap();
+
+    let invalid = udp_client_with_profile(profile).await;
+    assert!(
+        invalid
+            .read_words_raw(last_timer, 8)
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        invalid
+            .read_word_blocks(&[SlmpBlockRead {
+                device: last_timer,
+                points: 8,
+            }])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert_eq!(invalid.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn random_monitor_and_block_routes_reject_consumed_span_overflow_before_transport() {
+    for profile in [SlmpPlcProfile::IqR, SlmpPlcProfile::QnUQj71E71100] {
+        let client = udp_client_with_profile(profile).await;
+        let maximum = if profile == SlmpPlcProfile::IqR {
+            u32::MAX
+        } else {
+            0x00FF_FFFF
+        };
+        let invalid_dword = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum, profile);
+        let last_word = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum, profile);
+        let last_bit_block = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum - 15, profile);
+
+        assert!(
+            client
+                .read_random(&[], &[invalid_dword])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_random_words(&[], &[(invalid_dword, 1)])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .register_monitor_devices(&[], &[invalid_dword])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .read_word_blocks(&[SlmpBlockRead {
+                    device: last_word,
+                    points: 2,
+                }])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .read_bit_blocks(&[SlmpBlockRead {
+                    device: last_bit_block,
+                    points: 2,
+                }])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_word_blocks(&[SlmpBlockWrite {
+                    device: last_word,
+                    values: vec![1, 2],
+                }])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+        assert!(
+            client
+                .write_bit_blocks(&[SlmpBlockWrite {
+                    device: last_bit_block,
+                    values: vec![1, 2],
+                }])
+                .await
+                .unwrap_err()
+                .message
+                .contains("wire address field")
+        );
+
+        assert_eq!(client.traffic_stats().await.request_count, 0);
+    }
+}
+
+#[tokio::test]
+async fn random_monitor_and_block_routes_accept_exact_consumed_span_boundaries() {
+    for profile in [SlmpPlcProfile::IqR, SlmpPlcProfile::QnUQj71E71100] {
+        let server = CapturingResponseServer::start(vec![
+            (0, vec![0x78, 0x56, 0x34, 0x12]),
+            (0, Vec::new()),
+            (0, Vec::new()),
+            (0, vec![0x34, 0x12]),
+            (0, vec![0x01, 0x00]),
+            (0, Vec::new()),
+            (0, Vec::new()),
+        ])
+        .await
+        .unwrap();
+        let options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            server.port,
+            SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            profile,
+        )
+        .unwrap();
+        let client = SlmpClient::connect(options).await.unwrap();
+        let maximum = if profile == SlmpPlcProfile::IqR {
+            u32::MAX
+        } else {
+            0x00FF_FFFF
+        };
+        let dword = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum - 1, profile);
+        let word = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum, profile);
+        let bit_block = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum - 15, profile);
+
+        assert_eq!(
+            client
+                .read_random(&[], &[dword])
+                .await
+                .unwrap()
+                .dword_values,
+            vec![0x1234_5678]
+        );
+        client.write_random_words(&[], &[(dword, 1)]).await.unwrap();
+        client
+            .register_monitor_devices(&[], &[dword])
+            .await
+            .unwrap();
+        let word_result = client
+            .read_word_blocks(&[SlmpBlockRead {
+                device: word,
+                points: 1,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(word_result.word_values, vec![0x1234]);
+        let bit_result = client
+            .read_bit_blocks(&[SlmpBlockRead {
+                device: bit_block,
+                points: 1,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(bit_result.bit_values, vec![1]);
+        client
+            .write_word_blocks(&[SlmpBlockWrite {
+                device: word,
+                values: vec![1],
+            }])
+            .await
+            .unwrap();
+        client
+            .write_bit_blocks(&[SlmpBlockWrite {
+                device: bit_block,
+                values: vec![1],
+            }])
+            .await
+            .unwrap();
+
+        assert_eq!(client.traffic_stats().await.request_count, 7);
+        assert_eq!(server.requests().await.len(), 7);
+        client.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn extended_routes_use_selected_wire_width_before_transport() {
+    let client = udp_client().await;
+    let iqr_maximum = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::D, u32::MAX, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+    let link_maximum = SlmpQualifiedDeviceAddress::link_direct(
+        SlmpDeviceAddress::new(SlmpDeviceCode::SW, 0x00FF_FFFF, SlmpPlcProfile::IqR),
+        2,
+    );
+    let iqr_bit_maximum = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::M, u32::MAX, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+    let iqr_packed_word = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::M, u32::MAX - 15, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+    let link_bit_maximum = SlmpQualifiedDeviceAddress::link_direct(
+        SlmpDeviceAddress::new(SlmpDeviceCode::B, 0x00FF_FFFF, SlmpPlcProfile::IqR),
+        2,
+    );
+
+    assert!(
+        client
+            .read_words_extended(iqr_maximum, 2)
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .read_words_extended(link_maximum, 2)
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .write_words_extended(iqr_maximum, &[1, 2])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .read_bits_extended(iqr_bit_maximum, 2)
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .write_bits_extended(iqr_bit_maximum, &[true, false])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .read_bits_extended(link_bit_maximum, 2)
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .write_bits_extended(link_bit_maximum, &[true, false])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .read_words_extended(iqr_packed_word, 2)
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .write_words_extended(iqr_packed_word, &[1, 2])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .read_random_ext(&[], &[link_maximum])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .write_random_words_ext(&[], &[(link_maximum, 1)])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .register_monitor_devices_ext(&[], &[link_maximum])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .read_random_ext(&[], &[iqr_bit_maximum])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .write_random_words_ext(&[], &[(iqr_bit_maximum, 1)])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert!(
+        client
+            .register_monitor_devices_ext(&[], &[iqr_bit_maximum])
+            .await
+            .unwrap_err()
+            .message
+            .contains("wire address field")
+    );
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn extended_routes_accept_representative_exact_span_boundaries() {
+    let server = CapturingResponseServer::start(vec![
+        (0, vec![0x34, 0x12]),
+        (0, Vec::new()),
+        (0, vec![0x78, 0x56]),
+        (0, Vec::new()),
+        (0, vec![0xBC, 0x9A]),
+        (0, vec![0x78, 0x56, 0x34, 0x12]),
+        (0, Vec::new()),
+        (0, Vec::new()),
+    ])
+    .await
+    .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    let word_maximum = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::D, u32::MAX, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+    let packed_word_maximum = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::M, u32::MAX - 15, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+    let packed_dword_maximum = SlmpQualifiedDeviceAddress::module_access(
+        SlmpDeviceAddress::new(SlmpDeviceCode::M, u32::MAX - 31, SlmpPlcProfile::IqR),
+        1,
+    )
+    .unwrap();
+    let link_word_maximum = SlmpQualifiedDeviceAddress::link_direct(
+        SlmpDeviceAddress::new(SlmpDeviceCode::SW, 0x00FF_FFFF, SlmpPlcProfile::IqR),
+        2,
+    );
+
+    assert_eq!(
+        client.read_words_extended(word_maximum, 1).await.unwrap(),
+        vec![0x1234]
+    );
+    client
+        .write_words_extended(word_maximum, &[0x1234])
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .read_words_extended(packed_word_maximum, 1)
+            .await
+            .unwrap(),
+        vec![0x5678]
+    );
+    client
+        .write_words_extended(packed_word_maximum, &[0x5678])
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .read_words_extended(link_word_maximum, 1)
+            .await
+            .unwrap(),
+        vec![0x9ABC]
+    );
+    assert_eq!(
+        client
+            .read_random_ext(&[], &[packed_dword_maximum])
+            .await
+            .unwrap()
+            .dword_values,
+        vec![0x1234_5678]
+    );
+    client
+        .write_random_words_ext(&[], &[(packed_dword_maximum, 1)])
+        .await
+        .unwrap();
+    client
+        .register_monitor_devices_ext(&[], &[packed_dword_maximum])
+        .await
+        .unwrap();
+
+    assert_eq!(client.traffic_stats().await.request_count, 8);
+    assert_eq!(server.requests().await.len(), 8);
+    client.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn random_and_monitor_accept_packed_and_native_exact_span_boundaries() {
+    let mut responses = vec![
+        (0, vec![0x78, 0x56, 0x34, 0x12]),
+        (0, Vec::new()),
+        (0, Vec::new()),
+    ];
+    for _ in 0..4 {
+        responses.extend([
+            (0, vec![0x78, 0x56, 0x34, 0x12]),
+            (0, Vec::new()),
+            (0, Vec::new()),
+        ]);
+    }
+    let server = CapturingResponseServer::start(responses).await.unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    let packed = SlmpDeviceAddress::new(SlmpDeviceCode::M, u32::MAX - 31, SlmpPlcProfile::IqR);
+
+    assert_eq!(
+        client
+            .read_random(&[], &[packed])
+            .await
+            .unwrap()
+            .dword_values,
+        vec![0x1234_5678]
+    );
+    client
+        .write_random_words(&[], &[(packed, 1)])
+        .await
+        .unwrap();
+    client
+        .register_monitor_devices(&[], &[packed])
+        .await
+        .unwrap();
+
+    for code in [
+        SlmpDeviceCode::LTN,
+        SlmpDeviceCode::LSTN,
+        SlmpDeviceCode::LCN,
+        SlmpDeviceCode::LZ,
+    ] {
+        let device = SlmpDeviceAddress::new(code, u32::MAX, SlmpPlcProfile::IqR);
+        assert_eq!(
+            client
+                .read_random(&[], &[device])
+                .await
+                .unwrap()
+                .dword_values,
+            vec![0x1234_5678]
+        );
+        client
+            .write_random_words(&[], &[(device, 1)])
+            .await
+            .unwrap();
+        client
+            .register_monitor_devices(&[], &[device])
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(client.traffic_stats().await.request_count, 15);
+    assert_eq!(server.requests().await.len(), 15);
+    client.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn packed_bit_write_overlap_uses_consumed_device_spans() {
+    let client = udp_client().await;
+    let m0 = SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, SlmpPlcProfile::IqR);
+    let m15 = SlmpDeviceAddress::new(SlmpDeviceCode::M, 15, SlmpPlcProfile::IqR);
+    let m31 = SlmpDeviceAddress::new(SlmpDeviceCode::M, 31, SlmpPlcProfile::IqR);
+    let q0 = SlmpQualifiedDeviceAddress::module_access(m0, 1).unwrap();
+    let q15 = SlmpQualifiedDeviceAddress::module_access(m15, 1).unwrap();
+    let q_null = SlmpQualifiedDeviceAddress::new(m0);
+    let q_zero = SlmpQualifiedDeviceAddress::module_access(m15, 0).unwrap();
+    let q_same_zero = SlmpQualifiedDeviceAddress::module_access(m0, 0).unwrap();
+
+    assert!(
+        client
+            .write_random_words(&[(m0, 1), (m15, 2)], &[])
+            .await
+            .unwrap_err()
+            .message
+            .contains("must not overlap")
+    );
+    assert!(
+        client
+            .write_random_words(&[(m31, 1)], &[(m0, 2)])
+            .await
+            .unwrap_err()
+            .message
+            .contains("must not overlap")
+    );
+    assert!(
+        client
+            .write_random_words_ext(&[(q0, 1), (q15, 2)], &[])
+            .await
+            .unwrap_err()
+            .message
+            .contains("must not overlap")
+    );
+    assert!(
+        client
+            .write_random_words_ext(&[(q_null, 1), (q_zero, 2)], &[])
+            .await
+            .unwrap_err()
+            .message
+            .contains("must not overlap")
+    );
+    assert!(
+        client
+            .write_random_bits_ext(&[(q_null, true), (q_same_zero, false)])
+            .await
+            .unwrap_err()
+            .message
+            .contains("must not be duplicated")
+    );
+    assert!(
+        client
+            .write_bit_blocks(&[
+                SlmpBlockWrite {
+                    device: m0,
+                    values: vec![1],
+                },
+                SlmpBlockWrite {
+                    device: m15,
+                    values: vec![2],
+                },
+            ])
+            .await
+            .unwrap_err()
+            .message
+            .contains("must not overlap")
+    );
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn adjacent_native_dword_random_writes_do_not_overlap() {
+    let server = CapturingResponseServer::start(vec![(0, Vec::new())])
+        .await
+        .unwrap();
+    let options = SlmpConnectionOptions::new(
+        "127.0.0.1",
+        server.port,
+        SlmpTransportMode::Tcp,
+        plc_comm_slmp::SlmpTargetAddress::default(),
+        SlmpPlcProfile::IqR,
+    )
+    .unwrap();
+    let client = SlmpClient::connect(options).await.unwrap();
+    let lcn0 = SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 0, SlmpPlcProfile::IqR);
+    let lcn1 = SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 1, SlmpPlcProfile::IqR);
+
+    client
+        .write_random_words(&[], &[(lcn0, 1), (lcn1, 2)])
+        .await
+        .unwrap();
+
+    assert_eq!(client.traffic_stats().await.request_count, 1);
+    assert_eq!(server.requests().await.len(), 1);
+    client.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -909,6 +1845,19 @@ async fn typed_writes_reject_cross_type_coercion_before_transport() {
     ];
     for (dtype, value) in invalid {
         assert!(write_typed(&client, device, dtype, &value).await.is_err());
+    }
+    assert_eq!(client.traffic_stats().await.request_count, 0);
+}
+
+#[tokio::test]
+async fn bit_in_word_rejects_bit_devices_before_the_read_request() {
+    let client = udp_client().await;
+    for code in [SlmpDeviceCode::S, SlmpDeviceCode::M] {
+        let bit_device = SlmpDeviceAddress::new(code, 0, SlmpPlcProfile::IqR);
+        let error = write_bit_in_word(&client, bit_device, 0, true)
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("requires a word device"));
     }
     assert_eq!(client.traffic_stats().await.request_count, 0);
 }

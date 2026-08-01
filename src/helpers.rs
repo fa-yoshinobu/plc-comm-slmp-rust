@@ -1,6 +1,5 @@
 use crate::address::{parse_device, parse_named_address};
 use crate::client::SlmpClient;
-use crate::client_rules::checked_span_end;
 use crate::error::SlmpError;
 use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile};
 use async_stream::try_stream;
@@ -182,6 +181,9 @@ pub async fn write_bit_in_word(
     if bit_index > 15 {
         return Err(SlmpError::new("bit_index must be 0-15."));
     }
+    if !device.code().is_word_device() {
+        return Err(SlmpError::new("write_bit_in_word requires a word device"));
+    }
     client
         .write_bit_in_word_turn(device, bit_index, value)
         .await
@@ -203,9 +205,15 @@ pub async fn read_dwords_single_request(
 ) -> Result<Vec<u32>, SlmpError> {
     if matches!(start.code(), SlmpDeviceCode::LZ) {
         validate_single_request_count(count, RANDOM_READ_BATCH_LIMIT)?;
-        let end = checked_span_end(start.number(), count, "read_dwords_single_request")?;
-        let devices = (start.number()..=end)
-            .map(|number| SlmpDeviceAddress::new(start.code(), number, start.plc_profile()))
+        client
+            .validate_random_native_dword_sequence(start, count, "read_dwords_single_request")
+            .await?;
+        let devices = (0..count)
+            .map(|offset| {
+                let number = u32::try_from(u64::from(start.number()) + offset as u64)
+                    .expect("selected wire span was validated");
+                SlmpDeviceAddress::new(start.code(), number, start.plc_profile())
+            })
             .collect::<Vec<_>>();
         return Ok(client.read_random(&[], &devices).await?.dword_values);
     }
