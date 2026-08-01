@@ -26,11 +26,25 @@
 | --- | --- | --- |
 | `host` | value passed to `new` | PLC host name or IP address. |
 | `port` | required argument | TCP or UDP destination port. |
-| `timeout` | 3 seconds | Absolute deadline for the complete request send and matching response. |
+| `timeout` | 3 seconds | Absolute deadline used separately for complete connection establishment and for each complete request. |
 | `tcp_keepalive` | 30 seconds | TCP keepalive idle time, or `None`. |
 | `target` | required argument | SLMP target address fields; pass `SlmpTargetAddress::default()` explicitly for the own station. |
 | `transport_mode` | required argument | TCP or UDP. |
 | `monitoring_timer` | `0x0010` | SLMP monitoring timer. |
+
+`SlmpClient::connect` creates one monotonic connection deadline before IPv4
+hostname resolution or socket work. TCP resolution, every selected IPv4
+candidate, no-delay and keepalive configuration, and final adoption share that
+single deadline. UDP resolution, bind, connect, and adoption use the same rule.
+An IPv4 literal bypasses DNS. The library never tries IPv6 or gives each phase
+or candidate a fresh timeout.
+
+Connection-deadline expiry returns `SlmpErrorKind::Timeout` and exposes no
+client. If all selected candidates fail before expiry, the error is
+`SlmpErrorKind::Transport` with the connection cause. Dropping the connect
+future cancels the public operation; a platform DNS call that cannot be stopped
+may finish in its background task, but its result is discarded and cannot
+create or mutate a client.
 
 ```rust
 use std::time::Duration;

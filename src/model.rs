@@ -973,6 +973,7 @@ pub struct SlmpConnectionOptions {
     /// PLC IPv4 address or hostname that resolves to IPv4. IPv6 is unsupported.
     pub host: String,
     pub port: u16,
+    /// One absolute bound for connection establishment and, separately, each request.
     pub timeout: Duration,
     pub tcp_keepalive: Option<Duration>,
     pub(crate) plc_profile: SlmpPlcProfile,

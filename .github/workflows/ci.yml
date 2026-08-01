@@ -59,3 +59,33 @@ jobs:
         working-directory: plc-comm-slmp-rust
         shell: pwsh
         run: ./scripts/check_source_archive.ps1
+
+  windows-contract-smoke:
+    name: Windows representative contract smoke
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check refused connection classification
+        run: cargo test candidate_exhaustion_before_deadline_is_transport_not_timeout
+
+      - name: Check segmented receive absolute deadline
+        run: cargo test --test response_correlation segmented_tcp_response_assembly_does_not_restart_the_deadline
+
+      - name: Check cancellation transport retirement
+        run: cargo test --test cancellation externally_cancelled_exchange_closes_transport
+
+      - name: Check close retirement of active and queued work
+        run: cargo test --test overhaul_contracts close_rejects_active_write_as_unknown_and_queued_read_without_sending
+
+      - name: Check timeout retirement before reconnect
+        run: cargo test --test route_guards udp_timeout_closes_transport_before_another_request
+
+      - name: Check delayed data cannot leak into a new session
+        run: cargo test --test response_correlation saturated_foreign_route_flood_cannot_starve_deadline_or_leak_to_new_session

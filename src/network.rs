@@ -1,5 +1,5 @@
 use crate::error::SlmpError;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 
 pub(crate) fn normalize_ipv4_host(host: &str) -> Result<String, SlmpError> {
     let normalized = host.trim();
@@ -21,6 +21,9 @@ pub(crate) fn normalize_ipv4_host(host: &str) -> Result<String, SlmpError> {
 
 pub(crate) fn resolve_ipv4_addresses(host: &str, port: u16) -> Result<Vec<SocketAddr>, SlmpError> {
     let normalized = normalize_ipv4_host(host)?;
+    if let Ok(address) = normalized.parse::<Ipv4Addr>() {
+        return Ok(vec![SocketAddr::from((address, port))]);
+    }
     let resolved = (normalized.as_str(), port)
         .to_socket_addrs()
         .map_err(|error| {
@@ -60,5 +63,13 @@ mod tests {
         let addresses = resolve_ipv4_addresses("localhost", 1025).unwrap();
         assert!(!addresses.is_empty());
         assert!(addresses.iter().all(SocketAddr::is_ipv4));
+    }
+
+    #[test]
+    fn ipv4_literal_resolution_does_not_need_a_system_resolver() {
+        assert_eq!(
+            resolve_ipv4_addresses("127.0.0.1", 1025).unwrap(),
+            vec!["127.0.0.1:1025".parse().unwrap()]
+        );
     }
 }
