@@ -732,6 +732,62 @@ Acceptance criteria:
 - [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
 - [x] Final acceptance criteria verified and the item marked complete.
 
+## GOAL-SERIAL-DEFER-002-CONNECT — One absolute connection deadline
+
+Scope: explicit TCP and UDP connection establishment, including IPv4 hostname
+resolution, established address selection, socket work, TCP configuration, and
+final client-state adoption.
+
+Target contract: `SlmpClient::connect` creates one overflow-checked monotonic
+deadline immediately before resolution or socket work. IPv4 DNS and every TCP
+candidate selected by the existing sequential policy share that deadline. UDP
+resolution, bind, connect, and adoption use the same deadline. TCP no-delay and
+optional keepalive configuration complete before adoption and within the same
+deadline. Expiry returns `SlmpErrorKind::Timeout`, disposes partial sockets, and
+never adopts a late result. Candidate exhaustion before expiry remains a
+`SlmpErrorKind::Transport` failure with its cause. IPv4-only behavior is unchanged.
+
+Compatibility impact: the public API and IPv4 policy do not change. A connection
+that previously consumed DNS time plus a fresh timeout for each TCP candidate can
+now return timeout at the configured absolute bound.
+
+Acceptance criteria:
+
+1. TCP and UDP create exactly one connection deadline before resolver or socket work.
+2. Delayed resolver completion after expiry returns Timeout, starts no candidate,
+   and cannot be adopted later.
+3. Sequential TCP candidates receive only the time remaining to the same deadline;
+   a later candidate succeeds only when it completes before that deadline.
+4. IPv4 literals bypass DNS, while hostname results remain filtered to IPv4 without
+   alternate-family, route, profile, or discovery fallback.
+5. TCP no-delay/keepalive configuration and UDP bind/connect finish before final
+   client adoption and are bounded by the same deadline.
+6. Absolute expiry is Timeout; pre-deadline resolver/candidate/socket failure is
+   Transport; validation remains General; no connection failure is OutcomeUnknown.
+7. Deterministic resolver/candidate tests, loopback TCP/UDP tests, complete Rust
+   gates, documentation checks, and actual-diff self-review pass.
+
+Self-review findings:
+
+- `CONNECT-R-1` — Accepted and corrected. Native DNS, candidate, bind/connect,
+  no-delay, and keepalive failures that complete before absolute expiry are
+  explicitly mapped to Transport; only the library deadline creates Timeout.
+- `CONNECT-R-2` — Accepted and corrected. TCP configuration runs in a detached
+  blocking task owned only by the connect future. If its deadline wins, the late
+  task result is dropped with the socket and cannot reach client state.
+- `CONNECT-R-3` — Rejected with rationale. No public cancellation-token parameter
+  is added: Rust caller cancellation is dropping the connect future. That path
+  produces no timeout result, owns no client state, and cannot adopt detached DNS
+  or configuration output, so it remains distinguishable without an API change.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC checks are not required for deterministic resolver, loopback, and deadline behavior.
+- [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
 ## GOAL-FIFO-DEFER-001 — Ordinary client FIFO and close generation
 
 Scope: all clones of one `SlmpClient`; separate client instances are separate queues.
@@ -834,6 +890,7 @@ Acceptance criteria:
 | RUST-20260801-10 | Accepted | Worktree source validation copied paths returned by `git ls-files`; a tracked deletion therefore failed at `Copy-Item` instead of producing the intended archive. The gate now creates a synthetic tree with a temporary Git index and `git add -A`, covering modifications, non-ignored untracked files, and deletions without changing the real index. |
 | RUST-20260801-11 | Accepted | The first temporary index was placed under the repository `build/` tree, allowing `git add -A` to stage the index and lock files themselves. The index now lives in the validated workspace parent, outside the repository, and both index paths are removed in `finally`. |
 | RUST-20260801-12 | Accepted | The source archive was extracted below the original repository's Cargo workspace, so its nested generated-crate check could be associated with the outer checkout. The complete source-archive work root now lives in the validated workspace parent outside the repository; packaged-crate and consumer checks cannot resolve through the original workspace. |
+| RUST-20260801-13 | Accepted | The final Clippy gate found a redundant closure around `TcpStream::connect` in the new absolute-deadline connector. Replaced it with the function item and reran Clippy plus the complete Rust, package, source-archive, MSRV, and representative Windows gates. |
 
 Final verification evidence:
 
@@ -852,3 +909,56 @@ Final verification evidence:
   13 examples and rustdoc, and compiled the isolated consumer.
 - Canonical profile drift, no-auto-publish policy, and `git diff --check` passed.
 - No live PLC communication, commit, push, release, or public-registry publication was performed.
+
+## GOAL-CROSS-OS-CI-001 — Required Windows representative contract smoke
+
+Implementation scope: the repository CI workflow and existing deterministic
+Tokio loopback tests. Runtime code, public API, packaging, release workflows,
+the Ubuntu MSRV job, and the Ubuntu full workspace gate are unchanged.
+
+Target contract: the primary Ubuntu gates remain authoritative. One additional
+non-optional Windows stable-Rust job runs only representative localhost
+contracts for segmented TCP receive under one deadline, post-send cancellation
+retirement, refused connection classification, close retirement of active/queued
+work, UDP timeout retirement, and rejection of delayed data before a new session.
+The job has a ten-minute bound and does not run the complete test, feature,
+Node, documentation, or package matrices.
+
+Compatibility impact: none; this adds CI evidence only.
+
+Machine-verifiable acceptance criteria:
+
+1. `.github/workflows/ci.yml` contains exactly one `windows-latest` contract-
+   smoke job in addition to the unchanged Ubuntu MSRV and full gates.
+2. The Windows job is required by workflow semantics: it has no conditional,
+   failure suppression, or `continue-on-error` path.
+3. Its six explicit test filters cover connection failure, fragmented receive/
+   deadline behavior, cancellation, active/queued close retirement, timeout
+   generation retirement, reconnect, and delayed-data rejection.
+4. The Windows job installs only the stable toolchain, runs the bounded
+   integration-test subset, and does not package, publish, or contact a PLC.
+
+- [x] Implementation completed in this repository.
+- [x] Existing deterministic tests explicitly selected for every acceptance criterion.
+- [x] The exact six-command representative selector passed locally on Windows with Rust 1.95 stable.
+- [ ] The new Windows CI job passed on GitHub for the final source state.
+- [x] Codex self-review completed after the local representative and complete verification runs.
+- [x] Live PLC checks are not required; all selected behavior uses localhost loopback.
+- [x] Maintainer CI documentation agrees with the workflow; no user migration note or changelog entry is required.
+- [ ] Final acceptance criteria verified and the item marked complete.
+
+Verification disposition: the exact selector passed on the local Windows host.
+The complete local stable gate, exact Rust 1.85 MSRV check, package consumer,
+current-worktree source archive, canonical profile, no-auto-publish, and
+`git diff --check` also passed on the reviewed source state. The GitHub-hosted
+Ubuntu and Windows jobs were not run locally, so no hosted-CI pass is claimed.
+
+Self-review disposition:
+
+- Accepted and corrected: the initial subset omitted connection failure and
+  delayed-data isolation across sessions. Existing deterministic cases are now
+  selected without changing the Ubuntu MSRV or full workspace gate.
+- Rejected: duplicating the four integration cases into a Windows-only test
+  target would create a second contract source without new coverage. Exact
+  filters keep the repository-owned tests authoritative.
+- Duplicate findings: none. Deferred findings: none.

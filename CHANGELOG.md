@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: TCP and UDP connection establishment now uses one monotonic absolute deadline covering IPv4 DNS, all selected TCP candidates, UDP bind/connect, TCP socket configuration, and final client adoption. Late results are discarded; deadline expiry is Timeout while pre-deadline candidate exhaustion remains Transport.
 - Library: Shared-client operations now use one FIFO admission order with one wire transaction at a time. Cancelling a waiting future sends nothing, `close` immediately invalidates active and queued work for the exact connection generation, and separate clients remain independent.
 - Library: One monotonic request deadline now covers send, complete TCP/UDP receive, correlation, protocol parsing, and command-specific payload decoding. Timeout, close, cancellation, transport, and malformed-response paths retire the affected transport without resend.
 - Library: State-changing commands now return machine-readable `OutcomeUnknown` with a structured `SlmpOutcomeUnknownReason` after any failure that occurs once transmission may have started. PLC end codes remain definitive PLC results.
@@ -51,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
+- Tests: Added deterministic delayed-resolver, shared-candidate-deadline, remaining-time success, literal-DNS-bypass, transport-classification, and configured-loopback coverage for connection establishment.
 - Tests: Added IPv6-literal rejection and local TCP/UDP hostname coverage for IPv4-only resolution.
 - Tests: Added bit and byte boundary vectors, pre-transport validation checks, and malformed label-response coverage.
 - Tests: Added TCP/UDP 3E/4E payload boundaries, frame/serial/stat preservation on rejection, and aggregate limits for all four label builders.

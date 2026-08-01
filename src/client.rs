@@ -20,7 +20,8 @@ use crate::model::{
     SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
 };
 use socket2::{SockRef, TcpKeepalive};
-use std::net::TcpStream as StdTcpStream;
+use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
@@ -35,6 +36,7 @@ const TCP_WRITE_TIMEOUT_MESSAGE: &str = "tcp write timed out";
 const TCP_READ_TIMEOUT_MESSAGE: &str = "tcp read timed out";
 const UDP_SEND_TIMEOUT_MESSAGE: &str = "udp send timed out";
 const UDP_RECEIVE_TIMEOUT_MESSAGE: &str = "udp receive timed out";
+const CONNECTION_TIMEOUT_MESSAGE: &str = "connection establishment timed out";
 
 #[derive(Clone)]
 pub struct SlmpClient {
@@ -70,35 +72,28 @@ impl SlmpClient {
         if options.timeout.is_zero() {
             return Err(SlmpError::new("timeout must be greater than zero"));
         }
-        if std::time::Instant::now()
-            .checked_add(options.timeout)
-            .is_none()
+        if matches!(options.transport_mode, SlmpTransportMode::Tcp)
+            && options.tcp_keepalive.is_some_and(|idle| idle.is_zero())
         {
-            return Err(SlmpError::new("timeout is too large"));
+            return Err(SlmpError::new(
+                "tcp_keepalive must be greater than zero when enabled",
+            ));
         }
+        let deadline = Instant::now()
+            .checked_add(options.timeout)
+            .ok_or_else(|| SlmpError::new("timeout is too large"))?;
         let transport = match options.transport_mode {
             SlmpTransportMode::Tcp => {
-                let stream = connect_tcp_stream(&options).await?;
+                let stream = connect_tcp_stream(&options, deadline).await?;
                 Transport::Tcp(stream)
             }
             SlmpTransportMode::Udp => {
-                let host = options.host.clone();
-                let port = options.port;
-                let remote_address = task::spawn_blocking(move || {
-                    crate::network::resolve_ipv4_addresses(&host, port)
-                        .map(|addresses| addresses[0])
-                })
-                .await
-                .map_err(|error| {
-                    SlmpError::transport(format!("udp resolution task failed: {error}"))
-                })??;
-                let socket = UdpSocket::bind("0.0.0.0:0").await?;
-                socket.connect(remote_address).await?;
+                let socket = connect_udp_socket(&options, deadline).await?;
                 Transport::Udp(socket)
             }
         };
         let (close_tx, close_rx) = watch::channel(false);
-        Ok(Self {
+        let client = Self {
             inner: Arc::new(Mutex::new(ClientInner {
                 options,
                 transport,
@@ -110,7 +105,9 @@ impl SlmpClient {
                 response_decode_deadline: None,
             })),
             close_tx,
-        })
+        };
+        ensure_before_connection_deadline(deadline)?;
+        Ok(client)
     }
 
     pub async fn close(&self) -> Result<(), SlmpError> {
@@ -780,53 +777,188 @@ impl SlmpClient {
     }
 }
 
-async fn connect_tcp_stream(options: &SlmpConnectionOptions) -> Result<TcpStream, SlmpError> {
-    let host = options.host.clone();
-    let port = options.port;
-    let timeout_duration = options.timeout;
-    let tcp_keepalive = options.tcp_keepalive;
-    let std_stream = task::spawn_blocking(move || {
-        let addrs = crate::network::resolve_ipv4_addresses(&host, port)?;
-
-        let mut last_error = None;
-        for addr in addrs {
-            match StdTcpStream::connect_timeout(&addr, timeout_duration) {
-                Ok(stream) => {
-                    stream.set_nodelay(true)?;
-                    if let Some(keepalive_idle) = tcp_keepalive {
-                        configure_tcp_keepalive(&stream, keepalive_idle)?;
-                    }
-                    stream.set_nonblocking(true)?;
-                    return Ok(stream);
-                }
-                Err(error) => last_error = Some(error),
-            }
-        }
-
-        Err(last_error
-            .map(SlmpError::from)
-            .unwrap_or_else(|| SlmpError::new("tcp connect failed")))
-    })
-    .await
-    .map_err(|error| SlmpError::transport(format!("tcp connect task failed: {error}")))??;
-
-    TcpStream::from_std(std_stream).map_err(SlmpError::from)
+async fn connect_tcp_stream(
+    options: &SlmpConnectionOptions,
+    deadline: Instant,
+) -> Result<TcpStream, SlmpError> {
+    let stream = connect_tcp_with(
+        &options.host,
+        options.port,
+        deadline,
+        blocking_ipv4_resolver,
+        TcpStream::connect,
+    )
+    .await?;
+    configure_tcp_stream(stream, options.tcp_keepalive, deadline).await
 }
 
-fn configure_tcp_keepalive(
-    stream: &StdTcpStream,
-    idle: std::time::Duration,
-) -> Result<(), SlmpError> {
-    if idle.is_zero() {
-        return Err(SlmpError::new(
-            "tcp_keepalive must be greater than zero when enabled",
-        ));
+async fn connect_udp_socket(
+    options: &SlmpConnectionOptions,
+    deadline: Instant,
+) -> Result<UdpSocket, SlmpError> {
+    let addresses = resolve_ipv4_addresses_with(
+        &options.host,
+        options.port,
+        deadline,
+        blocking_ipv4_resolver,
+    )
+    .await?;
+    let remote_address = addresses[0];
+    let socket = await_connection_result(deadline, async {
+        UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|error| SlmpError::transport(format!("udp bind failed: {error}")))
+    })
+    .await?;
+    await_connection_result(deadline, async {
+        socket.connect(remote_address).await.map_err(|error| {
+            SlmpError::transport(format!("udp connect failed for {remote_address}: {error}"))
+        })
+    })
+    .await?;
+    ensure_before_connection_deadline(deadline)?;
+    Ok(socket)
+}
+
+async fn connect_tcp_with<T, Resolver, ResolutionFuture, Connector, ConnectFuture>(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+    resolver: Resolver,
+    connector: Connector,
+) -> Result<T, SlmpError>
+where
+    Resolver: FnOnce(String, u16) -> ResolutionFuture,
+    ResolutionFuture: Future<Output = Result<Vec<SocketAddr>, SlmpError>>,
+    Connector: FnMut(SocketAddr) -> ConnectFuture,
+    ConnectFuture: Future<Output = std::io::Result<T>>,
+{
+    let addresses = resolve_ipv4_addresses_with(host, port, deadline, resolver).await?;
+    connect_tcp_candidates(addresses, deadline, connector).await
+}
+
+async fn resolve_ipv4_addresses_with<Resolver, ResolutionFuture>(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+    resolver: Resolver,
+) -> Result<Vec<SocketAddr>, SlmpError>
+where
+    Resolver: FnOnce(String, u16) -> ResolutionFuture,
+    ResolutionFuture: Future<Output = Result<Vec<SocketAddr>, SlmpError>>,
+{
+    let normalized = crate::network::normalize_ipv4_host(host)?;
+    if let Ok(address) = normalized.parse::<Ipv4Addr>() {
+        ensure_before_connection_deadline(deadline)?;
+        return Ok(vec![SocketAddr::from((address, port))]);
     }
 
+    let resolved = await_connection_result(deadline, resolver(normalized.clone(), port)).await?;
+    let addresses: Vec<_> = resolved.into_iter().filter(SocketAddr::is_ipv4).collect();
+    if addresses.is_empty() {
+        return Err(SlmpError::transport(format!(
+            "host did not resolve to an IPv4 address: {normalized}"
+        )));
+    }
+    Ok(addresses)
+}
+
+async fn blocking_ipv4_resolver(host: String, port: u16) -> Result<Vec<SocketAddr>, SlmpError> {
+    task::spawn_blocking(move || crate::network::resolve_ipv4_addresses(&host, port))
+        .await
+        .map_err(|error| SlmpError::transport(format!("IPv4 resolution task failed: {error}")))?
+}
+
+async fn connect_tcp_candidates<T, Connector, ConnectFuture>(
+    addresses: Vec<SocketAddr>,
+    deadline: Instant,
+    mut connector: Connector,
+) -> Result<T, SlmpError>
+where
+    Connector: FnMut(SocketAddr) -> ConnectFuture,
+    ConnectFuture: Future<Output = std::io::Result<T>>,
+{
+    let mut last_error = None;
+    for address in addresses {
+        ensure_before_connection_deadline(deadline)?;
+        match timeout_at(deadline, connector(address)).await {
+            Err(_) => return Err(connection_timeout()),
+            Ok(Ok(connected)) => {
+                ensure_before_connection_deadline(deadline)?;
+                return Ok(connected);
+            }
+            Ok(Err(error)) => last_error = Some((address, error)),
+        }
+    }
+
+    Err(last_error
+        .map(|(address, error)| {
+            SlmpError::transport(format!("tcp connect failed for {address}: {error}"))
+        })
+        .unwrap_or_else(|| SlmpError::transport("tcp connect failed: no IPv4 candidates")))
+}
+
+async fn configure_tcp_stream(
+    stream: TcpStream,
+    keepalive_idle: Option<std::time::Duration>,
+    deadline: Instant,
+) -> Result<TcpStream, SlmpError> {
+    await_connection_result(deadline, async move {
+        task::spawn_blocking(move || {
+            stream.set_nodelay(true).map_err(|error| {
+                SlmpError::transport(format!("tcp no-delay configuration failed: {error}"))
+            })?;
+            if let Some(idle) = keepalive_idle {
+                configure_tcp_keepalive(&stream, idle)?;
+            }
+            Ok(stream)
+        })
+        .await
+        .map_err(|error| SlmpError::transport(format!("tcp configuration task failed: {error}")))?
+    })
+    .await
+}
+
+fn configure_tcp_keepalive(stream: &TcpStream, idle: std::time::Duration) -> Result<(), SlmpError> {
     let socket = SockRef::from(stream);
-    socket.set_keepalive(true)?;
-    socket.set_tcp_keepalive(&TcpKeepalive::new().with_time(idle))?;
+    socket
+        .set_keepalive(true)
+        .map_err(|error| SlmpError::transport(format!("tcp keepalive enable failed: {error}")))?;
+    socket
+        .set_tcp_keepalive(&TcpKeepalive::new().with_time(idle))
+        .map_err(|error| {
+            SlmpError::transport(format!("tcp keepalive configuration failed: {error}"))
+        })?;
     Ok(())
+}
+
+async fn await_connection_result<T, Operation>(
+    deadline: Instant,
+    operation: Operation,
+) -> Result<T, SlmpError>
+where
+    Operation: Future<Output = Result<T, SlmpError>>,
+{
+    match timeout_at(deadline, operation).await {
+        Err(_) => Err(connection_timeout()),
+        Ok(Err(error)) => Err(error),
+        Ok(Ok(value)) => {
+            ensure_before_connection_deadline(deadline)?;
+            Ok(value)
+        }
+    }
+}
+
+fn ensure_before_connection_deadline(deadline: Instant) -> Result<(), SlmpError> {
+    if Instant::now() >= deadline {
+        Err(connection_timeout())
+    } else {
+        Ok(())
+    }
+}
+
+fn connection_timeout() -> SlmpError {
+    SlmpError::timeout(CONNECTION_TIMEOUT_MESSAGE)
 }
 
 impl ClientInner {
@@ -3654,6 +3786,8 @@ pub fn encode_raw_device_spec(
 mod tests {
     use super::*;
     use crate::model::SlmpModuleIo;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
 
     async fn udp_inner(plc_profile: SlmpPlcProfile) -> ClientInner {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -3676,6 +3810,210 @@ mod tests {
             close_rx,
             response_decode_deadline: None,
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ipv4_literal_bypasses_resolver_and_connects_within_deadline() {
+        let resolver_calls = Arc::new(AtomicUsize::new(0));
+        let connector_calls = Arc::new(AtomicUsize::new(0));
+        let result = connect_tcp_with(
+            "127.0.0.1",
+            1025,
+            Instant::now() + std::time::Duration::from_secs(1),
+            {
+                let resolver_calls = Arc::clone(&resolver_calls);
+                move |_, _| {
+                    resolver_calls.fetch_add(1, Ordering::SeqCst);
+                    async {
+                        Err(SlmpError::transport(
+                            "resolver must not run for an IPv4 literal",
+                        ))
+                    }
+                }
+            },
+            {
+                let connector_calls = Arc::clone(&connector_calls);
+                move |address| {
+                    connector_calls.fetch_add(1, Ordering::SeqCst);
+                    async move { Ok(address) }
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result, "127.0.0.1:1025".parse().unwrap());
+        assert_eq!(resolver_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(connector_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn delayed_resolution_times_out_without_candidate_or_late_adoption() {
+        let resolver_completed = Arc::new(AtomicBool::new(false));
+        let connector_calls = Arc::new(AtomicUsize::new(0));
+        let start = Instant::now();
+        let error = connect_tcp_with(
+            "plc.test",
+            1025,
+            start + std::time::Duration::from_millis(40),
+            {
+                let resolver_completed = Arc::clone(&resolver_completed);
+                move |_, _| async move {
+                    let late_task = tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        resolver_completed.store(true, Ordering::SeqCst);
+                        Ok(vec!["127.0.0.1:1025".parse().unwrap()])
+                    });
+                    late_task.await.map_err(|error| {
+                        SlmpError::transport(format!("test resolver task failed: {error}"))
+                    })?
+                }
+            },
+            {
+                let connector_calls = Arc::clone(&connector_calls);
+                move |_| {
+                    connector_calls.fetch_add(1, Ordering::SeqCst);
+                    async { Ok(()) }
+                }
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.kind, SlmpErrorKind::Timeout);
+        assert_eq!(start.elapsed(), std::time::Duration::from_millis(40));
+        assert_eq!(connector_calls.load(Ordering::SeqCst), 0);
+        assert!(!resolver_completed.load(Ordering::SeqCst));
+
+        tokio::time::advance(std::time::Duration::from_millis(60)).await;
+        tokio::task::yield_now().await;
+        assert!(resolver_completed.load(Ordering::SeqCst));
+        assert_eq!(connector_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tcp_candidates_share_one_deadline_instead_of_resetting_it() {
+        let addresses = vec![
+            "127.0.0.1:1001".parse().unwrap(),
+            "127.0.0.1:1002".parse().unwrap(),
+        ];
+        let calls = Arc::new(AtomicUsize::new(0));
+        let start = Instant::now();
+        let error =
+            connect_tcp_candidates(addresses, start + std::time::Duration::from_millis(50), {
+                let calls = Arc::clone(&calls);
+                move |address| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                        if address.port() == 1001 {
+                            Err(std::io::Error::new(
+                                std::io::ErrorKind::ConnectionRefused,
+                                "first candidate refused",
+                            ))
+                        } else {
+                            Ok(address)
+                        }
+                    }
+                }
+            })
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind, SlmpErrorKind::Timeout);
+        assert_eq!(start.elapsed(), std::time::Duration::from_millis(50));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn later_tcp_candidate_can_succeed_with_remaining_time() {
+        let addresses = vec![
+            "127.0.0.1:1001".parse().unwrap(),
+            "127.0.0.1:1002".parse().unwrap(),
+        ];
+        let start = Instant::now();
+        let connected = connect_tcp_candidates(
+            addresses,
+            start + std::time::Duration::from_millis(50),
+            |address| async move {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                if address.port() == 1001 {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        "first candidate refused",
+                    ))
+                } else {
+                    Ok(address)
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(connected.port(), 1002);
+        assert_eq!(start.elapsed(), std::time::Duration::from_millis(40));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn candidate_exhaustion_before_deadline_is_transport_not_timeout() {
+        let error = connect_tcp_candidates(
+            vec!["127.0.0.1:1001".parse().unwrap()],
+            Instant::now() + std::time::Duration::from_secs(1),
+            |_| async {
+                Err::<(), _>(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "candidate refused",
+                ))
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.kind, SlmpErrorKind::Transport);
+        assert!(error.message.contains("candidate refused"));
+    }
+
+    #[tokio::test]
+    async fn tcp_socket_is_configured_before_client_adoption() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+        let options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            port,
+            SlmpTransportMode::Tcp,
+            SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        let client = SlmpClient::connect(options).await.unwrap();
+
+        let inner = client.inner.lock().await;
+        let Transport::Tcp(stream) = &inner.transport else {
+            panic!("client must adopt the configured TCP stream");
+        };
+        assert!(stream.nodelay().unwrap());
+        assert!(SockRef::from(stream).keepalive().unwrap());
+        drop(inner);
+        drop(client);
+        drop(accept.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn invalid_tcp_keepalive_is_validation_not_transport_activity() {
+        let mut options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            9,
+            SlmpTransportMode::Tcp,
+            SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        options.tcp_keepalive = Some(std::time::Duration::ZERO);
+
+        let error = SlmpClient::connect(options).await.unwrap_err();
+        assert_eq!(error.kind, SlmpErrorKind::General);
+        assert!(error.message.contains("tcp_keepalive"));
     }
 
     #[tokio::test]

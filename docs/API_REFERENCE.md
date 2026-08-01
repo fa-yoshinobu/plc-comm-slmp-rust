@@ -10,6 +10,15 @@ All TCP and UDP connections are IPv4-only. `SlmpConnectionOptions` accepts an
 IPv4 literal or a hostname with an IPv4 result. IPv6 literals and hostnames
 without an IPv4 result are rejected without IPv6 fallback.
 
+`SlmpConnectionOptions::timeout` bounds complete connection establishment with
+one monotonic absolute deadline. For TCP this includes IPv4 DNS, every selected
+address candidate, no-delay/keepalive configuration, and adoption. For UDP it
+includes IPv4 DNS, bind, connect, and adoption. IPv4 literals bypass DNS.
+Expiry is `SlmpErrorKind::Timeout`; candidate or socket failure completed before
+expiry is `SlmpErrorKind::Transport`. A late resolver or socket result is never
+adopted. The same timeout value separately bounds each already-connected SLMP
+request from its first send through response decoding.
+
 ## Direct And Random Device Operations
 
 | Operation | Public API |
