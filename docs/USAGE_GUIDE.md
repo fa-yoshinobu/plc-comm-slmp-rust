@@ -232,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## SLMP response end codes
 
 When the PLC returns a non-zero SLMP end code, high-level calls return `SlmpError`.
-Read `end_code` for the PLC response code and `error_info` when the PLC returned the structured error-information block.
+Read `end_code` for the PLC response code and `error_info` when the PLC returned the structured error-information block. The library accepts that PLC error as definitive only when the embedded route, command, and subcommand match the active request. A mismatch is malformed, retires the transport, and makes a transmitted state change outcome-unknown. `error_info.raw` contains the required nine-byte prefix and `error_info.extra` retains every following byte.
 Each request gets one monotonic deadline immediately before its first transport send. Queue
 waiting does not consume that deadline. The same deadline covers the complete send, TCP/UDP
 response assembly, response correlation, protocol parsing, and command-specific payload decode.
@@ -272,6 +272,7 @@ match read_typed(
         if let Some(info) = error.error_info.as_ref() {
             println!("command=0x{:04X}", info.command);
             println!("subcommand=0x{:04X}", info.subcommand);
+            println!("additional error bytes={:02X?}", info.extra);
         }
     }
 }

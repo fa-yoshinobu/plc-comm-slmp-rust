@@ -3239,7 +3239,12 @@ impl ClientInner {
                         )
                     },
                 )?;
-                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
+                let parsed = Self::parse_response(
+                    command,
+                    subcommand,
+                    expected_target,
+                    &self.last_response_frame,
+                );
                 #[cfg(test)]
                 Self::wait_at_test_barrier(&self.response_parsed_test_barrier);
                 match parsed {
@@ -3408,7 +3413,12 @@ impl ClientInner {
                         )
                     },
                 )?;
-                let parsed = Self::parse_response(command, subcommand, &self.last_response_frame);
+                let parsed = Self::parse_response(
+                    command,
+                    subcommand,
+                    expected_target,
+                    &self.last_response_frame,
+                );
                 #[cfg(test)]
                 Self::wait_at_test_barrier(&self.response_parsed_test_barrier);
                 match parsed {
@@ -3804,6 +3814,7 @@ impl ClientInner {
     fn parse_response(
         command: SlmpCommand,
         subcommand: u16,
+        expected_target: SlmpTargetAddress,
         response: &[u8],
     ) -> Result<Vec<u8>, SlmpError> {
         let is_4e = response.len() >= 13 && response[0] == 0xD4 && response[1] == 0x00;
@@ -3831,6 +3842,21 @@ impl ClientInner {
         if end_code != 0 {
             let error_info =
                 SlmpErrorInfo::parse(&response[header_size + 2..header_size + data_length]);
+            if let Some(info) = error_info.as_ref() {
+                if info.network != expected_target.network
+                    || info.station != expected_target.station
+                    || info.module_io != expected_target.module_io
+                    || info.multidrop != expected_target.multidrop
+                    || info.command != command.as_u16()
+                    || info.subcommand != subcommand
+                {
+                    return Err(SlmpError::malformed_with_context(
+                        "SLMP error information does not match the active request",
+                        command,
+                        subcommand,
+                    ));
+                }
+            }
             return Err(SlmpError::with_error_info(
                 format!(
                     "SLMP error end_code=0x{end_code:04X} command=0x{:04X} subcommand=0x{subcommand:04X}",
@@ -5139,8 +5165,13 @@ mod tests {
         ];
         response.extend_from_slice(&error_data);
 
-        let error =
-            ClientInner::parse_response(SlmpCommand::DeviceRead, 0x0001, &response).unwrap_err();
+        let error = ClientInner::parse_response(
+            SlmpCommand::DeviceRead,
+            0x0001,
+            SlmpTargetAddress::default(),
+            &response,
+        )
+        .unwrap_err();
 
         assert_eq!(error.end_code, Some(0xC051));
         let info = error.error_info.as_ref().expect("error info");
@@ -5151,5 +5182,6 @@ mod tests {
         assert_eq!(info.command, 0x0401);
         assert_eq!(info.subcommand, 0x0001);
         assert_eq!(info.raw.as_slice(), error_data);
+        assert!(info.extra.is_empty());
     }
 }

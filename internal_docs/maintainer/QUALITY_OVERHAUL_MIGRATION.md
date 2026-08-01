@@ -1242,3 +1242,85 @@ denied, all unit/integration/doc tests, the Node crate check, and the generated
 guard suite passed all 78 tests, and the package contract also passed on the
 declared Rust 1.85 minimum toolchain. `git diff --check` passed; no live PLC
 communication, registry operation, commit, push, or publication was performed.
+
+## GOAL-SLMP-ERROR-INFO-CORRELATION-001 — Correlate PLC error information with the request
+
+Stable identifier: `SLMP-ERROR-INFO-CORRELATION-001`.
+
+Implementation scope: Rust 3E/4E TCP and UDP response correlation, structured
+PLC end-code parsing, malformed-response classification, state-changing outcome
+classification, transport invalidation, tests, maintainer and user
+documentation, migration notes, changelog, and generated API reference.
+
+Target contract: when a non-zero end-code response contains at least the
+9-byte SLMP error-information prefix, its network, station, module I/O,
+multidrop, command, and subcommand must exactly match the originating request.
+A mismatch is a malformed response and invalidates the active transport. For a
+state-changing request that may have been transmitted, the public result is
+`OutcomeUnknown(MalformedResponse)`; it must never be reported as a definitive
+PLC error. For a non-state-changing request, the public result is a malformed
+response. Bytes following the required 9-byte prefix remain permitted, do not
+participate in the required equality check, and retain their existing handling.
+
+Compatibility impact: responses whose outer envelope matches but whose error
+information identifies a different route, command, or subcommand are no longer
+accepted as the current request's PLC error. The connection cannot be reused
+after that mismatch. Correctly correlated PLC errors, including those with
+additional error data, retain their existing structured result.
+
+Deferred specification boundary: the treatment of a non-zero end-code response
+whose error information is absent or shorter than 9 bytes is not decided by
+this item. Implementation and tests for this goal must not infer or silently
+change that behavior.
+
+Machine-verifiable acceptance criteria for the Rust implementation:
+
+1. For both 3E and 4E frames, a non-zero end-code response with a 9-byte error
+   prefix whose route, command, and subcommand match the request retains the
+   existing structured PLC-error result.
+2. For both TCP and UDP, independent mismatches in network, station, module I/O,
+   multidrop, command, and subcommand are rejected as malformed and leave the
+   client transport unusable until a new connection is established.
+3. For representative transmitted state-changing commands on TCP and UDP, each
+   mismatch returns `OutcomeUnknown(MalformedResponse)` and never returns a
+   definitive PLC-end-code error.
+4. For representative read-only commands on TCP and UDP, each mismatch returns
+   a malformed-response error and the following request cannot reuse the
+   invalidated transport.
+5. A correctly correlated error prefix followed by additional bytes retains the
+   existing PLC-error result and does not fail merely because the error payload
+   exceeds 9 bytes.
+6. Tests distinguish outer-envelope/serial correlation from error-information
+   correlation and exercise both 3E and 4E without relying on live PLC hardware.
+7. Existing behavior for absent or shorter-than-9-byte error information remains
+   outside this item's assertions until its specification is decided separately.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every acceptance criterion.
+- [x] Relevant static checks, unit tests, integration tests, examples, and package/build checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Required live-PLC checks passed, or each unavailable check has an explicit release disposition.
+- [x] Documentation, migration notes, changelog, and generated API reference agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+### Verification evidence and self-review disposition (2026-08-02)
+
+- `run_ci.bat`: PASS. Formatting, clippy with `-D warnings`, rustdoc with
+  `-D warnings`, the complete Cargo test suite, crate-file validation, all 13
+  examples, and an isolated generated-crate consumer completed successfully.
+- Deterministic loopback fixtures cover TCP and UDP, 3E and 4E, all six
+  independently mismatched identity fields, read-only and state-changing
+  classifications, transport retirement, and matching prefixes followed by
+  zero, one, or three additional bytes.
+- Codex self-review inspected the actual diff, public error fields, parse order,
+  request target and command identity, outer-envelope versus structured-error
+  correlation, short-error boundary, outcome-unknown mapping, transport
+  invalidation, tests, documentation, packaging, and .NET consistency.
+  Accepted finding: the first implementation accepted trailing bytes but
+  discarded them while .NET retained them; `SlmpErrorInfo.extra` and exact
+  zero/one/multiple-byte retention tests corrected the inconsistency. Rejected
+  findings: none. Duplicate findings: none. Deferred findings: none.
+- Live PLC verification is not required for this item: parser correlation and
+  lifecycle behavior are completely observable with deterministic transport
+  fixtures, and no PLC/profile compatibility claim changed. No live PLC
+  communication was performed.
