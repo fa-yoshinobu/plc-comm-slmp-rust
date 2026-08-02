@@ -22,7 +22,8 @@ use crate::model::{
 use socket2::{SockRef, TcpKeepalive};
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::ops::Range;
+use std::sync::{Arc, Weak};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{Mutex, watch};
@@ -65,11 +66,40 @@ struct ClientInner {
     command_decoded_test_barrier: Option<Arc<std::sync::Barrier>>,
     #[cfg(test)]
     request_payload_validation_count: usize,
+    #[cfg(test)]
+    response_payload_materialization_count: usize,
+    #[cfg(test)]
+    random_read_prepare_count: usize,
+    #[cfg(test)]
+    extended_owned_spec_encode_count: usize,
+    #[cfg(test)]
+    extended_final_payload_allocation_count: usize,
 }
 
 struct PreparedRequestPayload<'a> {
     bytes: &'a [u8],
     data_length: u16,
+}
+
+#[derive(Clone)]
+pub(crate) struct PreparedRandomRead {
+    owner: Weak<Mutex<ClientInner>>,
+    plc_profile: SlmpPlcProfile,
+    frame_type: SlmpFrameType,
+    compatibility_mode: SlmpCompatibilityMode,
+    subcommand: u16,
+    payload: Arc<[u8]>,
+    word_count: usize,
+    dword_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResponsePayloadRange(Range<usize>);
+
+impl ResponsePayloadRange {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl SlmpClient {
@@ -120,6 +150,14 @@ impl SlmpClient {
                 command_decoded_test_barrier: None,
                 #[cfg(test)]
                 request_payload_validation_count: 0,
+                #[cfg(test)]
+                response_payload_materialization_count: 0,
+                #[cfg(test)]
+                random_read_prepare_count: 0,
+                #[cfg(test)]
+                extended_owned_spec_encode_count: 0,
+                #[cfg(test)]
+                extended_final_payload_allocation_count: 0,
             })),
             close_tx,
         };
@@ -143,6 +181,17 @@ impl SlmpClient {
 
     pub async fn last_response_frame(&self) -> Vec<u8> {
         self.inner.lock().await.last_response_frame.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn optimization_test_counters(&self) -> (usize, usize, usize, usize) {
+        let inner = self.inner.lock().await;
+        (
+            inner.random_read_prepare_count,
+            inner.response_payload_materialization_count,
+            inner.extended_owned_spec_encode_count,
+            inner.extended_final_payload_allocation_count,
+        )
     }
 
     pub async fn traffic_stats(&self) -> SlmpTrafficStats {
@@ -814,6 +863,52 @@ impl SlmpClient {
             inner.finish_response_decode(command, subcommand, Ok(response))
         }
     }
+
+    pub(crate) async fn prepare_random_read(
+        &self,
+        word_devices: &[SlmpDeviceAddress],
+        dword_devices: &[SlmpDeviceAddress],
+    ) -> Result<PreparedRandomRead, SlmpError> {
+        let mut inner = self.inner.lock().await;
+        let (subcommand, payload) =
+            inner.prepare_random_read_payload(word_devices, dword_devices)?;
+        Ok(PreparedRandomRead {
+            owner: Arc::downgrade(&self.inner),
+            plc_profile: inner.options.plc_profile,
+            frame_type: inner.options.frame_type,
+            compatibility_mode: inner.options.compatibility_mode,
+            subcommand,
+            payload: payload.into(),
+            word_count: word_devices.len(),
+            dword_count: dword_devices.len(),
+        })
+    }
+
+    pub(crate) async fn execute_prepared_random_read(
+        &self,
+        prepared: &PreparedRandomRead,
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        let Some(owner) = prepared.owner.upgrade() else {
+            return Err(SlmpError::closed(
+                "prepared random-read client is no longer available",
+            ));
+        };
+        if !Arc::ptr_eq(&owner, &self.inner) {
+            return Err(SlmpError::new(
+                "prepared random-read plan belongs to a different client",
+            ));
+        }
+        let mut inner = self.inner.lock().await;
+        if prepared.plc_profile != inner.options.plc_profile
+            || prepared.frame_type != inner.options.frame_type
+            || prepared.compatibility_mode != inner.options.compatibility_mode
+        {
+            return Err(SlmpError::new(
+                "prepared random-read plan does not match the client profile, frame, or compatibility mode",
+            ));
+        }
+        inner.execute_prepared_random_read(prepared).await
+    }
 }
 
 async fn connect_tcp_stream(
@@ -1200,10 +1295,7 @@ impl ClientInner {
 
     async fn read_type_name(&mut self) -> Result<SlmpTypeNameInfo, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::TypeName)?;
-        let payload = self
-            .request(SlmpCommand::ReadTypeName, 0x0000, &[], true)
-            .await?;
-        let decoded = (|| {
+        self.request_decoded(SlmpCommand::ReadTypeName, 0x0000, &[], true, |payload| {
             if payload.len() < 16 {
                 return Err(SlmpError::new("read_type_name response too short"));
             }
@@ -1221,8 +1313,8 @@ impl ClientInner {
                 model_code,
                 has_model_code,
             })
-        })();
-        self.finish_response_decode(SlmpCommand::ReadTypeName, 0x0000, decoded)
+        })
+        .await
     }
 
     async fn read_cpu_operation_state(&mut self) -> Result<SlmpCpuOperationState, SlmpError> {
@@ -1266,18 +1358,17 @@ impl ClientInner {
         self.validate_direct_word_device_span(device, points as usize, "read_words")?;
         let payload = self.build_read_write_payload(device, points, None, false);
         let sub = self.word_subcommand(false);
-        let data = self
-            .request(SlmpCommand::DeviceRead, sub, &payload, true)
-            .await?;
-        let decoded = if data.len() != points as usize * 2 {
-            Err(SlmpError::new("read_words payload size mismatch"))
-        } else {
-            Ok(data
-                .chunks_exact(2)
-                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                .collect())
-        };
-        self.finish_response_decode(SlmpCommand::DeviceRead, sub, decoded)
+        self.request_decoded(SlmpCommand::DeviceRead, sub, &payload, true, |data| {
+            if data.len() != points as usize * 2 {
+                Err(SlmpError::new("read_words payload size mismatch"))
+            } else {
+                Ok(data
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect())
+            }
+        })
+        .await
     }
 
     async fn write_words(
@@ -1320,16 +1411,11 @@ impl ClientInner {
         rules::validate_direct_bit_read(device)?;
         self.validate_direct_device_span(device, points as usize, true, "read_bits")?;
         let payload = self.build_read_write_payload(device, points, None, true);
-        let data = self
-            .request(
-                SlmpCommand::DeviceRead,
-                self.word_subcommand(true),
-                &payload,
-                true,
-            )
-            .await?;
-        let decoded = rules::unpack_bit_values(&data, points as usize);
-        self.finish_response_decode(SlmpCommand::DeviceRead, self.word_subcommand(true), decoded)
+        let sub = self.word_subcommand(true);
+        self.request_decoded(SlmpCommand::DeviceRead, sub, &payload, true, |data| {
+            rules::unpack_bit_values(data, points as usize)
+        })
+        .await
     }
 
     async fn write_bits(
@@ -1485,18 +1571,17 @@ impl ClientInner {
         } else {
             0x0082
         };
-        let data = self
-            .request(SlmpCommand::DeviceRead, sub, &payload, true)
-            .await?;
-        let decoded = if data.len() != points as usize * 2 {
-            Err(SlmpError::new("read_words_ext payload size mismatch"))
-        } else {
-            Ok(data
-                .chunks_exact(2)
-                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                .collect())
-        };
-        self.finish_response_decode(SlmpCommand::DeviceRead, sub, decoded)
+        self.request_decoded(SlmpCommand::DeviceRead, sub, &payload, true, |data| {
+            if data.len() != points as usize * 2 {
+                Err(SlmpError::new("read_words_ext payload size mismatch"))
+            } else {
+                Ok(data
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect())
+            }
+        })
+        .await
     }
 
     async fn write_words_extended(
@@ -1583,11 +1668,10 @@ impl ClientInner {
         } else {
             0x0083
         };
-        let data = self
-            .request(SlmpCommand::DeviceRead, sub, &payload, true)
-            .await?;
-        let decoded = rules::unpack_bit_values(&data, points as usize);
-        self.finish_response_decode(SlmpCommand::DeviceRead, sub, decoded)
+        self.request_decoded(SlmpCommand::DeviceRead, sub, &payload, true, |data| {
+            rules::unpack_bit_values(data, points as usize)
+        })
+        .await
     }
 
     async fn write_bits_extended(
@@ -1641,6 +1725,34 @@ impl ClientInner {
         word_devices: &[SlmpDeviceAddress],
         dword_devices: &[SlmpDeviceAddress],
     ) -> Result<SlmpRandomReadResult, SlmpError> {
+        let (subcommand, payload) =
+            self.prepare_random_read_payload(word_devices, dword_devices)?;
+        self.request_decoded(
+            SlmpCommand::DeviceReadRandom,
+            subcommand,
+            &payload,
+            true,
+            |data| {
+                Self::decode_random_read_response(
+                    data,
+                    word_devices.len(),
+                    dword_devices.len(),
+                    "read_random",
+                )
+            },
+        )
+        .await
+    }
+
+    fn prepare_random_read_payload(
+        &mut self,
+        word_devices: &[SlmpDeviceAddress],
+        dword_devices: &[SlmpDeviceAddress],
+    ) -> Result<(u16, Vec<u8>), SlmpError> {
+        #[cfg(test)]
+        {
+            self.random_read_prepare_count += 1;
+        }
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Random)?;
         rules::validate_random_read_devices(
             word_devices,
@@ -1691,37 +1803,64 @@ impl ClientInner {
         } else {
             0x0002
         };
-        let data = self
-            .request(SlmpCommand::DeviceReadRandom, sub, &payload, true)
-            .await?;
-        let decoded = (|| {
-            let expected = word_devices.len() * 2 + dword_devices.len() * 4;
-            if data.len() != expected {
-                return Err(SlmpError::new(format!(
-                    "read_random response size mismatch expected={expected} actual={}",
-                    data.len()
-                )));
-            }
-            let mut cursor = 0;
-            let mut result = SlmpRandomReadResult::default();
-            for _ in 0..word_devices.len() {
-                result
-                    .word_values
-                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-                cursor += 2;
-            }
-            for _ in 0..dword_devices.len() {
-                result.dword_values.push(u32::from_le_bytes([
-                    data[cursor],
-                    data[cursor + 1],
-                    data[cursor + 2],
-                    data[cursor + 3],
-                ]));
-                cursor += 4;
-            }
-            Ok(result)
-        })();
-        self.finish_response_decode(SlmpCommand::DeviceReadRandom, sub, decoded)
+        Ok((sub, payload))
+    }
+
+    async fn execute_prepared_random_read(
+        &mut self,
+        prepared: &PreparedRandomRead,
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        self.request_decoded(
+            SlmpCommand::DeviceReadRandom,
+            prepared.subcommand,
+            &prepared.payload,
+            true,
+            |data| {
+                Self::decode_random_read_response(
+                    data,
+                    prepared.word_count,
+                    prepared.dword_count,
+                    "read_random",
+                )
+            },
+        )
+        .await
+    }
+
+    fn decode_random_read_response(
+        data: &[u8],
+        word_count: usize,
+        dword_count: usize,
+        operation: &str,
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        let expected = word_count * 2 + dword_count * 4;
+        if data.len() != expected {
+            return Err(SlmpError::new(format!(
+                "{operation} response size mismatch expected={expected} actual={}",
+                data.len()
+            )));
+        }
+        let mut cursor = 0;
+        let mut result = SlmpRandomReadResult {
+            word_values: Vec::with_capacity(word_count),
+            dword_values: Vec::with_capacity(dword_count),
+        };
+        for _ in 0..word_count {
+            result
+                .word_values
+                .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
+            cursor += 2;
+        }
+        for _ in 0..dword_count {
+            result.dword_values.push(u32::from_le_bytes([
+                data[cursor],
+                data[cursor + 1],
+                data[cursor + 2],
+                data[cursor + 3],
+            ]));
+            cursor += 4;
+        }
+        Ok(result)
     }
 
     async fn read_random_ext(
@@ -1746,7 +1885,9 @@ impl ClientInner {
         let dword_refs: Vec<_> = dword_devices.iter().map(|entry| entry.device()).collect();
         rules::validate_random_read_devices(&word_refs, &dword_refs, true, "Read Random (0x0403)")?;
 
-        let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
+        let mut word_extensions = Vec::with_capacity(word_devices.len());
+        let mut dword_extensions = Vec::with_capacity(dword_devices.len());
+        let mut payload_len = 2usize;
         let mut link_direct = false;
         let mut other_layout = false;
         for device in word_devices {
@@ -1762,8 +1903,10 @@ impl ClientInner {
                 extension,
                 "word_devices",
             )?;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
+            payload_len = payload_len
+                .checked_add(self.extended_device_spec_size(extension))
+                .ok_or_else(|| SlmpError::new("read_random_ext payload is too large"))?;
+            word_extensions.push(extension);
         }
         for device in dword_devices {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
@@ -1778,8 +1921,10 @@ impl ClientInner {
                 extension,
                 "dword_devices",
             )?;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
+            payload_len = payload_len
+                .checked_add(self.extended_device_spec_size(extension))
+                .ok_or_else(|| SlmpError::new("read_random_ext payload is too large"))?;
+            dword_extensions.push(extension);
         }
         Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
@@ -1787,6 +1932,29 @@ impl ClientInner {
             other_layout,
             "read_random_ext",
         )?;
+        #[cfg(test)]
+        {
+            self.extended_final_payload_allocation_count += 1;
+        }
+        let mut payload = vec![0; payload_len];
+        payload[0] = word_devices.len() as u8;
+        payload[1] = dword_devices.len() as u8;
+        let mut offset = 2;
+        for (device, extension) in word_devices.iter().zip(&word_extensions) {
+            offset += self.encode_extended_device_spec_into(
+                device.device(),
+                *extension,
+                &mut payload[offset..],
+            );
+        }
+        for (device, extension) in dword_devices.iter().zip(&dword_extensions) {
+            offset += self.encode_extended_device_spec_into(
+                device.device(),
+                *extension,
+                &mut payload[offset..],
+            );
+        }
+        debug_assert_eq!(offset, payload.len());
         let sub = if link_direct
             || matches!(
                 self.options.compatibility_mode,
@@ -1796,37 +1964,15 @@ impl ClientInner {
         } else {
             0x0082
         };
-        let data = self
-            .request(SlmpCommand::DeviceReadRandom, sub, &payload, true)
-            .await?;
-        let decoded = (|| {
-            let expected = word_devices.len() * 2 + dword_devices.len() * 4;
-            if data.len() != expected {
-                return Err(SlmpError::new(format!(
-                    "read_random_ext response size mismatch expected={expected} actual={}",
-                    data.len()
-                )));
-            }
-            let mut cursor = 0;
-            let mut result = SlmpRandomReadResult::default();
-            for _ in 0..word_devices.len() {
-                result
-                    .word_values
-                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-                cursor += 2;
-            }
-            for _ in 0..dword_devices.len() {
-                result.dword_values.push(u32::from_le_bytes([
-                    data[cursor],
-                    data[cursor + 1],
-                    data[cursor + 2],
-                    data[cursor + 3],
-                ]));
-                cursor += 4;
-            }
-            Ok(result)
-        })();
-        self.finish_response_decode(SlmpCommand::DeviceReadRandom, sub, decoded)
+        self.request_decoded(SlmpCommand::DeviceReadRandom, sub, &payload, true, |data| {
+            Self::decode_random_read_response(
+                data,
+                word_devices.len(),
+                dword_devices.len(),
+                "read_random_ext",
+            )
+        })
+        .await
     }
 
     async fn register_monitor_devices(
@@ -1908,7 +2054,9 @@ impl ClientInner {
             true,
             "Entry Monitor Device (0x0801)",
         )?;
-        let mut payload = vec![word_devices.len() as u8, dword_devices.len() as u8];
+        let mut word_extensions = Vec::with_capacity(word_devices.len());
+        let mut dword_extensions = Vec::with_capacity(dword_devices.len());
+        let mut payload_len = 2usize;
         let mut link_direct = false;
         let mut other_layout = false;
         for device in word_devices {
@@ -1924,8 +2072,12 @@ impl ClientInner {
                 extension,
                 "word_devices",
             )?;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
+            payload_len = payload_len
+                .checked_add(self.extended_device_spec_size(extension))
+                .ok_or_else(|| {
+                    SlmpError::new("register_monitor_devices_ext payload is too large")
+                })?;
+            word_extensions.push(extension);
         }
         for device in dword_devices {
             let extension = Self::resolve_effective_extension(*device, self.options.plc_profile)?;
@@ -1940,8 +2092,12 @@ impl ClientInner {
                 extension,
                 "dword_devices",
             )?;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), extension));
+            payload_len = payload_len
+                .checked_add(self.extended_device_spec_size(extension))
+                .ok_or_else(|| {
+                    SlmpError::new("register_monitor_devices_ext payload is too large")
+                })?;
+            dword_extensions.push(extension);
         }
         Self::reject_mixed_extended_layouts(
             self.options.compatibility_mode,
@@ -1949,6 +2105,29 @@ impl ClientInner {
             other_layout,
             "register_monitor_devices_ext",
         )?;
+        #[cfg(test)]
+        {
+            self.extended_final_payload_allocation_count += 1;
+        }
+        let mut payload = vec![0; payload_len];
+        payload[0] = word_devices.len() as u8;
+        payload[1] = dword_devices.len() as u8;
+        let mut offset = 2;
+        for (device, extension) in word_devices.iter().zip(&word_extensions) {
+            offset += self.encode_extended_device_spec_into(
+                device.device(),
+                *extension,
+                &mut payload[offset..],
+            );
+        }
+        for (device, extension) in dword_devices.iter().zip(&dword_extensions) {
+            offset += self.encode_extended_device_spec_into(
+                device.device(),
+                *extension,
+                &mut payload[offset..],
+            );
+        }
+        debug_assert_eq!(offset, payload.len());
         let subcommand = if link_direct
             || matches!(
                 self.options.compatibility_mode,
@@ -1977,37 +2156,10 @@ impl ClientInner {
             SlmpProfileLimit::MonitorRegisterWord,
             "run_monitor_cycle",
         )?;
-        let data = self
-            .request(SlmpCommand::Monitor, 0x0000, &[], true)
-            .await?;
-        let decoded = (|| {
-            let expected = word_points * 2 + dword_points * 4;
-            if data.len() != expected {
-                return Err(SlmpError::new(format!(
-                    "monitor response size mismatch expected={expected} actual={}",
-                    data.len()
-                )));
-            }
-            let mut cursor = 0;
-            let mut result = SlmpRandomReadResult::default();
-            for _ in 0..word_points {
-                result
-                    .word_values
-                    .push(u16::from_le_bytes([data[cursor], data[cursor + 1]]));
-                cursor += 2;
-            }
-            for _ in 0..dword_points {
-                result.dword_values.push(u32::from_le_bytes([
-                    data[cursor],
-                    data[cursor + 1],
-                    data[cursor + 2],
-                    data[cursor + 3],
-                ]));
-                cursor += 4;
-            }
-            Ok(result)
-        })();
-        self.finish_response_decode(SlmpCommand::Monitor, 0x0000, decoded)
+        self.request_decoded(SlmpCommand::Monitor, 0x0000, &[], true, |data| {
+            Self::decode_random_read_response(data, word_points, dword_points, "monitor")
+        })
+        .await
     }
 
     async fn write_random_words(
@@ -2110,6 +2262,7 @@ impl ClientInner {
         )?;
         let mut word_extensions = Vec::with_capacity(word_entries.len());
         let mut dword_extensions = Vec::with_capacity(dword_entries.len());
+        let mut payload_len = 2usize;
         let mut link_direct = false;
         let mut other_layout = false;
         for (device, _) in word_entries {
@@ -2125,6 +2278,9 @@ impl ClientInner {
                 extension,
                 "word_entries",
             )?;
+            payload_len = payload_len
+                .checked_add(self.extended_device_spec_size(extension) + 2)
+                .ok_or_else(|| SlmpError::new("write_random_words_ext payload is too large"))?;
             word_extensions.push(extension);
         }
         for (device, _) in dword_entries {
@@ -2140,6 +2296,9 @@ impl ClientInner {
                 extension,
                 "dword_entries",
             )?;
+            payload_len = payload_len
+                .checked_add(self.extended_device_spec_size(extension) + 4)
+                .ok_or_else(|| SlmpError::new("write_random_words_ext payload is too large"))?;
             dword_extensions.push(extension);
         }
         Self::reject_mixed_extended_layouts(
@@ -2155,17 +2314,33 @@ impl ClientInner {
             &dword_extensions,
         )?;
 
-        let mut payload = vec![word_entries.len() as u8, dword_entries.len() as u8];
+        #[cfg(test)]
+        {
+            self.extended_final_payload_allocation_count += 1;
+        }
+        let mut payload = vec![0; payload_len];
+        payload[0] = word_entries.len() as u8;
+        payload[1] = dword_entries.len() as u8;
+        let mut offset = 2;
         for ((device, value), extension) in word_entries.iter().zip(&word_extensions) {
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), *extension));
-            payload.extend_from_slice(&value.to_le_bytes());
+            offset += self.encode_extended_device_spec_into(
+                device.device(),
+                *extension,
+                &mut payload[offset..],
+            );
+            payload[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+            offset += 2;
         }
         for ((device, value), extension) in dword_entries.iter().zip(&dword_extensions) {
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), *extension));
-            payload.extend_from_slice(&value.to_le_bytes());
+            offset += self.encode_extended_device_spec_into(
+                device.device(),
+                *extension,
+                &mut payload[offset..],
+            );
+            payload[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            offset += 4;
         }
+        debug_assert_eq!(offset, payload.len());
         let sub = if link_direct
             || matches!(
                 self.options.compatibility_mode,
@@ -2261,6 +2436,7 @@ impl ClientInner {
             .collect();
         rules::validate_random_bit_write_devices(&bit_refs, self.options.plc_profile, false)?;
         let mut extensions = Vec::with_capacity(bit_entries.len());
+        let mut payload_len = 1usize;
         let mut link_direct = false;
         let mut other_layout = false;
         for (device, _) in bit_entries {
@@ -2270,6 +2446,18 @@ impl ClientInner {
             other_layout |= !is_link_direct;
             self.ensure_extended_profile_feature_allowed(*device, extension)?;
             self.validate_extended_device_span(device.device(), 1, true, extension, "bit_entries")?;
+            let value_size = if matches!(
+                self.options.compatibility_mode,
+                SlmpCompatibilityMode::Legacy
+            ) || extension.direct_memory_specification == 0xF9
+            {
+                1
+            } else {
+                2
+            };
+            payload_len = payload_len
+                .checked_add(self.extended_device_spec_size(extension) + value_size)
+                .ok_or_else(|| SlmpError::new("write_random_bits_ext payload is too large"))?;
             extensions.push(extension);
         }
         Self::reject_mixed_extended_layouts(
@@ -2289,21 +2477,32 @@ impl ClientInner {
             seen.push(target);
         }
 
-        let mut payload = Vec::with_capacity(bit_entries.len() * 15 + 1);
-        payload.push(bit_entries.len() as u8);
+        #[cfg(test)]
+        {
+            self.extended_final_payload_allocation_count += 1;
+        }
+        let mut payload = vec![0; payload_len];
+        payload[0] = bit_entries.len() as u8;
+        let mut offset = 1;
         for ((device, value), extension) in bit_entries.iter().zip(&extensions) {
             let ql_encoding = matches!(
                 self.options.compatibility_mode,
                 SlmpCompatibilityMode::Legacy
             ) || extension.direct_memory_specification == 0xF9;
-            payload
-                .extend_from_slice(&self.encode_extended_device_spec(device.device(), *extension));
+            offset += self.encode_extended_device_spec_into(
+                device.device(),
+                *extension,
+                &mut payload[offset..],
+            );
             if ql_encoding {
-                payload.push(u8::from(*value));
+                payload[offset] = u8::from(*value);
+                offset += 1;
             } else {
-                payload.extend_from_slice(&u16::from(*value).to_le_bytes());
+                payload[offset..offset + 2].copy_from_slice(&u16::from(*value).to_le_bytes());
+                offset += 2;
             }
         }
+        debug_assert_eq!(offset, payload.len());
         let sub = if link_direct
             || matches!(
                 self.options.compatibility_mode,
@@ -2375,10 +2574,7 @@ impl ClientInner {
         } else {
             0x0002
         };
-        let data = self
-            .request(SlmpCommand::DeviceReadBlock, sub, &payload, true)
-            .await?;
-        let decoded = (|| {
+        self.request_decoded(SlmpCommand::DeviceReadBlock, sub, &payload, true, |data| {
             let expected = (total_word_points + total_bit_points) * 2;
             if data.len() != expected {
                 return Err(SlmpError::new(format!(
@@ -2401,8 +2597,8 @@ impl ClientInner {
                 cursor += 2;
             }
             Ok(result)
-        })();
-        self.finish_response_decode(SlmpCommand::DeviceReadBlock, sub, decoded)
+        })
+        .await
     }
 
     async fn write_block(
@@ -2558,10 +2754,7 @@ impl ClientInner {
         let mut payload = Vec::with_capacity(2 + data.len());
         payload.extend_from_slice(&(data.len() as u16).to_le_bytes());
         payload.extend_from_slice(data);
-        let response = self
-            .request(SlmpCommand::SelfTest, 0x0000, &payload, true)
-            .await?;
-        let decoded = (|| {
+        self.request_decoded(SlmpCommand::SelfTest, 0x0000, &payload, true, |response| {
             if response.len() < 2 {
                 return Err(SlmpError::new("self_test response too short"));
             }
@@ -2584,8 +2777,8 @@ impl ClientInner {
                 return Err(SlmpError::new("self_test response payload mismatch"));
             }
             Ok(echo.to_vec())
-        })();
-        self.finish_response_decode(SlmpCommand::SelfTest, 0x0000, decoded)
+        })
+        .await
     }
 
     async fn clear_error(&mut self) -> Result<(), SlmpError> {
@@ -2603,18 +2796,17 @@ impl ClientInner {
         let mut payload = Vec::with_capacity(6);
         payload.extend_from_slice(&head_address.to_le_bytes());
         payload.extend_from_slice(&word_length.to_le_bytes());
-        let data = self
-            .request(SlmpCommand::MemoryRead, 0x0000, &payload, true)
-            .await?;
-        let decoded = if data.len() != word_length as usize * 2 {
-            Err(SlmpError::new("memory_read response size mismatch"))
-        } else {
-            Ok(data
-                .chunks_exact(2)
-                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                .collect())
-        };
-        self.finish_response_decode(SlmpCommand::MemoryRead, 0x0000, decoded)
+        self.request_decoded(SlmpCommand::MemoryRead, 0x0000, &payload, true, |data| {
+            if data.len() != word_length as usize * 2 {
+                Err(SlmpError::new("memory_read response size mismatch"))
+            } else {
+                Ok(data
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect())
+            }
+        })
+        .await
     }
 
     async fn memory_write_words(
@@ -2645,15 +2837,20 @@ impl ClientInner {
         payload.extend_from_slice(&head_address.to_le_bytes());
         payload.extend_from_slice(&byte_length.to_le_bytes());
         payload.extend_from_slice(&module_no.to_le_bytes());
-        let data = self
-            .request(SlmpCommand::ExtendUnitRead, 0x0000, &payload, true)
-            .await?;
-        let decoded = if data.len() != byte_length as usize {
-            Err(SlmpError::new("extend_unit_read response size mismatch"))
-        } else {
-            Ok(data)
-        };
-        self.finish_response_decode(SlmpCommand::ExtendUnitRead, 0x0000, decoded)
+        self.request_decoded(
+            SlmpCommand::ExtendUnitRead,
+            0x0000,
+            &payload,
+            true,
+            |data| {
+                if data.len() != byte_length as usize {
+                    Err(SlmpError::new("extend_unit_read response size mismatch"))
+                } else {
+                    Ok(data.to_vec())
+                }
+            },
+        )
+        .await
     }
 
     async fn extend_unit_read_words(
@@ -2697,11 +2894,14 @@ impl ClientInner {
         abbreviation_labels: &[String],
     ) -> Result<Vec<SlmpLabelArrayReadResult>, SlmpError> {
         let payload = Self::build_label_array_read_payload(points, abbreviation_labels)?;
-        let data = self
-            .request(SlmpCommand::LabelArrayRead, 0x0000, &payload, true)
-            .await?;
-        let decoded = Self::parse_array_label_read_response(&data, points);
-        self.finish_response_decode(SlmpCommand::LabelArrayRead, 0x0000, decoded)
+        self.request_decoded(
+            SlmpCommand::LabelArrayRead,
+            0x0000,
+            &payload,
+            true,
+            |data| Self::parse_array_label_read_response(data, points),
+        )
+        .await
     }
 
     async fn write_array_labels(
@@ -2721,11 +2921,14 @@ impl ClientInner {
         abbreviation_labels: &[String],
     ) -> Result<Vec<SlmpLabelRandomReadResult>, SlmpError> {
         let payload = Self::build_label_random_read_payload(labels, abbreviation_labels)?;
-        let data = self
-            .request(SlmpCommand::LabelReadRandom, 0x0000, &payload, true)
-            .await?;
-        let decoded = Self::parse_label_random_read_response(&data, labels.len());
-        self.finish_response_decode(SlmpCommand::LabelReadRandom, 0x0000, decoded)
+        self.request_decoded(
+            SlmpCommand::LabelReadRandom,
+            0x0000,
+            &payload,
+            true,
+            |data| Self::parse_label_random_read_response(data, labels.len()),
+        )
+        .await
     }
 
     async fn write_random_labels(
@@ -3137,6 +3340,41 @@ impl ClientInner {
         payload: &[u8],
         expect_response: bool,
     ) -> Result<Vec<u8>, SlmpError> {
+        let range = self
+            .request_payload_range(command, subcommand, payload, expect_response)
+            .await?;
+        #[cfg(test)]
+        if !range.is_empty() {
+            self.response_payload_materialization_count += 1;
+        }
+        Ok(self.last_response_frame[range.0].to_vec())
+    }
+
+    async fn request_decoded<T, F>(
+        &mut self,
+        command: SlmpCommand,
+        subcommand: u16,
+        payload: &[u8],
+        expect_response: bool,
+        decode: F,
+    ) -> Result<T, SlmpError>
+    where
+        F: FnOnce(&[u8]) -> Result<T, SlmpError>,
+    {
+        let range = self
+            .request_payload_range(command, subcommand, payload, expect_response)
+            .await?;
+        let decoded = decode(&self.last_response_frame[range.0]);
+        self.finish_response_decode(command, subcommand, decoded)
+    }
+
+    async fn request_payload_range(
+        &mut self,
+        command: SlmpCommand,
+        subcommand: u16,
+        payload: &[u8],
+        expect_response: bool,
+    ) -> Result<ResponsePayloadRange, SlmpError> {
         if self.response_decode_deadline.is_some() {
             self.transport = Transport::Closed;
             self.response_decode_deadline = None;
@@ -3235,7 +3473,7 @@ impl ClientInner {
                 }
                 if !expect_response {
                     drop(stream);
-                    return Ok(Vec::new());
+                    return Ok(ResponsePayloadRange(0..0));
                 }
                 Self::ensure_before_deadline(deadline, TCP_READ_TIMEOUT_MESSAGE).map_err(
                     |error| {
@@ -3409,7 +3647,7 @@ impl ClientInner {
                     ));
                 }
                 if !expect_response {
-                    return Ok(Vec::new());
+                    return Ok(ResponsePayloadRange(0..0));
                 }
                 Self::ensure_before_deadline(deadline, UDP_RECEIVE_TIMEOUT_MESSAGE).map_err(
                     |error| {
@@ -3843,7 +4081,7 @@ impl ClientInner {
         subcommand: u16,
         expected_target: SlmpTargetAddress,
         response: &[u8],
-    ) -> Result<Vec<u8>, SlmpError> {
+    ) -> Result<ResponsePayloadRange, SlmpError> {
         let is_4e = response.len() >= 13 && response[0] == 0xD4 && response[1] == 0x00;
         let is_3e = response.len() >= 9 && response[0] == 0xD0 && response[1] == 0x00;
         if !is_4e && !is_3e {
@@ -3896,9 +4134,11 @@ impl ClientInner {
             ));
         }
         if data_length == 2 {
-            return Ok(Vec::new());
+            return Ok(ResponsePayloadRange(header_size + 2..header_size + 2));
         }
-        Ok(response[header_size + 2..header_size + data_length].to_vec())
+        Ok(ResponsePayloadRange(
+            header_size + 2..header_size + data_length,
+        ))
     }
 
     fn validate_complete_response_frame(
@@ -4136,7 +4376,7 @@ impl ClientInner {
     }
 
     fn build_read_write_payload_extended(
-        &self,
+        &mut self,
         device: SlmpDeviceAddress,
         points: u16,
         values: Option<&[u16]>,
@@ -4170,13 +4410,22 @@ impl ClientInner {
         payload
     }
 
-    pub(crate) fn encode_extended_device_spec(
+    fn extended_device_spec_size(&self, extension: SlmpExtensionSpec) -> usize {
+        if extension.direct_memory_specification == 0xF9 {
+            11
+        } else {
+            device_spec_size(self.options.compatibility_mode) + 7
+        }
+    }
+
+    fn encode_extended_device_spec_into(
         &self,
         device: SlmpDeviceAddress,
         extension: SlmpExtensionSpec,
-    ) -> Vec<u8> {
+        output: &mut [u8],
+    ) -> usize {
         if extension.direct_memory_specification == 0xF9 {
-            return vec![
+            output[..11].copy_from_slice(&[
                 0x00,
                 0x00,
                 (device.number() & 0xFF) as u8,
@@ -4188,20 +4437,35 @@ impl ClientInner {
                 (extension.extension_specification & 0xFF) as u8,
                 0x00,
                 0xF9,
-            ];
+            ]);
+            return 11;
         }
 
-        let mut device_spec = vec![0u8; device_spec_size(self.options.compatibility_mode)];
-        let _ = self.encode_device_spec(device, &mut device_spec);
+        output[0] = extension.device_modification_index;
+        output[1] = extension.device_modification_flags;
+        let device_size = self.encode_device_spec(device, &mut output[2..]);
+        let mut offset = 2 + device_size;
+        output[offset] = extension.extension_specification_modification;
+        output[offset + 1] = 0x00;
+        output[offset + 2..offset + 4]
+            .copy_from_slice(&extension.extension_specification.to_le_bytes());
+        output[offset + 4] = extension.direct_memory_specification;
+        offset += 5;
+        offset
+    }
 
-        let mut payload = Vec::with_capacity(2 + device_spec.len() + 2 + 2 + 1);
-        payload.push(extension.device_modification_index);
-        payload.push(extension.device_modification_flags);
-        payload.extend_from_slice(&device_spec);
-        payload.push(extension.extension_specification_modification);
-        payload.push(0x00);
-        payload.extend_from_slice(&extension.extension_specification.to_le_bytes());
-        payload.push(extension.direct_memory_specification);
+    pub(crate) fn encode_extended_device_spec(
+        &mut self,
+        device: SlmpDeviceAddress,
+        extension: SlmpExtensionSpec,
+    ) -> Vec<u8> {
+        #[cfg(test)]
+        {
+            self.extended_owned_spec_encode_count += 1;
+        }
+        let mut payload = vec![0; self.extended_device_spec_size(extension)];
+        let written = self.encode_extended_device_spec_into(device, extension, &mut payload);
+        debug_assert_eq!(written, payload.len());
         payload
     }
 
@@ -4285,6 +4549,10 @@ mod tests {
             response_parsed_test_barrier: None,
             command_decoded_test_barrier: None,
             request_payload_validation_count: 0,
+            response_payload_materialization_count: 0,
+            random_read_prepare_count: 0,
+            extended_owned_spec_encode_count: 0,
+            extended_final_payload_allocation_count: 0,
         }
     }
 
@@ -5105,7 +5373,7 @@ mod tests {
 
     #[tokio::test]
     async fn encode_extended_device_spec_uses_manual_ql_layout() {
-        let inner = udp_inner(SlmpPlcProfile::QCpuQj71E71100).await;
+        let mut inner = udp_inner(SlmpPlcProfile::QCpuQj71E71100).await;
         let device = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::QCpuQj71E71100);
 
         assert_eq!(
@@ -5128,6 +5396,59 @@ mod tests {
                 0x04, 0x40, 0x64, 0x00, 0x00, 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn typed_decode_uses_response_frame_view_while_raw_command_materializes_payload() {
+        let (typed, typed_server) =
+            client_with_one_response(SlmpTransportMode::Tcp, 0, 0x1234u16.to_le_bytes().to_vec())
+                .await;
+        let values = typed
+            .read_words_raw(
+                SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR),
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(values, vec![0x1234]);
+        assert_eq!(typed.optimization_test_counters().await.1, 0);
+        typed_server.await.unwrap();
+
+        let (raw, raw_server) =
+            client_with_one_response(SlmpTransportMode::Tcp, 0, vec![0xAA, 0xBB]).await;
+        assert_eq!(
+            raw.raw_command(SlmpCommand::MemoryRead, 0x0000, &[])
+                .await
+                .unwrap(),
+            vec![0xAA, 0xBB]
+        );
+        assert_eq!(raw.optimization_test_counters().await.1, 1);
+        raw_server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn extended_random_read_uses_one_final_payload_and_no_owned_device_specs() {
+        let (client, server) =
+            client_with_one_response(SlmpTransportMode::Tcp, 0, 0x4321u16.to_le_bytes().to_vec())
+                .await;
+        let device = SlmpQualifiedDeviceAddress::new(SlmpDeviceAddress::new(
+            SlmpDeviceCode::D,
+            100,
+            SlmpPlcProfile::IqR,
+        ));
+
+        assert_eq!(
+            client
+                .read_random_ext(&[device], &[])
+                .await
+                .unwrap()
+                .word_values,
+            vec![0x4321]
+        );
+        let counters = client.optimization_test_counters().await;
+        assert_eq!(counters.2, 0);
+        assert_eq!(counters.3, 1);
+        server.await.unwrap();
     }
 
     #[test]

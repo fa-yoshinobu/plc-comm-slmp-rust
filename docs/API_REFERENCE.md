@@ -124,7 +124,7 @@ CPU-buffer access.
 | Connection options and profile descriptors | `SlmpConnectionOptions`, `plc_profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
 | Address parsing | `SlmpAddress::parse`, `SlmpAddress::try_parse`, `SlmpAddress::format`, `SlmpAddress::normalize`, `parse_device`, `parse_qualified_device` (all parsing requires `SlmpPlcProfile`) |
 | Typed values | `read_typed`, `write_typed` |
-| Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection; Direct long-timer routes are excluded) |
+| Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection; a polling stream prepares its immutable request and compact decode indexes once; Direct long-timer routes are excluded) |
 | Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
 | Bit-in-word write | `write_bit_in_word` (explicit non-atomic RMW; read and write occupy one client FIFO turn) |
 | Traffic counters | `traffic_stats` |

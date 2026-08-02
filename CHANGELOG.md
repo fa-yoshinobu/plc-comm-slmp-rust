@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: Named polling now prepares and validates its immutable Random Read payload and compact decode indexes once per stream, then reuses them for every FIFO-controlled cycle without changing timing, cancellation, close, or error behavior.
+- Library: Typed command decoders now parse an internal response-frame view; only public raw/trace/error/owned result surfaces materialize bytes. Extended Random and Monitor payloads use a validated exact-size two-pass encoder with one final payload allocation and no per-device encoded buffers.
+- Tests: Added allocation/encoding counters and regressions for one-time polling preparation, compact indexed decode, typed/raw response ownership, and exact-size Extended payload construction.
 - Library: Prepare and fully validate each general request payload once, then pass its validated bytes and calculated data length to a private frame builder; wire frames, validation order, 4E serial allocation, and transport behavior are unchanged.
 - Tests: Count general-request payload validation, preserve frame/serial/statistics state on boundary and malformed monitor-registration rejection, and prove the prepared builder does not revalidate.
 - Docs: Made controlled write examples attempt restoration before propagating readback failures, made remote-password examples validate before unlock and attempt re-lock after read failure, separated Clear Error as an explicit state-changing maintenance action, and documented manual reconciliation after restoration failures or outcome-unknown operations.

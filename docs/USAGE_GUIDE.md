@@ -547,6 +547,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+The address plan, compact result indexes, and immutable Random Read payload are
+validated and prepared once when the polling stream is created. Each cycle
+reuses that prepared request while retaining the ordinary client FIFO,
+deadline, cancellation, close, and error contracts.
+
 ## Operational recipes
 
 The `multi_plc_monitor` example is a read-only multi-PLC monitor. It polls each
