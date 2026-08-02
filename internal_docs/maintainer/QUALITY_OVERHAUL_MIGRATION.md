@@ -1324,3 +1324,39 @@ Machine-verifiable acceptance criteria for the Rust implementation:
   lifecycle behavior are completely observable with deterministic transport
   fixtures, and no PLC/profile compatibility claim changed. No live PLC
   communication was performed.
+
+## PERF-010E1 — Single general-request payload validation
+
+Implementation scope: `ClientInner::request`, request payload preflight, the
+private request-frame builder, and deterministic unit tests. PERF-010E2 DNS and
+TCP socket-option blocking tasks are outside this item and remain unchanged.
+
+Target contract: after the closed-state check and before frame, serial,
+statistics, or transport mutation, a general request fully validates its
+payload exactly once. Successful preflight returns a private prepared value
+containing the validated payload borrow and calculated request data length.
+Only that value can call the mutation-only private frame builder. Response
+framing, correlation, deadlines, close handling, and error classification are
+unchanged.
+
+Compatibility impact: none. Public API, errors, validation order and text,
+maximum lengths, 3E/4E wire bytes, serial progression, FIFO, request count, and
+transport state retain their existing contract; only duplicate CPU work is
+removed.
+
+Machine-verifiable acceptance criteria:
+
+1. A normal general request increments the test-only full-validation counter once.
+2. The prepared builder does not increment that counter or recalculate length.
+3. Oversized and malformed monitor-register payloads preserve the previous
+   request frame, 4E serial, statistics, and transport before send.
+4. Existing TCP/UDP 3E/4E exact-boundary frame tests remain byte-identical.
+5. Response validation and PERF-010E2 connection-task code have no diff.
+
+- [x] Implementation completed in this repository.
+- [x] Tests added or updated for every machine-verifiable acceptance criterion.
+- [x] Relevant MSRV, format, Clippy, rustdoc, full unit/integration, N-API, example, package, and current-worktree source-archive checks passed.
+- [x] Codex self-review completed against the approved contract and cross-language consistency requirements.
+- [x] Live PLC verification is not required because validation count, mutation boundaries, frames, and state preservation are deterministic local behavior.
+- [x] Maintainer documentation, changelog, and API documentation agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.

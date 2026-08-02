@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: Prepare and fully validate each general request payload once, then pass its validated bytes and calculated data length to a private frame builder; wire frames, validation order, 4E serial allocation, and transport behavior are unchanged.
+- Tests: Count general-request payload validation, preserve frame/serial/statistics state on boundary and malformed monitor-registration rejection, and prove the prepared builder does not revalidate.
 - Docs: Made controlled write examples attempt restoration before propagating readback failures, made remote-password examples validate before unlock and attempt re-lock after read failure, separated Clear Error as an explicit state-changing maintenance action, and documented manual reconciliation after restoration failures or outcome-unknown operations.
 - Tests: Added compile-checked documentation contract tests for cleanup ordering, password re-lock, controlled extended writes, and Clear Error separation.
 - Library: Structured nonzero-end-code responses now require their embedded route, command, and subcommand to match the active request. A mismatch is malformed, retires the transport, and makes a transmitted state change outcome-unknown; matching trailing error data is retained in `SlmpErrorInfo.extra`.

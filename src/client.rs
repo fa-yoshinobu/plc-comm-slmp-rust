@@ -63,6 +63,13 @@ struct ClientInner {
     response_parsed_test_barrier: Option<Arc<std::sync::Barrier>>,
     #[cfg(test)]
     command_decoded_test_barrier: Option<Arc<std::sync::Barrier>>,
+    #[cfg(test)]
+    request_payload_validation_count: usize,
+}
+
+struct PreparedRequestPayload<'a> {
+    bytes: &'a [u8],
+    data_length: u16,
 }
 
 impl SlmpClient {
@@ -111,6 +118,8 @@ impl SlmpClient {
                 response_parsed_test_barrier: None,
                 #[cfg(test)]
                 command_decoded_test_barrier: None,
+                #[cfg(test)]
+                request_payload_validation_count: 0,
             })),
             close_tx,
         };
@@ -3140,8 +3149,8 @@ impl ClientInner {
         if *self.close_rx.borrow() {
             return Err(SlmpError::closed("SLMP client is closed"));
         }
-        self.validate_request_payload(command, subcommand, payload)?;
-        self.build_request_frame(command, subcommand, payload)?;
+        let prepared = self.prepare_request_payload(command, subcommand, payload)?;
+        self.build_prepared_request_frame(command, subcommand, prepared);
         let expected_serial = if matches!(self.options.frame_type, SlmpFrameType::Frame4E) {
             Some(u16::from_le_bytes([
                 self.last_request_frame[2],
@@ -3602,13 +3611,17 @@ impl ClientInner {
         }
     }
 
-    fn validate_request_payload(
-        &self,
+    fn prepare_request_payload<'a>(
+        &mut self,
         command: SlmpCommand,
         subcommand: u16,
-        payload: &[u8],
-    ) -> Result<(), SlmpError> {
-        Self::request_data_length(command, subcommand, payload.len())?;
+        payload: &'a [u8],
+    ) -> Result<PreparedRequestPayload<'a>, SlmpError> {
+        #[cfg(test)]
+        {
+            self.request_payload_validation_count += 1;
+        }
+        let data_length = Self::request_data_length(command, subcommand, payload.len())?;
         let maximum = self.request_payload_limit();
         if payload.len() > maximum {
             return Err(SlmpError::with_context(
@@ -3625,7 +3638,10 @@ impl ClientInner {
         {
             self.validate_plain_monitor_register_payload(self.options.compatibility_mode, payload)?;
         }
-        Ok(())
+        Ok(PreparedRequestPayload {
+            bytes: payload,
+            data_length,
+        })
     }
 
     fn request_payload_limit(&self) -> usize {
@@ -3715,14 +3731,26 @@ impl ClientInner {
         Ok(())
     }
 
+    #[cfg(test)]
     fn build_request_frame(
         &mut self,
         command: SlmpCommand,
         subcommand: u16,
         payload: &[u8],
     ) -> Result<(), SlmpError> {
-        self.validate_request_payload(command, subcommand, payload)?;
-        let request_data_length = Self::request_data_length(command, subcommand, payload.len())?;
+        let prepared = self.prepare_request_payload(command, subcommand, payload)?;
+        self.build_prepared_request_frame(command, subcommand, prepared);
+        Ok(())
+    }
+
+    fn build_prepared_request_frame(
+        &mut self,
+        command: SlmpCommand,
+        subcommand: u16,
+        prepared: PreparedRequestPayload<'_>,
+    ) {
+        let payload = prepared.bytes;
+        let request_data_length = prepared.data_length;
         let header_size = match self.options.frame_type {
             SlmpFrameType::Frame4E => 19,
             SlmpFrameType::Frame3E => 15,
@@ -3753,7 +3781,6 @@ impl ClientInner {
             }
         }
         frame[header_size..].copy_from_slice(payload);
-        Ok(())
     }
 
     fn write_target(buffer: &mut [u8], target: SlmpTargetAddress) {
@@ -4257,6 +4284,7 @@ mod tests {
             response_decode_deadline: None,
             response_parsed_test_barrier: None,
             command_decoded_test_barrier: None,
+            request_payload_validation_count: 0,
         }
     }
 
@@ -4871,10 +4899,12 @@ mod tests {
             inner.options.frame_type = frame_type;
             inner.serial = 41;
             inner.last_request_frame.clear();
+            inner.request_payload_validation_count = 0;
 
             inner
                 .build_request_frame(SlmpCommand::ClearError, 0, &vec![0; maximum])
                 .unwrap();
+            assert_eq!(inner.request_payload_validation_count, 1);
             assert_eq!(inner.last_request_frame.len(), frame_length);
             let length_offset = if matches!(frame_type, SlmpFrameType::Frame4E) {
                 11
@@ -4891,9 +4921,11 @@ mod tests {
 
             let frame_before = inner.last_request_frame.clone();
             let serial_before = inner.serial;
+            inner.request_payload_validation_count = 0;
             let error = inner
                 .build_request_frame(SlmpCommand::ClearError, 0, &vec![0; maximum + 1])
                 .unwrap_err();
+            assert_eq!(inner.request_payload_validation_count, 1);
             assert!(
                 error
                     .to_string()
@@ -4904,6 +4936,57 @@ mod tests {
             assert_eq!(inner.serial, serial_before);
             assert_eq!(inner.traffic_stats, SlmpTrafficStats::default());
         }
+    }
+
+    #[tokio::test]
+    async fn prepared_request_builder_does_not_repeat_payload_validation() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        inner.options.frame_type = SlmpFrameType::Frame4E;
+        let payload = [1, 2, 3, 4];
+
+        let prepared = inner
+            .prepare_request_payload(SlmpCommand::ClearError, 0, &payload)
+            .unwrap();
+        assert_eq!(inner.request_payload_validation_count, 1);
+        inner.build_prepared_request_frame(SlmpCommand::ClearError, 0, prepared);
+
+        assert_eq!(inner.request_payload_validation_count, 1);
+        assert_eq!(&inner.last_request_frame[15..19], &[0x17, 0x16, 0, 0]);
+        assert_eq!(&inner.last_request_frame[19..], &payload);
+    }
+
+    #[tokio::test]
+    async fn general_request_validates_payload_exactly_once() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        inner.options.frame_type = SlmpFrameType::Frame4E;
+
+        inner
+            .request(SlmpCommand::ClearError, 0, &[1, 2, 3, 4], false)
+            .await
+            .unwrap();
+
+        assert_eq!(inner.request_payload_validation_count, 1);
+        assert_eq!(inner.traffic_stats.request_count, 1);
+        assert_eq!(&inner.last_request_frame[19..], &[1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn invalid_monitor_payload_does_not_mutate_request_state() {
+        let mut inner = udp_inner(SlmpPlcProfile::IqR).await;
+        inner.options.frame_type = SlmpFrameType::Frame4E;
+        inner.serial = 77;
+        inner.last_request_frame = vec![9, 8, 7];
+        let frame_before = inner.last_request_frame.clone();
+
+        let error = inner
+            .build_request_frame(SlmpCommand::MonitorRegister, 0x0000, &[1])
+            .unwrap_err();
+
+        assert!(error.to_string().contains("too short"));
+        assert_eq!(inner.request_payload_validation_count, 1);
+        assert_eq!(inner.serial, 77);
+        assert_eq!(inner.last_request_frame, frame_before);
+        assert_eq!(inner.traffic_stats, SlmpTrafficStats::default());
     }
 
     #[test]
