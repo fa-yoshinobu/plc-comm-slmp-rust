@@ -71,11 +71,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Remote password lock/unlock commands are available on `SlmpClient`.
 The Rust high-level connection does not automatically unlock or lock a remote password.
 If your PLC route uses remote password protection, unlock after connecting and lock before closing.
+Always attempt re-lock after a confirmed unlock, even when the intervening
+operation fails. If unlock or re-lock has an outcome-unknown result, do not
+retry automatically; reopen, inspect the PLC lock state, and reconcile it
+explicitly because access may remain unlocked.
 
 ```rust
+let password_address =
+    SlmpAddress::parse("D100", client.plc_profile().await)?;
 client.remote_password_unlock("secret").await?;
-let value = read_typed(&client, SlmpAddress::parse("D100", client.plc_profile().await)?, "U").await?;
-client.remote_password_lock("secret").await?;
+let read_result = read_typed(&client, password_address, "U").await;
+let lock_result = client.remote_password_lock("secret").await;
+lock_result?;
+let value = read_result?;
 ```
 
 For `C200`-series password end codes, see the shared
@@ -141,7 +149,9 @@ extended device APIs with a qualified address:
 | `J1\X10` | Link direct `X10` on J network `1`. |
 
 The selected PLC profile and the actual PLC configuration still decide whether
-the route is accepted.
+the route is accepted. The write below is a controlled-test example: reserve
+the exact configured module-buffer range and do not use a production control
+buffer.
 
 ```rust
 use plc_comm_slmp::{
@@ -156,6 +166,10 @@ let client = SlmpClient::connect(options).await?;
 let module = parse_qualified_device(r"U3\G100", SlmpPlcProfile::IqR)?;
 let module_words = client.read_words_extended(module, 4).await?;
 client.write_words_extended(module, &[1, 2, 3, 4]).await?;
+let module_readback_result = client.read_words_extended(module, 4).await;
+let module_restore_result = client.write_words_extended(module, &module_words).await;
+module_restore_result?;
+let module_readback = module_readback_result?;
 
 let cpu_buffer = parse_qualified_device(r"U3E0\HG0", SlmpPlcProfile::IqR)?;
 let cpu_buffer_words = client.read_words_extended(cpu_buffer, 2).await?;
@@ -171,6 +185,13 @@ let indexed = parse_qualified_device(r"U3\D100", SlmpPlcProfile::IqR)?
 let indexed_words = client.read_words_extended(indexed, 1).await?;
 client.close().await?;
 ```
+
+Restoration is attempted before a readback error is propagated. If the module
+write itself returns an outcome-unknown error, do not automatically restore or
+retry; reopen the session, inspect the configured buffer, and choose recovery
+explicitly. If restoration fails, inspect the configured buffer and reconcile
+it manually before continuing. `module_readback`, `cpu_buffer_words`, `link_words`, `bits`, and
+`indexed_words` are the values available to the surrounding application.
 
 For iQ-R multi-CPU `U3En\HG...` access, the qualified device never changes the
 SLMP request target automatically. Select the target CPU in
@@ -189,6 +210,11 @@ registration still sends one cycle request, so the PLC determines the returned
 error. The combined expected count must be nonzero and cannot exceed the
 selected profile's monitor-registration limit.
 
+Monitor registration changes the PLC's active monitor set. Use only a known
+device list on a controlled PLC. If registration has an outcome-unknown result,
+do not register again automatically; reconnect and reconcile the monitor state
+explicitly.
+
 ```rust
 use plc_comm_slmp::parse_device;
 
@@ -198,12 +224,22 @@ client.register_monitor_devices(&[word], &[dword]).await?;
 let cycle = client.run_monitor_cycle(1, 1).await?;
 
 let echo = client.self_test_loopback(b"A1B2C3D4").await?;
-client.clear_error().await?;
 ```
 
 Self-test accepts only 1–960 ASCII `0-9/A-F` bytes and requires exact declared
-length, actual length, and echo equality. `clear_error` has no wire-level
-arguments and always sends the fixed empty-payload command.
+length, actual length, and echo equality.
+
+Clear Error is a separate state-changing maintenance action. It clears the
+PLC's current error state and cannot recreate the diagnostics that existed
+before the command. Capture the required diagnostics first and invoke it only
+on a controlled PLC when clearing the error is explicitly intended:
+
+```rust
+client.clear_error().await?;
+```
+
+`clear_error` has no wire-level arguments and always sends the fixed
+empty-payload command.
 
 ## PLC diagnostics
 
@@ -329,14 +365,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let original = read_typed(&client, device, "U").await?;
     write_typed(&client, device, "U", &SlmpValue::U16(42)).await?;
-    let value = read_typed(&client, device, "U").await?;
+    let readback_result = read_typed(&client, device, "U").await;
+    let restore_result = write_typed(&client, device, "U", &original).await;
+    restore_result?;
+    let value = readback_result?;
     println!("{:?}", value);
-    write_typed(&client, device, "U", &original).await?;
     client.close().await?;
 
     Ok(())
 }
 ```
+
+Use only a register reserved for controlled testing. The example attempts
+restoration before propagating a readback error. An outcome-unknown test write
+requires explicit state inspection rather than automatic restore or retry. If
+restoration fails, inspect the register and reconcile its value manually before
+continuing.
 
 ## Named typed collection
 
@@ -459,14 +503,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_bit_in_word(&client, word, 3, true).await?;
 
     let addresses = vec!["D50.3".to_string()];
-    let snapshot = read_named(&client, &addresses).await?;
+    let snapshot_result = read_named(&client, &addresses).await;
+    let restore_result = write_typed(&client, word, "U", &original).await;
+    restore_result?;
+    let snapshot = snapshot_result?;
     println!("{:?}", snapshot);
-    write_typed(&client, word, "U", &original).await?;
     client.close().await?;
 
     Ok(())
 }
 ```
+
+Use only a word reserved for controlled testing. Restoration is attempted
+before a snapshot-read error is propagated. If the bit write has an unknown
+outcome, inspect and reconcile the whole word instead of retrying automatically.
+If restoration fails, inspect the whole word and reconcile it manually before
+continuing.
 
 ## Polling
 

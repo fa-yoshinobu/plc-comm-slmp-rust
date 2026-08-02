@@ -84,14 +84,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let original = read_typed(&client, address, "U").await?;
     write_typed(&client, address, "U", &SlmpValue::U16(42)).await?;
-    let value = read_typed(&client, address, "U").await?;
+    let readback_result = read_typed(&client, address, "U").await;
+    let restore_result = write_typed(&client, address, "U", &original).await;
+    restore_result?;
+    let value = readback_result?;
     println!("{:?}", value);
-    write_typed(&client, address, "U", &original).await?;
     client.close().await?;
 
     Ok(())
 }
 ```
+
+The readback result is not propagated until after restoration is attempted, so
+a readback failure cannot skip the confirmed-write cleanup. If the test write
+itself returns an outcome-unknown error, do not send an automatic restore or
+retry; reopen, inspect the test register, and reconcile it explicitly. If the
+restoration attempt fails, also inspect the test register and reconcile its
+value manually before continuing.
 
 ## Confirm success
 
