@@ -13,8 +13,11 @@ profile label. There is no profile-free compatibility overload.
 - Compatibility: qualified U module-buffer and J link-direct routes use an explicit sibling function; compound timeout no longer restarts between requests.
 - Acceptance: invalid routes send zero requests; each valid route sends one read then one write with unchanged qualification.
 - [x] Implementation, targeted route test, formatting, and clippy completed.
-- [ ] Full repository release gate completed.
+- [x] Full repository release gate completed.
 - [x] User/API/changelog/migration sources updated.
+
+Release-gate evidence (2026-08-07): `release_check.bat` passed formatting, clippy, unit,
+documentation, package/source-archive, and registry-duplicate checks for candidate `5.0.0`.
 
 ## Per-decision target contracts
 
