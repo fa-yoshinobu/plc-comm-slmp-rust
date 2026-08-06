@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-08-07
+
 - Library: Named polling now prepares and validates its immutable Random Read payload and compact decode indexes once per stream, then reuses them for every FIFO-controlled cycle without changing timing, cancellation, close, or error behavior.
 - Library: Typed command decoders now parse an internal response-frame view; only public raw/trace/error/owned result surfaces materialize bytes. Extended Random and Monitor payloads use a validated exact-size two-pass encoder with one final payload allocation and no per-device encoded buffers.
 - Tests: Added allocation/encoding counters and regressions for one-time polling preparation, compact indexed decode, typed/raw response ownership, and exact-size Extended payload construction.
@@ -52,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### BREAKING
 
+- Library: `write_bit_in_word` and new `write_bit_in_word_extended` cover Direct and qualified U module-buffer / J link-direct complete-word routes, prevalidate the immutable route, own one FIFO turn, and use one absolute post-admission deadline for the mandatory read followed by write. The write is sent even when the bit is unchanged; the pair is not PLC-atomic, never retries, and a possibly transmitted unconfirmed write uses the outcome-unknown error contract.
 - Library: `SlmpErrorKind` adds `Cancelled`, `Closed`, `NotConnected`, `Transport`, `MalformedResponse`, and `OutcomeUnknown`; transport and response failures previously grouped under `General` are now distinct. State-changing post-send failures expose `outcome_unknown_reason` and must not be automatically retried.
 - Library: TCP and UDP connections are now IPv4-only. IPv6 literals are rejected before socket creation, hostname results are filtered to IPv4 without IPv6 fallback, and callers using IPv6 must migrate to IPv4.
 - Library: Array label lengths now use the SLMP bit/byte logical-length contract and two-byte wire padding. Zero logical lengths, non-exact array write buffers, and zero or odd random-label write buffers are rejected before transport.

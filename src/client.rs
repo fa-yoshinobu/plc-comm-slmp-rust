@@ -285,13 +285,45 @@ impl SlmpClient {
         )?;
         rules::validate_direct_word_write(device, inner.options.plc_profile)?;
         inner.validate_direct_device_span(device, 1, false, "write_bit_in_word")?;
-        let mut current = inner.read_words_raw(device, 1).await?[0];
+        let deadline = Instant::now()
+            .checked_add(inner.options.timeout)
+            .ok_or_else(|| SlmpError::new("timeout is too large"))?;
+        let mut current = inner
+            .read_words_raw_with_deadline(device, 1, deadline)
+            .await?[0];
         if value {
             current |= 1 << bit_index;
         } else {
             current &= !(1 << bit_index);
         }
-        inner.write_words(device, &[current]).await
+        inner
+            .write_words_with_deadline(device, &[current], deadline)
+            .await
+    }
+
+    pub(crate) async fn write_bit_in_word_extended_turn(
+        &self,
+        device: SlmpQualifiedDeviceAddress,
+        bit_index: u8,
+        value: bool,
+    ) -> Result<(), SlmpError> {
+        let mut inner = self.inner.lock().await;
+        inner.ensure_address_profile(device.device())?;
+        inner.validate_extended_bit_in_word_plan(device)?;
+        let deadline = Instant::now()
+            .checked_add(inner.options.timeout)
+            .ok_or_else(|| SlmpError::new("timeout is too large"))?;
+        let mut current = inner
+            .read_words_extended_with_deadline(device, 1, deadline)
+            .await?[0];
+        if value {
+            current |= 1 << bit_index;
+        } else {
+            current &= !(1 << bit_index);
+        }
+        inner
+            .write_words_extended_with_deadline(device, &[current], deadline)
+            .await
     }
 
     pub async fn read_bits(
@@ -1346,6 +1378,26 @@ impl ClientInner {
         device: SlmpDeviceAddress,
         points: u16,
     ) -> Result<Vec<u16>, SlmpError> {
+        self.read_words_raw_with_optional_deadline(device, points, None)
+            .await
+    }
+
+    async fn read_words_raw_with_deadline(
+        &mut self,
+        device: SlmpDeviceAddress,
+        points: u16,
+        deadline: Instant,
+    ) -> Result<Vec<u16>, SlmpError> {
+        self.read_words_raw_with_optional_deadline(device, points, Some(deadline))
+            .await
+    }
+
+    async fn read_words_raw_with_optional_deadline(
+        &mut self,
+        device: SlmpDeviceAddress,
+        points: u16,
+        deadline: Option<Instant>,
+    ) -> Result<Vec<u16>, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
             points as usize,
@@ -1358,16 +1410,23 @@ impl ClientInner {
         self.validate_direct_word_device_span(device, points as usize, "read_words")?;
         let payload = self.build_read_write_payload(device, points, None, false);
         let sub = self.word_subcommand(false);
-        self.request_decoded(SlmpCommand::DeviceRead, sub, &payload, true, |data| {
-            if data.len() != points as usize * 2 {
-                Err(SlmpError::new("read_words payload size mismatch"))
-            } else {
-                Ok(data
-                    .chunks_exact(2)
-                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                    .collect())
-            }
-        })
+        self.request_decoded_with_deadline(
+            SlmpCommand::DeviceRead,
+            sub,
+            &payload,
+            true,
+            deadline,
+            |data| {
+                if data.len() != points as usize * 2 {
+                    Err(SlmpError::new("read_words payload size mismatch"))
+                } else {
+                    Ok(data
+                        .chunks_exact(2)
+                        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                        .collect())
+                }
+            },
+        )
         .await
     }
 
@@ -1375,6 +1434,26 @@ impl ClientInner {
         &mut self,
         device: SlmpDeviceAddress,
         values: &[u16],
+    ) -> Result<(), SlmpError> {
+        self.write_words_with_optional_deadline(device, values, None)
+            .await
+    }
+
+    async fn write_words_with_deadline(
+        &mut self,
+        device: SlmpDeviceAddress,
+        values: &[u16],
+        deadline: Instant,
+    ) -> Result<(), SlmpError> {
+        self.write_words_with_optional_deadline(device, values, Some(deadline))
+            .await
+    }
+
+    async fn write_words_with_optional_deadline(
+        &mut self,
+        device: SlmpDeviceAddress,
+        values: &[u16],
+        deadline: Option<Instant>,
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
@@ -1390,7 +1469,7 @@ impl ClientInner {
             self.build_read_write_payload(device, values.len() as u16, Some(values), false);
         let sub = self.word_subcommand(false);
         let _ = self
-            .request(SlmpCommand::DeviceWrite, sub, &payload, true)
+            .request_with_deadline(SlmpCommand::DeviceWrite, sub, &payload, true, deadline)
             .await?;
         Ok(())
     }
@@ -1533,10 +1612,73 @@ impl ClientInner {
         self.write_dwords(device, &values).await
     }
 
+    fn validate_extended_bit_in_word_plan(
+        &mut self,
+        device: SlmpQualifiedDeviceAddress,
+    ) -> Result<(), SlmpError> {
+        self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
+        rules::validate_direct_access_points(
+            1,
+            false,
+            false,
+            "write_bit_in_word_extended read",
+            self.options.plc_profile,
+        )?;
+        rules::validate_direct_access_points(
+            1,
+            false,
+            true,
+            "write_bit_in_word_extended write",
+            self.options.plc_profile,
+        )?;
+        let extension = Self::resolve_effective_extension(device, self.options.plc_profile)?;
+        self.ensure_extended_profile_feature_allowed(device, extension)?;
+        if !matches!(
+            device.device().code(),
+            SlmpDeviceCode::G | SlmpDeviceCode::HG
+        ) {
+            rules::validate_direct_word_read(device.device(), 1)?;
+            rules::validate_direct_word_write(device.device(), self.options.plc_profile)?;
+        }
+        self.validate_extended_word_device_span(
+            device.device(),
+            1,
+            extension,
+            "write_bit_in_word_extended read",
+        )?;
+        self.validate_extended_device_span(
+            device.device(),
+            1,
+            false,
+            extension,
+            "write_bit_in_word_extended write",
+        )
+    }
+
     async fn read_words_extended(
         &mut self,
         device: SlmpQualifiedDeviceAddress,
         points: u16,
+    ) -> Result<Vec<u16>, SlmpError> {
+        self.read_words_extended_with_optional_deadline(device, points, None)
+            .await
+    }
+
+    async fn read_words_extended_with_deadline(
+        &mut self,
+        device: SlmpQualifiedDeviceAddress,
+        points: u16,
+        deadline: Instant,
+    ) -> Result<Vec<u16>, SlmpError> {
+        self.read_words_extended_with_optional_deadline(device, points, Some(deadline))
+            .await
+    }
+
+    async fn read_words_extended_with_optional_deadline(
+        &mut self,
+        device: SlmpQualifiedDeviceAddress,
+        points: u16,
+        deadline: Option<Instant>,
     ) -> Result<Vec<u16>, SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
@@ -1571,16 +1713,23 @@ impl ClientInner {
         } else {
             0x0082
         };
-        self.request_decoded(SlmpCommand::DeviceRead, sub, &payload, true, |data| {
-            if data.len() != points as usize * 2 {
-                Err(SlmpError::new("read_words_ext payload size mismatch"))
-            } else {
-                Ok(data
-                    .chunks_exact(2)
-                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                    .collect())
-            }
-        })
+        self.request_decoded_with_deadline(
+            SlmpCommand::DeviceRead,
+            sub,
+            &payload,
+            true,
+            deadline,
+            |data| {
+                if data.len() != points as usize * 2 {
+                    Err(SlmpError::new("read_words_ext payload size mismatch"))
+                } else {
+                    Ok(data
+                        .chunks_exact(2)
+                        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                        .collect())
+                }
+            },
+        )
         .await
     }
 
@@ -1588,6 +1737,26 @@ impl ClientInner {
         &mut self,
         device: SlmpQualifiedDeviceAddress,
         values: &[u16],
+    ) -> Result<(), SlmpError> {
+        self.write_words_extended_with_optional_deadline(device, values, None)
+            .await
+    }
+
+    async fn write_words_extended_with_deadline(
+        &mut self,
+        device: SlmpQualifiedDeviceAddress,
+        values: &[u16],
+        deadline: Instant,
+    ) -> Result<(), SlmpError> {
+        self.write_words_extended_with_optional_deadline(device, values, Some(deadline))
+            .await
+    }
+
+    async fn write_words_extended_with_optional_deadline(
+        &mut self,
+        device: SlmpQualifiedDeviceAddress,
+        values: &[u16],
+        deadline: Option<Instant>,
     ) -> Result<(), SlmpError> {
         self.ensure_profile_feature_allowed(SlmpProfileFeature::Direct)?;
         rules::validate_direct_access_points(
@@ -1629,7 +1798,7 @@ impl ClientInner {
             0x0082
         };
         let _ = self
-            .request(SlmpCommand::DeviceWrite, sub, &payload, true)
+            .request_with_deadline(SlmpCommand::DeviceWrite, sub, &payload, true, deadline)
             .await?;
         Ok(())
     }
@@ -3340,8 +3509,26 @@ impl ClientInner {
         payload: &[u8],
         expect_response: bool,
     ) -> Result<Vec<u8>, SlmpError> {
+        self.request_with_deadline(command, subcommand, payload, expect_response, None)
+            .await
+    }
+
+    async fn request_with_deadline(
+        &mut self,
+        command: SlmpCommand,
+        subcommand: u16,
+        payload: &[u8],
+        expect_response: bool,
+        deadline: Option<Instant>,
+    ) -> Result<Vec<u8>, SlmpError> {
         let range = self
-            .request_payload_range(command, subcommand, payload, expect_response)
+            .request_payload_range_with_deadline(
+                command,
+                subcommand,
+                payload,
+                expect_response,
+                deadline,
+            )
             .await?;
         #[cfg(test)]
         if !range.is_empty() {
@@ -3361,19 +3548,49 @@ impl ClientInner {
     where
         F: FnOnce(&[u8]) -> Result<T, SlmpError>,
     {
-        let range = self
-            .request_payload_range(command, subcommand, payload, expect_response)
-            .await?;
-        let decoded = decode(&self.last_response_frame[range.0]);
-        self.finish_response_decode(command, subcommand, decoded)
+        self.request_decoded_with_deadline(
+            command,
+            subcommand,
+            payload,
+            expect_response,
+            None,
+            decode,
+        )
+        .await
     }
 
-    async fn request_payload_range(
+    async fn request_decoded_with_deadline<T, F>(
         &mut self,
         command: SlmpCommand,
         subcommand: u16,
         payload: &[u8],
         expect_response: bool,
+        deadline: Option<Instant>,
+        decode: F,
+    ) -> Result<T, SlmpError>
+    where
+        F: FnOnce(&[u8]) -> Result<T, SlmpError>,
+    {
+        let range = self
+            .request_payload_range_with_deadline(
+                command,
+                subcommand,
+                payload,
+                expect_response,
+                deadline,
+            )
+            .await?;
+        let decoded = decode(&self.last_response_frame[range.0]);
+        self.finish_response_decode(command, subcommand, decoded)
+    }
+
+    async fn request_payload_range_with_deadline(
+        &mut self,
+        command: SlmpCommand,
+        subcommand: u16,
+        payload: &[u8],
+        expect_response: bool,
+        operation_deadline: Option<Instant>,
     ) -> Result<ResponsePayloadRange, SlmpError> {
         if self.response_decode_deadline.is_some() {
             self.transport = Transport::Closed;
@@ -3399,9 +3616,12 @@ impl ClientInner {
         };
         let tx_len = self.last_request_frame.len() as u64;
         let expected_target = self.options.target;
-        let deadline = Instant::now()
-            .checked_add(self.options.timeout)
-            .ok_or_else(|| SlmpError::new("timeout is too large"))?;
+        let deadline = match operation_deadline {
+            Some(deadline) => deadline,
+            None => Instant::now()
+                .checked_add(self.options.timeout)
+                .ok_or_else(|| SlmpError::new("timeout is too large"))?,
+        };
         let state_changing = command.is_state_changing();
         let mut close_rx = self.close_rx.clone();
 

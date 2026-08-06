@@ -423,7 +423,11 @@ rejected here because they require a read-modify-write sequence; call
 `write_bit_in_word` performs one read followed by one write while holding one FIFO client turn, so
 another operation on the same client cannot interleave between those two frames. It is still a
 non-atomic PLC read-modify-write: another PLC client or PLC logic can change the word, and a
-post-send interruption of its write reports `OutcomeUnknown`. Do not retry it automatically.
+post-send interruption of its write reports `OutcomeUnknown`. FIFO wait is outside the timeout;
+one absolute deadline covers both requests after admission, and a successful read always proceeds
+to the write even when the selected bit is unchanged. Use `write_bit_in_word_extended` with a
+`SlmpQualifiedDeviceAddress` for an immutable U-qualified module-buffer or J-qualified link-direct
+route. Unsupported profile/route combinations fail before the read. Do not retry automatically.
 
 ## Shared-client ordering and close
 
@@ -489,7 +493,7 @@ read-modify-write sequence.
 
 ```rust
 use plc_comm_slmp::{
-    read_named, read_typed, write_bit_in_word, write_typed, SlmpAddress, SlmpClient,
+    read_named, read_typed, write_bit_in_word, write_bit_in_word_extended, write_typed, SlmpAddress, SlmpClient,
     SlmpConnectionOptions, SlmpPlcProfile,
 };
 
@@ -501,6 +505,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let word = SlmpAddress::parse("D50", SlmpPlcProfile::IqR)?;
     let original = read_typed(&client, word, "U").await?;
     write_bit_in_word(&client, word, 3, true).await?;
+
+    // A qualified route uses the explicit sibling helper:
+    // let qualified = plc_comm_slmp::parse_qualified_device(r"J1\W10", SlmpPlcProfile::IqR)?;
+    // write_bit_in_word_extended(&client, qualified, 3, true).await?;
 
     let addresses = vec!["D50.3".to_string()];
     let snapshot_result = read_named(&client, &addresses).await;

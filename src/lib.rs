@@ -128,7 +128,8 @@ pub use error_codes::{end_code_key, end_code_name, is_remote_password_end_code};
 pub use helpers::{
     NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_dwords_single_request,
     read_named, read_typed, read_words_single_request, write_bit_in_word,
-    write_dwords_single_request, write_named, write_typed, write_words_single_request,
+    write_bit_in_word_extended, write_dwords_single_request, write_named, write_typed,
+    write_words_single_request,
 };
 pub use model::{
     RawSlmpDeviceAddress, SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpCommand,

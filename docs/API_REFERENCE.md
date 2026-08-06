@@ -126,7 +126,7 @@ CPU-buffer access.
 | Typed values | `read_typed`, `write_typed` |
 | Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection; a polling stream prepares its immutable request and compact decode indexes once; Direct long-timer routes are excluded) |
 | Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
-| Bit-in-word write | `write_bit_in_word` (explicit non-atomic RMW; read and write occupy one client FIFO turn) |
+| Bit-in-word write | `write_bit_in_word` (direct) and `write_bit_in_word_extended` (qualified U/J route); explicit non-atomic RMW under one FIFO turn and one post-admission deadline |
 | Traffic counters | `traffic_stats` |
 | Errors and timeout classification | `SlmpError`, `SlmpErrorKind`, `SlmpOutcomeUnknownReason`, `SlmpError::is_timeout`, `SlmpError::is_outcome_unknown` |
 

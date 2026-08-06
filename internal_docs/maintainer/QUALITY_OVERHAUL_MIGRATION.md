@@ -6,6 +6,16 @@ The optional Node binding follows the same rule:
 `normalizeAddress(address, plcProfile)` requires the exact canonical PLC
 profile label. There is no profile-free compatibility overload.
 
+## SLMP-BIT-RMW-20260807 — Complete-route bit-in-word contract
+
+- Scope: Direct and qualified Extended Device complete-word routes.
+- Target: `write_bit_in_word` and `write_bit_in_word_extended` prevalidate the exact immutable route and both requests, own one FIFO turn, and use one absolute post-admission deadline. A successful read always produces one write even when unchanged. The pair is non-PLC-atomic, never retries, and an unconfirmed possibly transmitted write is outcome unknown.
+- Compatibility: qualified U module-buffer and J link-direct routes use an explicit sibling function; compound timeout no longer restarts between requests.
+- Acceptance: invalid routes send zero requests; each valid route sends one read then one write with unchanged qualification.
+- [x] Implementation, targeted route test, formatting, and clippy completed.
+- [ ] Full repository release gate completed.
+- [x] User/API/changelog/migration sources updated.
+
 ## Per-decision target contracts
 
 Each item uses the following evidence boxes. A box may be checked only after the repository contains the implementation and executable evidence.

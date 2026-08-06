@@ -3,7 +3,7 @@ use plc_comm_slmp::{
     SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind, SlmpOutcomeUnknownReason, SlmpPlcProfile,
     SlmpQualifiedDeviceAddress, SlmpTransportMode, SlmpValue, parse_device, parse_qualified_device,
     parse_scalar_for_named, read_dwords_single_request, read_named, read_typed, write_bit_in_word,
-    write_named, write_typed,
+    write_bit_in_word_extended, write_named, write_typed,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
@@ -3401,6 +3401,83 @@ async fn direct_access_does_not_use_device_range_upper_bounds_as_send_guard() {
         .await
         .unwrap();
     assert_eq!(server.requests().await.len(), 2);
+}
+
+#[tokio::test]
+async fn bit_in_word_preserves_each_qualified_route_and_writes_when_unchanged() {
+    for (address, expected_subcommand) in [(r"U1\G0", 0x0082), (r"J1\W10", 0x0080)] {
+        let server = CapturingResponseServer::start(vec![(0, vec![0x08, 0x00]), (0, Vec::new())])
+            .await
+            .unwrap();
+        let mut options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            server.port,
+            SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        options.port = server.port;
+        let client = SlmpClient::connect(options).await.unwrap();
+        let qualified = parse_qualified_device(address, SlmpPlcProfile::IqR).unwrap();
+
+        let invalid = write_bit_in_word_extended(&client, qualified, 16, true)
+            .await
+            .unwrap_err();
+        assert!(invalid.message.contains("bit_index must be 0-15"));
+        assert!(server.requests().await.is_empty());
+
+        write_bit_in_word_extended(&client, qualified, 3, true)
+            .await
+            .unwrap();
+
+        let requests = server.requests().await;
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            u16::from_le_bytes([requests[0][15], requests[0][16]]),
+            0x0401
+        );
+        assert_eq!(
+            u16::from_le_bytes([requests[1][15], requests[1][16]]),
+            0x1401
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|frame| { u16::from_le_bytes([frame[17], frame[18]]) == expected_subcommand })
+        );
+        assert_eq!(requests[1].len(), requests[0].len() + 2);
+        assert_eq!(&requests[1][19..requests[0].len()], &requests[0][19..]);
+        assert_eq!(&requests[1][requests[1].len() - 2..], &[0x08, 0x00]);
+    }
+}
+
+#[tokio::test]
+async fn bit_in_word_blocked_qualified_routes_send_nothing() {
+    for (address, profile) in [
+        (r"U2\G100", SlmpPlcProfile::QnUDV),
+        (r"J1\W0", SlmpPlcProfile::IqF),
+    ] {
+        let server = CapturingResponseServer::start(Vec::new()).await.unwrap();
+        let mut options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            server.port,
+            SlmpTransportMode::Tcp,
+            plc_comm_slmp::SlmpTargetAddress::default(),
+            profile,
+        )
+        .unwrap();
+        options.port = server.port;
+        let client = SlmpClient::connect(options).await.unwrap();
+        let qualified = parse_qualified_device(address, profile).unwrap();
+
+        let error = write_bit_in_word_extended(&client, qualified, 3, true)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind, SlmpErrorKind::ProfileFeature);
+        assert!(server.requests().await.is_empty());
+    }
 }
 
 #[tokio::test]

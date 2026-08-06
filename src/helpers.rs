@@ -1,7 +1,10 @@
 use crate::address::{parse_device, parse_named_address};
 use crate::client::{PreparedRandomRead, SlmpClient};
 use crate::error::SlmpError;
-use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile};
+use crate::model::{
+    SlmpDeviceAddress, SlmpDeviceCode, SlmpLongTimerResult, SlmpPlcProfile,
+    SlmpQualifiedDeviceAddress,
+};
 use async_stream::try_stream;
 use futures_core::stream::Stream;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -180,6 +183,12 @@ pub async fn write_typed(
     }
 }
 
+/// Set or clear one bit through one immutable direct word route.
+///
+/// The mandatory read and write occupy one FIFO turn and one absolute
+/// post-admission deadline. A successful read is always followed by the write,
+/// even when the bit is unchanged. The pair is not PLC-atomic, never retries,
+/// and an unconfirmed possibly transmitted write is outcome unknown.
 pub async fn write_bit_in_word(
     client: &SlmpClient,
     device: SlmpDeviceAddress,
@@ -194,6 +203,32 @@ pub async fn write_bit_in_word(
     }
     client
         .write_bit_in_word_turn(device, bit_index, value)
+        .await
+}
+
+/// Set or clear one bit through one immutable qualified Extended Device route.
+///
+/// U-qualified module-buffer and J-qualified link-direct addresses retain the
+/// same route for the mandatory read and write. The pair owns one client FIFO
+/// turn and one absolute post-admission deadline, but is not atomic at the PLC.
+/// A successful read is always followed by the write; the pair never retries,
+/// and an unconfirmed possibly transmitted write is outcome unknown.
+pub async fn write_bit_in_word_extended(
+    client: &SlmpClient,
+    device: SlmpQualifiedDeviceAddress,
+    bit_index: u8,
+    value: bool,
+) -> Result<(), SlmpError> {
+    if bit_index > 15 {
+        return Err(SlmpError::new("bit_index must be 0-15."));
+    }
+    if !device.device().code().is_word_device() {
+        return Err(SlmpError::new(
+            "write_bit_in_word_extended requires a word device",
+        ));
+    }
+    client
+        .write_bit_in_word_extended_turn(device, bit_index, value)
         .await
 }
 

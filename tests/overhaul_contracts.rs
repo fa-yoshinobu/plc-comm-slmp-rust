@@ -1,7 +1,7 @@
 use plc_comm_slmp::{
     SlmpClient, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode, SlmpErrorKind,
     SlmpOutcomeUnknownReason, SlmpPlcProfile, SlmpTargetAddress, SlmpTransportMode,
-    write_bit_in_word,
+    parse_qualified_device, write_bit_in_word, write_bit_in_word_extended,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -259,7 +259,7 @@ async fn bit_in_word_rmw_owns_one_fifo_turn() {
         first_seen_tx.send(()).unwrap();
         release_rx.await.unwrap();
         stream
-            .write_all(&response(&read, 0, &[0, 0]))
+            .write_all(&response(&read, 0, &[1, 0]))
             .await
             .unwrap();
 
@@ -300,6 +300,85 @@ async fn bit_in_word_rmw_owns_one_fifo_turn() {
         *observed.lock().await,
         vec![(0x0401, 100), (0x1401, 100), (0x0401, 200)]
     );
+}
+
+#[tokio::test]
+async fn bit_in_word_rmw_uses_one_absolute_deadline_for_read_and_write() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let server_observed = observed.clone();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let read = read_request(&mut stream).await;
+        server_observed.lock().await.push(command(&read));
+        tokio::time::sleep(Duration::from_millis(70)).await;
+        stream
+            .write_all(&response(&read, 0, &[0, 0]))
+            .await
+            .unwrap();
+
+        let write = read_request(&mut stream).await;
+        server_observed.lock().await.push(command(&write));
+        tokio::time::sleep(Duration::from_millis(70)).await;
+        let _ = stream.write_all(&response(&write, 0, &[])).await;
+    });
+
+    let client = SlmpClient::connect(options(port, Duration::from_millis(100)))
+        .await
+        .unwrap();
+    let error = write_bit_in_word(&client, device(100), 0, true)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, SlmpErrorKind::OutcomeUnknown);
+    assert_eq!(
+        error.outcome_unknown_reason,
+        Some(SlmpOutcomeUnknownReason::Timeout)
+    );
+    server.await.unwrap();
+    assert_eq!(*observed.lock().await, vec![0x0401, 0x1401]);
+}
+
+#[tokio::test]
+async fn qualified_bit_in_word_routes_each_use_one_absolute_deadline() {
+    for address in [r"U1\G0", r"J1\W10"] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let server_observed = observed.clone();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let read = read_request(&mut stream).await;
+            server_observed.lock().await.push(command(&read));
+            tokio::time::sleep(Duration::from_millis(70)).await;
+            stream
+                .write_all(&response(&read, 0, &[0x08, 0x00]))
+                .await
+                .unwrap();
+
+            let write = read_request(&mut stream).await;
+            server_observed.lock().await.push(command(&write));
+            tokio::time::sleep(Duration::from_millis(70)).await;
+            let _ = stream.write_all(&response(&write, 0, &[])).await;
+        });
+
+        let client = SlmpClient::connect(options(port, Duration::from_millis(100)))
+            .await
+            .unwrap();
+        let qualified = parse_qualified_device(address, SlmpPlcProfile::IqR).unwrap();
+        let error = write_bit_in_word_extended(&client, qualified, 3, true)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind, SlmpErrorKind::OutcomeUnknown);
+        assert_eq!(
+            error.outcome_unknown_reason,
+            Some(SlmpOutcomeUnknownReason::Timeout)
+        );
+        server.await.unwrap();
+        assert_eq!(*observed.lock().await, vec![0x0401, 0x1401]);
+    }
 }
 
 #[tokio::test]
