@@ -1,6 +1,6 @@
 [package]
 name = "plc-comm-slmp"
-version = "5.0.0"
+version = "5.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Async SLMP client for Mitsubishi MELSEC PLCs with model profiles and typed device access"
