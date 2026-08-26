@@ -17,13 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [5.1.1] - 2026-08-27
+## [5.1.2] - 2026-08-27
 
-- Release: Bumped the main crate and lockfile metadata to `5.1.1` for the additive high-level API and profile-limit release; the non-published `slmp-node` workspace crate remains `1.0.3`.
+- Release: Bumped the main crate and lockfile metadata to `5.1.2` for the additive high-level API and profile-limit release; the non-published `slmp-node` workspace crate remains `1.0.3`.
 - Library: Added typed `SlmpPlcProfile::profile_limit`, `SlmpProfileLimitKey`, and `SlmpProfileLimit`, exposing operational point and weighted limits from the same canonical capability table used by request validation.
 - Library: Added canonical `read_bits_single_request` and `write_bits_single_request` high-level helpers. They validate the complete direct-bit operation before transport and issue exactly one SLMP request without splitting, fallback, or retry; low-level `SlmpClient::read_bits` and `write_bits` remain unchanged.
 - Library: Restored the canonical Q-series device-range runtime probes for QCPU, LCPU, QnU, QnUDV, and their Ethernet-unit profiles. QCPU probes `Z15`; all affected profiles locate the `ZR` boundary and derive `R`, while only PLC end-code responses mean an unreadable candidate and all local, timeout, transport, lifecycle, and protocol failures propagate without a partial catalog.
-- Tests: Kept the response-correlation helper on the public `SlmpError` contract while explicitly allowing Rust 1.98 Clippy's `result_large_err` lint for that test-only helper.
+- Tests: Kept the response-correlation test helper and shared operational-example helper on the public `SlmpError` contract while applying reasoned function-scoped allowances for Rust 1.98 Clippy's `result_large_err` lint, making the all-target Clippy gate compatible without changing the public error type.
 
 ## [5.0.0] - 2026-08-07
 

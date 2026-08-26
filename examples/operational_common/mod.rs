@@ -295,6 +295,8 @@ fn options_for(endpoint: &PlcEndpoint) -> MonitorResult<SlmpConnectionOptions> {
     Ok(options)
 }
 
+// This shared example helper intentionally preserves the public SlmpError result contract.
+#[allow(clippy::result_large_err)]
 async fn read_collection(
     client: &SlmpClient,
     tags: &[TagSpec],
