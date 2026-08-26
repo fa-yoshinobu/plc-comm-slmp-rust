@@ -136,6 +136,8 @@ fn options(
     options
 }
 
+// This test helper intentionally preserves the public SlmpError result contract.
+#[allow(clippy::result_large_err)]
 async fn read_one_word(
     client: &SlmpClient,
     profile: SlmpPlcProfile,
