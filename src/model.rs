@@ -87,6 +87,15 @@ pub struct SlmpPlcProfileDescriptor {
     pub base_profile: Option<&'static str>,
 }
 
+/// Operational request limits for one PLC profile and limit key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlmpProfileLimit {
+    /// Maximum point count accepted by one request.
+    pub max_points: usize,
+    /// Optional weighted maximum for commands with differently sized entries.
+    pub weighted_max_points: Option<usize>,
+}
+
 impl SlmpPlcProfile {
     pub const ALL: [Self; 15] = [
         Self::IqF,
@@ -127,6 +136,16 @@ impl SlmpPlcProfile {
             Self::QnUDV,
             Self::QnUDVQj71E71100,
         ]
+    }
+
+    /// Return one request limit from the canonical table used by validation.
+    ///
+    /// This synchronous metadata lookup performs no PLC communication.
+    pub fn profile_limit(self, key: crate::SlmpProfileLimitKey) -> Option<SlmpProfileLimit> {
+        crate::capability_profiles::profile_limit(self, key).map(|limit| SlmpProfileLimit {
+            max_points: limit.max,
+            weighted_max_points: limit.weighted_max,
+        })
     }
 
     pub fn canonical_name(self) -> &'static str {
@@ -329,6 +348,37 @@ mod plc_profile_descriptor_tests {
             );
             assert_eq!(descriptor.base_profile, profile["base_profile"].as_str());
         }
+    }
+
+    #[test]
+    fn public_profile_limit_lookup_exposes_operational_values() {
+        assert_eq!(crate::SlmpProfileLimitKey::ALL.len(), 12);
+        assert!(
+            crate::SlmpProfileLimitKey::ALL
+                .iter()
+                .all(|key| SlmpPlcProfile::IqR.profile_limit(*key).is_some())
+        );
+        assert_eq!(
+            SlmpPlcProfile::IqR.profile_limit(crate::SlmpProfileLimitKey::RandomReadWord),
+            Some(SlmpProfileLimit {
+                max_points: 96,
+                weighted_max_points: None,
+            })
+        );
+        assert_eq!(
+            SlmpPlcProfile::QnUDV.profile_limit(crate::SlmpProfileLimitKey::RandomReadWord),
+            Some(SlmpProfileLimit {
+                max_points: 192,
+                weighted_max_points: None,
+            })
+        );
+        assert_eq!(
+            SlmpPlcProfile::IqR.profile_limit(crate::SlmpProfileLimitKey::RandomWriteWord),
+            Some(SlmpProfileLimit {
+                max_points: 80,
+                weighted_max_points: Some(960),
+            })
+        );
     }
 }
 

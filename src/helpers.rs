@@ -241,6 +241,19 @@ pub async fn read_words_single_request(
     client.read_words_raw(start, count as u16).await
 }
 
+/// Reads one contiguous bit-device range with exactly one SLMP request.
+///
+/// The complete address/profile/count admission is performed before the
+/// low-level client sends the request. This helper never splits or retries.
+pub async fn read_bits_single_request(
+    client: &SlmpClient,
+    start: SlmpDeviceAddress,
+    count: usize,
+) -> Result<Vec<bool>, SlmpError> {
+    validate_single_request_count(count, usize::from(u16::MAX))?;
+    client.read_bits(start, count as u16).await
+}
+
 pub async fn read_dwords_single_request(
     client: &SlmpClient,
     start: SlmpDeviceAddress,
@@ -271,6 +284,19 @@ pub async fn write_words_single_request(
 ) -> Result<(), SlmpError> {
     validate_single_request_values(values.len(), 960)?;
     client.write_words(start, values).await
+}
+
+/// Writes one contiguous bit-device range with exactly one SLMP request.
+///
+/// The complete address/profile/value admission is performed before the
+/// low-level client sends the request. This helper never splits or retries.
+pub async fn write_bits_single_request(
+    client: &SlmpClient,
+    start: SlmpDeviceAddress,
+    values: &[bool],
+) -> Result<(), SlmpError> {
+    validate_single_request_values(values.len(), usize::from(u16::MAX))?;
+    client.write_bits(start, values).await
 }
 
 pub async fn write_dwords_single_request(
@@ -689,6 +715,78 @@ mod optimization_tests {
     use futures_util::StreamExt;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn canonical_contiguous_helpers_send_one_request_each_and_reject_before_send() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            for data in [vec![0x34, 0x12], Vec::new(), vec![0x10], Vec::new()] {
+                let mut header = [0u8; 9];
+                stream.read_exact(&mut header).await.unwrap();
+                let body_length = u16::from_le_bytes([header[7], header[8]]) as usize;
+                let mut body = vec![0; body_length];
+                stream.read_exact(&mut body).await.unwrap();
+                let response_length = u16::try_from(data.len() + 2).unwrap().to_le_bytes();
+                let mut response = vec![
+                    0xD0,
+                    0x00,
+                    header[2],
+                    header[3],
+                    header[4],
+                    header[5],
+                    header[6],
+                    response_length[0],
+                    response_length[1],
+                    0x00,
+                    0x00,
+                ];
+                response.extend_from_slice(&data);
+                stream.write_all(&response).await.unwrap();
+            }
+        });
+        let mut options = SlmpConnectionOptions::new(
+            "127.0.0.1",
+            port,
+            SlmpTransportMode::Tcp,
+            SlmpTargetAddress::default(),
+            SlmpPlcProfile::IqR,
+        )
+        .unwrap();
+        options.frame_type = SlmpFrameType::Frame3E;
+        let client = SlmpClient::connect(options).await.unwrap();
+        let word = SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR);
+        let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, SlmpPlcProfile::IqR);
+
+        assert_eq!(
+            read_words_single_request(&client, word, 1).await.unwrap(),
+            [0x1234]
+        );
+        assert_eq!(client.traffic_stats().await.request_count, 1);
+        write_words_single_request(&client, word, &[1])
+            .await
+            .unwrap();
+        assert_eq!(client.traffic_stats().await.request_count, 2);
+        assert_eq!(
+            read_bits_single_request(&client, bit, 2).await.unwrap(),
+            [true, false]
+        );
+        assert_eq!(client.traffic_stats().await.request_count, 3);
+        write_bits_single_request(&client, bit, &[true, false])
+            .await
+            .unwrap();
+        assert_eq!(client.traffic_stats().await.request_count, 4);
+
+        assert!(read_bits_single_request(&client, word, 1).await.is_err());
+        assert!(
+            write_bits_single_request(&client, bit, &vec![false; 7169])
+                .await
+                .is_err()
+        );
+        assert_eq!(client.traffic_stats().await.request_count, 4);
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn poll_prepares_random_payload_once_and_decodes_by_compact_index() {

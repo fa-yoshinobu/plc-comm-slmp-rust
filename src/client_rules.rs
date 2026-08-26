@@ -1,4 +1,4 @@
-use crate::capability_profiles::{self, SlmpProfileLimit};
+use crate::capability_profiles::{self, SlmpProfileLimitKey};
 use crate::error::SlmpError;
 use crate::model::{
     SlmpBlockRead, SlmpBlockWrite, SlmpCompatibilityMode, SlmpCpuOperationState,
@@ -33,10 +33,10 @@ pub(crate) fn validate_direct_access_points(
     plc_profile: SlmpPlcProfile,
 ) -> Result<(), SlmpError> {
     let limit_key = match (bit_unit, write) {
-        (false, false) => SlmpProfileLimit::DirectWordRead,
-        (false, true) => SlmpProfileLimit::DirectWordWrite,
-        (true, false) => SlmpProfileLimit::DirectBitRead,
-        (true, true) => SlmpProfileLimit::DirectBitWrite,
+        (false, false) => SlmpProfileLimitKey::DirectWordRead,
+        (false, true) => SlmpProfileLimitKey::DirectWordWrite,
+        (true, false) => SlmpProfileLimitKey::DirectBitRead,
+        (true, true) => SlmpProfileLimitKey::DirectBitWrite,
     };
     let limit = capability_profiles::profile_limit(plc_profile, limit_key)
         .map(|profile_limit| profile_limit.max)
@@ -65,7 +65,7 @@ pub(crate) fn validate_random_read_like_counts(
     dword_points: usize,
     compatibility_mode: SlmpCompatibilityMode,
     plc_profile: SlmpPlcProfile,
-    limit_key: SlmpProfileLimit,
+    limit_key: SlmpProfileLimitKey,
     name: &str,
 ) -> Result<(), SlmpError> {
     let total = word_points + dword_points;
@@ -85,7 +85,7 @@ pub(crate) fn validate_random_write_word_counts(
     dword_points: usize,
     compatibility_mode: SlmpCompatibilityMode,
     plc_profile: SlmpPlcProfile,
-    limit_key: SlmpProfileLimit,
+    limit_key: SlmpProfileLimitKey,
     name: &str,
 ) -> Result<(), SlmpError> {
     let total = word_points + dword_points;
@@ -125,7 +125,7 @@ pub(crate) fn validate_random_bit_write_count(
     points: usize,
     compatibility_mode: SlmpCompatibilityMode,
     plc_profile: SlmpPlcProfile,
-    limit_key: SlmpProfileLimit,
+    limit_key: SlmpProfileLimitKey,
     name: &str,
 ) -> Result<(), SlmpError> {
     let limit = capability_profiles::profile_limit(plc_profile, limit_key)
@@ -139,19 +139,19 @@ pub(crate) fn validate_random_bit_write_count(
     Ok(())
 }
 
-fn is_extended_random_limit(limit_key: SlmpProfileLimit) -> bool {
+fn is_extended_random_limit(limit_key: SlmpProfileLimitKey) -> bool {
     matches!(
         limit_key,
-        SlmpProfileLimit::RandomReadWordExt
-            | SlmpProfileLimit::RandomWriteWordExt
-            | SlmpProfileLimit::RandomWriteBitExt
-            | SlmpProfileLimit::MonitorRegisterWordExt
+        SlmpProfileLimitKey::RandomReadWordExt
+            | SlmpProfileLimitKey::RandomWriteWordExt
+            | SlmpProfileLimitKey::RandomWriteBitExt
+            | SlmpProfileLimitKey::MonitorRegisterWordExt
     )
 }
 
 fn random_read_like_fallback_limit(
     compatibility_mode: SlmpCompatibilityMode,
-    limit_key: SlmpProfileLimit,
+    limit_key: SlmpProfileLimitKey,
 ) -> usize {
     if is_extended_random_limit(limit_key)
         || matches!(compatibility_mode, SlmpCompatibilityMode::Iqr)
@@ -164,7 +164,7 @@ fn random_read_like_fallback_limit(
 
 fn random_write_word_fallback_weighted_limit(
     compatibility_mode: SlmpCompatibilityMode,
-    limit_key: SlmpProfileLimit,
+    limit_key: SlmpProfileLimitKey,
 ) -> usize {
     if is_extended_random_limit(limit_key)
         || matches!(compatibility_mode, SlmpCompatibilityMode::Iqr)
@@ -177,7 +177,7 @@ fn random_write_word_fallback_weighted_limit(
 
 fn random_bit_write_fallback_limit(
     compatibility_mode: SlmpCompatibilityMode,
-    limit_key: SlmpProfileLimit,
+    limit_key: SlmpProfileLimitKey,
 ) -> usize {
     if is_extended_random_limit(limit_key)
         || matches!(compatibility_mode, SlmpCompatibilityMode::Iqr)
@@ -981,21 +981,21 @@ mod tests {
         assert_eq!(
             random_read_like_fallback_limit(
                 SlmpCompatibilityMode::Legacy,
-                SlmpProfileLimit::RandomReadWordExt,
+                SlmpProfileLimitKey::RandomReadWordExt,
             ),
             96
         );
         assert_eq!(
             random_write_word_fallback_weighted_limit(
                 SlmpCompatibilityMode::Legacy,
-                SlmpProfileLimit::RandomWriteWordExt,
+                SlmpProfileLimitKey::RandomWriteWordExt,
             ),
             960
         );
         assert_eq!(
             random_bit_write_fallback_limit(
                 SlmpCompatibilityMode::Legacy,
-                SlmpProfileLimit::RandomWriteBitExt,
+                SlmpProfileLimitKey::RandomWriteBitExt,
             ),
             94
         );
@@ -1003,21 +1003,21 @@ mod tests {
         assert_eq!(
             random_read_like_fallback_limit(
                 SlmpCompatibilityMode::Legacy,
-                SlmpProfileLimit::RandomReadWord,
+                SlmpProfileLimitKey::RandomReadWord,
             ),
             192
         );
         assert_eq!(
             random_write_word_fallback_weighted_limit(
                 SlmpCompatibilityMode::Legacy,
-                SlmpProfileLimit::RandomWriteWord,
+                SlmpProfileLimitKey::RandomWriteWord,
             ),
             1920
         );
         assert_eq!(
             random_bit_write_fallback_limit(
                 SlmpCompatibilityMode::Legacy,
-                SlmpProfileLimit::RandomWriteBit,
+                SlmpProfileLimitKey::RandomWriteBit,
             ),
             188
         );

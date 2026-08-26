@@ -1,6 +1,6 @@
 use crate::address::{device_spec_size, ensure_device_supported_for_family};
 use crate::capability_profiles::{
-    self, SlmpProfileFeature, SlmpProfileFeatureState, SlmpProfileLimit,
+    self, SlmpProfileFeature, SlmpProfileFeatureState, SlmpProfileLimitKey,
 };
 use crate::client_rules as rules;
 use crate::device_ranges::{
@@ -2067,7 +2067,7 @@ impl ClientInner {
             dword_devices.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::RandomReadWord,
+            SlmpProfileLimitKey::RandomReadWord,
             "read_random",
         )?;
         for device in word_devices {
@@ -2176,7 +2176,7 @@ impl ClientInner {
             dword_devices.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::RandomReadWordExt,
+            SlmpProfileLimitKey::RandomReadWordExt,
             "read_random_ext",
         )?;
 
@@ -2291,7 +2291,7 @@ impl ClientInner {
             dword_devices.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::MonitorRegisterWord,
+            SlmpProfileLimitKey::MonitorRegisterWord,
             "register_monitor_devices",
         )?;
         for device in word_devices {
@@ -2342,7 +2342,7 @@ impl ClientInner {
             dword_devices.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::MonitorRegisterWordExt,
+            SlmpProfileLimitKey::MonitorRegisterWordExt,
             "register_monitor_devices_ext",
         )?;
         let word_refs: Vec<_> = word_devices.iter().map(|entry| entry.device()).collect();
@@ -2452,7 +2452,7 @@ impl ClientInner {
             dword_points,
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::MonitorRegisterWord,
+            SlmpProfileLimitKey::MonitorRegisterWord,
             "run_monitor_cycle",
         )?;
         self.request_decoded(SlmpCommand::Monitor, 0x0000, &[], true, |data| {
@@ -2481,7 +2481,7 @@ impl ClientInner {
             dword_entries.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::RandomWriteWord,
+            SlmpProfileLimitKey::RandomWriteWord,
             "write_random_words",
         )?;
         for (device, _) in word_entries {
@@ -2541,7 +2541,7 @@ impl ClientInner {
             dword_entries.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::RandomWriteWordExt,
+            SlmpProfileLimitKey::RandomWriteWordExt,
             "write_random_words_ext",
         )?;
 
@@ -2667,7 +2667,7 @@ impl ClientInner {
             bit_entries.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::RandomWriteBit,
+            SlmpProfileLimitKey::RandomWriteBit,
             "write_random_bits",
         )?;
         rules::validate_random_bit_write_devices(bit_entries, self.options.plc_profile, true)?;
@@ -2726,7 +2726,7 @@ impl ClientInner {
             bit_entries.len(),
             self.options.compatibility_mode,
             self.options.plc_profile,
-            SlmpProfileLimit::RandomWriteBitExt,
+            SlmpProfileLimitKey::RandomWriteBitExt,
             "write_random_bits_ext",
         )?;
         let bit_refs: Vec<_> = bit_entries
@@ -4285,7 +4285,7 @@ impl ClientInner {
             dword_count,
             mode,
             self.options.plc_profile,
-            SlmpProfileLimit::MonitorRegisterWord,
+            SlmpProfileLimitKey::MonitorRegisterWord,
             "register_monitor_devices",
         )?;
         let spec_size = device_spec_size(mode);

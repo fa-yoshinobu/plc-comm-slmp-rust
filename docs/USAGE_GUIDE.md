@@ -11,6 +11,7 @@
 | `read_typed` and `write_typed` | Reading or writing one scalar value. |
 | `read_named` and `write_named` | Reading or writing a small typed collection by address text. |
 | `read_words_single_request` | Reading one contiguous word range in one request. |
+| `read_bits_single_request` / `write_bits_single_request` | Reading or writing one contiguous direct-bit range in one request. |
 | `read_dwords_single_request` | Reading one contiguous 32-bit range in one request. |
 | `write_bit_in_word` | Updating one bit inside a word register. |
 | `poll_named` | Repeating a named typed collection read on an interval. |
@@ -439,6 +440,26 @@ incomplete transmitted state-changing command returns `OutcomeUnknown` with reas
 queued calls return `Closed` without sending. A fully correlated and decoded response remains the
 definitive result even if `close` wins the later transport-state race. Separate `SlmpClient`
 instances have independent queues and can progress concurrently.
+
+## Profile request limits
+
+Batch planners can read the selected profile's canonical request limit without
+opening a connection or communicating with a PLC:
+
+```rust
+use plc_comm_slmp::{SlmpPlcProfile, SlmpProfileLimitKey};
+
+if let Some(limit) =
+    SlmpPlcProfile::QnUDV.profile_limit(SlmpProfileLimitKey::RandomReadWord)
+{
+    println!("{}", limit.max_points); // 192
+}
+```
+
+`weighted_max_points` is `Some` only for commands, such as random Word/DWord
+writes, that enforce an encoded-entry weight in addition to the point count.
+The lookup returns `None` when no canonical profile/key value exists and does
+not invent a family fallback.
 
 ## Single-request range reads
 

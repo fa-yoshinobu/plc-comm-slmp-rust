@@ -27,8 +27,10 @@ pub(crate) enum SlmpProfileFeature {
     Lz32BitPath,
 }
 
+/// Canonical key for one profile-specific SLMP request limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum SlmpProfileLimit {
+#[non_exhaustive]
+pub enum SlmpProfileLimitKey {
     DirectWordRead,
     DirectWordWrite,
     DirectBitRead,
@@ -43,6 +45,23 @@ pub(crate) enum SlmpProfileLimit {
     MonitorRegisterWordExt,
 }
 
+impl SlmpProfileLimitKey {
+    pub const ALL: [Self; 12] = [
+        Self::DirectWordRead,
+        Self::DirectWordWrite,
+        Self::DirectBitRead,
+        Self::DirectBitWrite,
+        Self::RandomReadWord,
+        Self::RandomWriteWord,
+        Self::RandomWriteBit,
+        Self::MonitorRegisterWord,
+        Self::RandomReadWordExt,
+        Self::RandomWriteWordExt,
+        Self::RandomWriteBitExt,
+        Self::MonitorRegisterWordExt,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SlmpCapabilityFeature {
     pub feature: SlmpProfileFeature,
@@ -53,7 +72,7 @@ pub(crate) struct SlmpCapabilityFeature {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SlmpCapabilityLimit {
-    pub key: SlmpProfileLimit,
+    pub key: SlmpProfileLimitKey,
     pub max: usize,
     pub over_end_code: Option<&'static str>,
     pub source: &'static str,
@@ -647,7 +666,7 @@ const QL_UNIT_FEATURES: &[SlmpCapabilityFeature] = &[
 
 const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "live",
@@ -655,7 +674,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "live",
@@ -663,7 +682,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "live",
@@ -671,7 +690,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "live",
@@ -679,7 +698,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         96,
         Some("C054"),
         "live",
@@ -687,7 +706,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         80,
         Some("C054"),
         "live",
@@ -695,7 +714,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         94,
         Some("C053"),
         "live",
@@ -703,7 +722,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         96,
         Some("C054"),
         "live",
@@ -711,7 +730,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         96,
         Some("C054"),
         "live",
@@ -719,7 +738,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         80,
         Some("C054"),
         "live",
@@ -727,7 +746,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         94,
         Some("C053"),
         "live",
@@ -735,7 +754,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         96,
         Some("C054"),
         "live",
@@ -746,7 +765,7 @@ const IQR_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "inferred",
@@ -754,7 +773,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "inferred",
@@ -762,7 +781,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "inferred",
@@ -770,7 +789,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "inferred",
@@ -778,7 +797,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         96,
         Some("C054"),
         "inferred",
@@ -786,7 +805,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         80,
         Some("C054"),
         "inferred",
@@ -794,7 +813,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         94,
         Some("C053"),
         "inferred",
@@ -802,7 +821,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         96,
         Some("C054"),
         "inferred",
@@ -810,7 +829,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         96,
         Some("C054"),
         "inferred",
@@ -818,7 +837,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         80,
         Some("C054"),
         "inferred",
@@ -826,7 +845,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         94,
         Some("C053"),
         "inferred",
@@ -834,7 +853,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         96,
         Some("C054"),
         "inferred",
@@ -845,7 +864,7 @@ const INFERRED_IQR_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "live",
@@ -853,7 +872,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "live",
@@ -861,7 +880,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "live",
@@ -869,7 +888,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "live",
@@ -877,7 +896,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         96,
         Some("C054"),
         "live",
@@ -885,7 +904,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         80,
         Some("C054"),
         "live",
@@ -893,7 +912,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         94,
         Some("C053"),
         "live",
@@ -901,7 +920,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         96,
         Some("C054"),
         "live",
@@ -909,7 +928,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         96,
         Some("C054"),
         "live",
@@ -917,7 +936,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         80,
         Some("C054"),
         "live",
@@ -925,7 +944,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         94,
         Some("C053"),
         "live",
@@ -933,7 +952,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         96,
         Some("C054"),
         "live",
@@ -944,7 +963,7 @@ const IQL_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C052"),
         "live",
@@ -952,7 +971,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C052"),
         "live",
@@ -960,7 +979,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         3584,
         Some("C051"),
         "live",
@@ -968,7 +987,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         3584,
         Some("C051"),
         "live",
@@ -976,7 +995,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         192,
         Some("C054"),
         "live",
@@ -984,7 +1003,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         160,
         Some("C054"),
         "live",
@@ -992,7 +1011,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         188,
         Some("C053"),
         "live",
@@ -1000,7 +1019,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         192,
         Some("C054"),
         "not-adopted",
@@ -1008,7 +1027,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         96,
         Some("C054"),
         "live",
@@ -1016,7 +1035,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         80,
         Some("C054"),
         "live",
@@ -1024,7 +1043,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         94,
         Some("C053"),
         "live",
@@ -1032,7 +1051,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         96,
         Some("C054"),
         "not-adopted",
@@ -1043,7 +1062,7 @@ const IQF_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const QL_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "live",
@@ -1051,7 +1070,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "live",
@@ -1059,7 +1078,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "live",
@@ -1067,7 +1086,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "live",
@@ -1075,7 +1094,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         192,
         Some("C054"),
         "live",
@@ -1083,7 +1102,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         160,
         Some("C054"),
         "live",
@@ -1091,7 +1110,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         188,
         Some("C053"),
         "live",
@@ -1099,7 +1118,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         192,
         Some("C054"),
         "live",
@@ -1107,7 +1126,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         192,
         Some("C054"),
         "inferred",
@@ -1115,7 +1134,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         160,
         Some("4080"),
         "inferred",
@@ -1123,7 +1142,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         188,
         Some("C053"),
         "inferred",
@@ -1131,7 +1150,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         192,
         Some("C054"),
         "inferred",
@@ -1142,7 +1161,7 @@ const QL_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "inferred",
@@ -1150,7 +1169,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "inferred",
@@ -1158,7 +1177,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "inferred",
@@ -1166,7 +1185,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "inferred",
@@ -1174,7 +1193,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         192,
         Some("C054"),
         "inferred",
@@ -1182,7 +1201,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         160,
         Some("C054"),
         "inferred",
@@ -1190,7 +1209,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         188,
         Some("C053"),
         "inferred",
@@ -1198,7 +1217,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         192,
         Some("C054"),
         "inferred",
@@ -1206,7 +1225,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         185,
         Some("4080"),
         "inferred",
@@ -1214,7 +1233,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         160,
         Some("4080"),
         "inferred",
@@ -1222,7 +1241,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         188,
         Some("C053"),
         "inferred",
@@ -1230,7 +1249,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         192,
         Some("C054"),
         "inferred",
@@ -1241,7 +1260,7 @@ const QL_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "live",
@@ -1249,7 +1268,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "live",
@@ -1257,7 +1276,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "live",
@@ -1265,7 +1284,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "live",
@@ -1273,7 +1292,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         192,
         Some("C054"),
         "live",
@@ -1281,7 +1300,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         160,
         Some("4080"),
         "live",
@@ -1289,7 +1308,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         188,
         Some("C053"),
         "live",
@@ -1297,7 +1316,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         192,
         Some("C054"),
         "live",
@@ -1305,7 +1324,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         185,
         Some("4080"),
         "live",
@@ -1313,7 +1332,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         160,
         Some("4080"),
         "live",
@@ -1321,7 +1340,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         188,
         Some("C053"),
         "live",
@@ -1329,7 +1348,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         192,
         Some("C054"),
         "live",
@@ -1340,7 +1359,7 @@ const QL_UNIT_QCPU_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "live",
@@ -1348,7 +1367,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "live",
@@ -1356,7 +1375,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "live",
@@ -1364,7 +1383,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "live",
@@ -1372,7 +1391,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         192,
         Some("C054"),
         "live",
@@ -1380,7 +1399,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         160,
         Some("4080"),
         "live",
@@ -1388,7 +1407,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         188,
         Some("C053"),
         "live",
@@ -1396,7 +1415,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         192,
         Some("C054"),
         "live",
@@ -1404,7 +1423,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         192,
         Some("C054"),
         "live",
@@ -1412,7 +1431,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         160,
         Some("4080"),
         "live",
@@ -1420,7 +1439,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         188,
         Some("C053"),
         "live",
@@ -1428,7 +1447,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         192,
         Some("C054"),
         "live",
@@ -1439,7 +1458,7 @@ const QL_UNIT_LIMITS: &[SlmpCapabilityLimit] = &[
 
 const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
     limit(
-        SlmpProfileLimit::DirectWordRead,
+        SlmpProfileLimitKey::DirectWordRead,
         960,
         Some("C051"),
         "live",
@@ -1447,7 +1466,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectWordWrite,
+        SlmpProfileLimitKey::DirectWordWrite,
         960,
         Some("C051"),
         "live",
@@ -1455,7 +1474,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitRead,
+        SlmpProfileLimitKey::DirectBitRead,
         7168,
         Some("C052"),
         "live",
@@ -1463,7 +1482,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::DirectBitWrite,
+        SlmpProfileLimitKey::DirectBitWrite,
         7168,
         Some("C052"),
         "live",
@@ -1471,7 +1490,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWord,
+        SlmpProfileLimitKey::RandomReadWord,
         192,
         Some("C054"),
         "live",
@@ -1479,7 +1498,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWord,
+        SlmpProfileLimitKey::RandomWriteWord,
         160,
         Some("4080"),
         "live",
@@ -1487,7 +1506,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBit,
+        SlmpProfileLimitKey::RandomWriteBit,
         188,
         Some("C053"),
         "live",
@@ -1495,7 +1514,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWord,
+        SlmpProfileLimitKey::MonitorRegisterWord,
         192,
         Some("C054"),
         "live",
@@ -1503,7 +1522,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomReadWordExt,
+        SlmpProfileLimitKey::RandomReadWordExt,
         192,
         Some("C054"),
         "live",
@@ -1511,7 +1530,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteWordExt,
+        SlmpProfileLimitKey::RandomWriteWordExt,
         160,
         Some("4080"),
         "live",
@@ -1519,7 +1538,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::RandomWriteBitExt,
+        SlmpProfileLimitKey::RandomWriteBitExt,
         188,
         Some("C053"),
         "inferred",
@@ -1527,7 +1546,7 @@ const QL_UNIT_LCPU_LIMITS: &[SlmpCapabilityLimit] = &[
         None,
     ),
     limit(
-        SlmpProfileLimit::MonitorRegisterWordExt,
+        SlmpProfileLimitKey::MonitorRegisterWordExt,
         192,
         Some("C054"),
         "live",
@@ -1723,7 +1742,7 @@ pub(crate) fn profile_feature(
 
 pub(crate) fn profile_limit(
     plc_profile: SlmpPlcProfile,
-    key: SlmpProfileLimit,
+    key: SlmpProfileLimitKey,
 ) -> Option<&'static SlmpCapabilityLimit> {
     capability_profile(plc_profile)?
         .limits
@@ -1759,20 +1778,20 @@ pub(crate) fn feature_key(feature: SlmpProfileFeature) -> &'static str {
 }
 
 #[cfg(test)]
-pub(crate) fn limit_key(key: SlmpProfileLimit) -> &'static str {
+pub(crate) fn limit_key(key: SlmpProfileLimitKey) -> &'static str {
     match key {
-        SlmpProfileLimit::DirectWordRead => "direct_word_read",
-        SlmpProfileLimit::DirectWordWrite => "direct_word_write",
-        SlmpProfileLimit::DirectBitRead => "direct_bit_read",
-        SlmpProfileLimit::DirectBitWrite => "direct_bit_write",
-        SlmpProfileLimit::RandomReadWord => "random_read_word",
-        SlmpProfileLimit::RandomWriteWord => "random_write_word",
-        SlmpProfileLimit::RandomWriteBit => "random_write_bit",
-        SlmpProfileLimit::MonitorRegisterWord => "monitor_register_word",
-        SlmpProfileLimit::RandomReadWordExt => "random_read_word_ext",
-        SlmpProfileLimit::RandomWriteWordExt => "random_write_word_ext",
-        SlmpProfileLimit::RandomWriteBitExt => "random_write_bit_ext",
-        SlmpProfileLimit::MonitorRegisterWordExt => "monitor_register_word_ext",
+        SlmpProfileLimitKey::DirectWordRead => "direct_word_read",
+        SlmpProfileLimitKey::DirectWordWrite => "direct_word_write",
+        SlmpProfileLimitKey::DirectBitRead => "direct_bit_read",
+        SlmpProfileLimitKey::DirectBitWrite => "direct_bit_write",
+        SlmpProfileLimitKey::RandomReadWord => "random_read_word",
+        SlmpProfileLimitKey::RandomWriteWord => "random_write_word",
+        SlmpProfileLimitKey::RandomWriteBit => "random_write_bit",
+        SlmpProfileLimitKey::MonitorRegisterWord => "monitor_register_word",
+        SlmpProfileLimitKey::RandomReadWordExt => "random_read_word_ext",
+        SlmpProfileLimitKey::RandomWriteWordExt => "random_write_word_ext",
+        SlmpProfileLimitKey::RandomWriteBitExt => "random_write_bit_ext",
+        SlmpProfileLimitKey::MonitorRegisterWordExt => "monitor_register_word_ext",
     }
 }
 
@@ -1808,7 +1827,7 @@ const fn feature(
 }
 
 const fn limit(
-    key: SlmpProfileLimit,
+    key: SlmpProfileLimitKey,
     max: usize,
     over_end_code: Option<&'static str>,
     source: &'static str,

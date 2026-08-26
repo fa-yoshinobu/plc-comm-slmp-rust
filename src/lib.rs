@@ -112,6 +112,7 @@ pub use address::{
     SlmpAddress, normalize_named_address, parse_device, parse_named_address, parse_named_target,
     parse_qualified_device, parse_target_auto_number,
 };
+pub use capability_profiles::SlmpProfileLimitKey;
 pub use client::{SlmpClient, encode_raw_device_spec};
 pub use device_range_sample::{
     SlmpDeviceRangeSampleDeviceReport, SlmpDeviceRangeSampleFailure, SlmpDeviceRangeSampleOptions,
@@ -126,10 +127,10 @@ pub use error::{
 };
 pub use error_codes::{end_code_key, end_code_name, is_remote_password_end_code};
 pub use helpers::{
-    NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_dwords_single_request,
-    read_named, read_typed, read_words_single_request, write_bit_in_word,
-    write_bit_in_word_extended, write_dwords_single_request, write_named, write_typed,
-    write_words_single_request,
+    NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_bits_single_request,
+    read_dwords_single_request, read_named, read_typed, read_words_single_request,
+    write_bit_in_word, write_bit_in_word_extended, write_bits_single_request,
+    write_dwords_single_request, write_named, write_typed, write_words_single_request,
 };
 pub use model::{
     RawSlmpDeviceAddress, SlmpBlockRead, SlmpBlockReadResult, SlmpBlockWrite, SlmpCommand,
@@ -137,9 +138,10 @@ pub use model::{
     SlmpDeviceAddress, SlmpDeviceCode, SlmpDeviceModification, SlmpFrameType,
     SlmpLabelArrayReadPoint, SlmpLabelArrayReadResult, SlmpLabelArrayWritePoint,
     SlmpLabelRandomReadResult, SlmpLabelRandomWritePoint, SlmpLongTimerResult, SlmpModuleIo,
-    SlmpNamedTarget, SlmpPlcProfile, SlmpPlcProfileDescriptor, SlmpQualifiedDeviceAddress,
-    SlmpRandomReadResult, SlmpRemoteClearMode, SlmpRemoteMode, SlmpTargetAddress, SlmpTrafficStats,
-    SlmpTransportMode, SlmpTypeNameInfo, plc_profile_descriptors,
+    SlmpNamedTarget, SlmpPlcProfile, SlmpPlcProfileDescriptor, SlmpProfileLimit,
+    SlmpQualifiedDeviceAddress, SlmpRandomReadResult, SlmpRemoteClearMode, SlmpRemoteMode,
+    SlmpTargetAddress, SlmpTrafficStats, SlmpTransportMode, SlmpTypeNameInfo,
+    plc_profile_descriptors,
 };
 pub use route_validation::{
     SlmpRouteValidationCase, SlmpRouteValidationOptions, SlmpRouteValidationReport,

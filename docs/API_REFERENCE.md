@@ -123,10 +123,12 @@ CPU-buffer access.
 | Operation | Public API |
 | --- | --- |
 | Connection options and profile descriptors | `SlmpConnectionOptions`, `plc_profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
+| Profile request limits | `SlmpPlcProfile::profile_limit`, `SlmpProfileLimitKey`, `SlmpProfileLimit` |
 | Address parsing | `SlmpAddress::parse`, `SlmpAddress::try_parse`, `SlmpAddress::format`, `SlmpAddress::normalize`, `parse_device`, `parse_qualified_device` (all parsing requires `SlmpPlcProfile`) |
 | Typed values | `read_typed`, `write_typed` |
 | Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection; a polling stream prepares its immutable request and compact decode indexes once; Direct long-timer routes are excluded) |
-| Single-request word/dword reads | `read_words_single_request`, `read_dwords_single_request` |
+| Single-request word/dword read/write | `read_words_single_request`, `read_dwords_single_request`, `write_words_single_request`, `write_dwords_single_request` |
+| Single-request bit read/write | `read_bits_single_request`, `write_bits_single_request` |
 | Bit-in-word write | `write_bit_in_word` (direct) and `write_bit_in_word_extended` (qualified U/J route); explicit non-atomic RMW under one FIFO turn and one post-admission deadline |
 | Traffic counters | `traffic_stats` |
 | Errors and timeout classification | `SlmpError`, `SlmpErrorKind`, `SlmpOutcomeUnknownReason`, `SlmpError::is_timeout`, `SlmpError::is_outcome_unknown` |
