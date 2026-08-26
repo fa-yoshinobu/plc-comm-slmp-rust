@@ -91,10 +91,11 @@ Optional Z, LZ, and indirect modification uses `SlmpDeviceModification`.
 | Self-test loopback | `self_test_loopback` |
 | Clear PLC error | `clear_error` |
 
-Device-range catalog calls read one canonical SD-register window. They do not
-probe candidate addresses or infer a boundary from a communication failure;
-the original acquisition error is returned and non-authoritative ranges remain
-unknown.
+Device-range catalog calls read one canonical SD-register window. QCPU, LCPU,
+QnU, and QnUDV address profiles then use the canonical runtime probes for `Z`
+(QCPU only), `ZR`, and derived `R`. A probe's nonzero PLC end code means that
+candidate address is unreadable; timeout, transport, protocol, lifecycle, and
+local-validation failures are returned without a partial catalog.
 
 Array label `unit_specification` is `0` for a logical bit count and `1` for a
 logical byte count. Both forms occupy whole two-byte wire units: bit counts use

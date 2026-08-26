@@ -6,7 +6,7 @@ use crate::client_rules as rules;
 use crate::device_ranges::{
     SlmpDeviceRangeCatalog,
     build_catalog_for_plc_profile as build_device_range_catalog_for_plc_profile,
-    read_registers as read_device_range_registers,
+    register_snapshot as build_device_range_register_snapshot,
     resolve_profile_for_plc_profile as resolve_device_range_profile_for_plc_profile,
 };
 use crate::error::{SlmpError, SlmpErrorInfo, SlmpErrorKind, SlmpOutcomeUnknownReason};
@@ -33,11 +33,19 @@ use tokio::time::{Instant, timeout_at};
 const UDP_RECEIVE_BUFFER_SIZE: usize = 65_535;
 const MAX_REQUEST_PAYLOAD_LENGTH: usize = u16::MAX as usize - 6;
 const MAX_IPV4_UDP_DATAGRAM_LENGTH: usize = 65_507;
+const MAX_RUNTIME_RANGE_PROBE_COUNT: u32 = 1_048_576;
 const TCP_WRITE_TIMEOUT_MESSAGE: &str = "tcp write timed out";
 const TCP_READ_TIMEOUT_MESSAGE: &str = "tcp read timed out";
 const UDP_SEND_TIMEOUT_MESSAGE: &str = "udp send timed out";
 const UDP_RECEIVE_TIMEOUT_MESSAGE: &str = "udp receive timed out";
 const CONNECTION_TIMEOUT_MESSAGE: &str = "connection establishment timed out";
+
+fn uses_device_range_runtime_probe(plc_profile: SlmpPlcProfile) -> bool {
+    matches!(
+        plc_profile.address_profile(),
+        SlmpPlcProfile::QCpu | SlmpPlcProfile::LCpu | SlmpPlcProfile::QnU | SlmpPlcProfile::QnUDV
+    )
+}
 
 #[derive(Clone)]
 pub struct SlmpClient {
@@ -218,23 +226,24 @@ impl SlmpClient {
             .await
     }
 
-    /// Reads one canonical SD-register window and builds the active profile's range catalog.
+    /// Reads the canonical SD-register window and resolves any required runtime-probed ranges.
     ///
-    /// This does not probe candidate addresses or infer boundaries from communication errors.
+    /// A nonzero PLC end code means that a probe address is unreadable. All other acquisition
+    /// and probe failures are returned without producing a partial catalog.
     pub async fn read_device_range_catalog(&self) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
-        let plc_profile = self.plc_profile().await;
-        let profile = resolve_device_range_profile_for_plc_profile(plc_profile);
-        let registers = read_device_range_registers(self, &profile).await?;
-        build_device_range_catalog_for_plc_profile(plc_profile, &registers)
+        let mut inner = self.inner.lock().await;
+        let plc_profile = inner.options.plc_profile;
+        Self::read_device_range_catalog_inner(&mut inner, plc_profile).await
     }
 
     /// Reads the catalog while asserting an exact match with the active connection profile.
-    /// Acquisition errors propagate without being converted into inferred address limits.
+    /// Acquisition and non-PLC probe errors propagate without returning a partial catalog.
     pub async fn read_device_range_catalog_for_plc_profile(
         &self,
         plc_profile: SlmpPlcProfile,
     ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
-        let client_profile = self.plc_profile().await;
+        let mut inner = self.inner.lock().await;
+        let client_profile = inner.options.plc_profile;
         if plc_profile != client_profile {
             return Err(SlmpError::new(format!(
                 "PLC profile mismatch: requested={} client={}",
@@ -242,9 +251,130 @@ impl SlmpClient {
                 client_profile.canonical_name()
             )));
         }
+        Self::read_device_range_catalog_inner(&mut inner, plc_profile).await
+    }
+
+    async fn read_device_range_catalog_inner(
+        inner: &mut ClientInner,
+        plc_profile: SlmpPlcProfile,
+    ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
         let profile = resolve_device_range_profile_for_plc_profile(plc_profile);
-        let registers = read_device_range_registers(self, &profile).await?;
-        build_device_range_catalog_for_plc_profile(plc_profile, &registers)
+        let sd_address = SlmpDeviceAddress::new(
+            SlmpDeviceCode::SD,
+            u32::from(profile.register_start),
+            plc_profile,
+        );
+        inner.ensure_address_profile(sd_address)?;
+        let values = inner
+            .read_words_raw(sd_address, profile.register_count)
+            .await?;
+        let registers = build_device_range_register_snapshot(&profile, values);
+        let catalog = build_device_range_catalog_for_plc_profile(plc_profile, &registers)?;
+        Self::resolve_device_range_runtime_limits(inner, catalog).await
+    }
+
+    async fn resolve_device_range_runtime_limits(
+        inner: &mut ClientInner,
+        mut catalog: SlmpDeviceRangeCatalog,
+    ) -> Result<SlmpDeviceRangeCatalog, SlmpError> {
+        let plc_profile = catalog.plc_profile;
+        let address_profile = plc_profile.address_profile();
+        if !uses_device_range_runtime_probe(plc_profile) {
+            return Ok(catalog);
+        }
+
+        if address_profile == SlmpPlcProfile::QCpu {
+            let z_count = if Self::can_read_device_range_probe_address(
+                inner,
+                plc_profile,
+                SlmpDeviceCode::Z,
+                15,
+            )
+            .await?
+            {
+                16
+            } else {
+                10
+            };
+            catalog = crate::device_ranges::replace_fixed_point_count(
+                catalog,
+                "Z",
+                z_count,
+                "QCPU Z register count is selected by probing Z15.",
+            );
+        }
+
+        let zr_count =
+            Self::resolve_readable_device_range_point_count(inner, plc_profile, SlmpDeviceCode::ZR)
+                .await?;
+        catalog = crate::device_ranges::replace_fixed_point_count(
+            catalog,
+            "ZR",
+            zr_count,
+            "ZR register count is selected by probing readable ZR addresses.",
+        );
+        Ok(crate::device_ranges::replace_fixed_point_count(
+            catalog,
+            "R",
+            zr_count.min(32_768),
+            "R register count follows the probed ZR count and is capped at R32767.",
+        ))
+    }
+
+    async fn resolve_readable_device_range_point_count(
+        inner: &mut ClientInner,
+        plc_profile: SlmpPlcProfile,
+        device: SlmpDeviceCode,
+    ) -> Result<u32, SlmpError> {
+        if !Self::can_read_device_range_probe_address(inner, plc_profile, device, 0).await? {
+            return Ok(0);
+        }
+
+        let upper_limit = MAX_RUNTIME_RANGE_PROBE_COUNT - 1;
+        let mut low = 0;
+        let mut high = 1;
+        while high < upper_limit {
+            if !Self::can_read_device_range_probe_address(inner, plc_profile, device, high).await? {
+                break;
+            }
+            low = high;
+            high = ((high * 2) + 1).min(upper_limit);
+        }
+
+        if high == upper_limit
+            && Self::can_read_device_range_probe_address(inner, plc_profile, device, high).await?
+        {
+            return Ok(MAX_RUNTIME_RANGE_PROBE_COUNT);
+        }
+
+        let mut left = low + 1;
+        let mut right = high - 1;
+        while left <= right {
+            let mid = left + ((right - left) / 2);
+            if Self::can_read_device_range_probe_address(inner, plc_profile, device, mid).await? {
+                low = mid;
+                left = mid + 1;
+            } else {
+                right = mid - 1;
+            }
+        }
+
+        Ok(low + 1)
+    }
+
+    async fn can_read_device_range_probe_address(
+        inner: &mut ClientInner,
+        plc_profile: SlmpPlcProfile,
+        device: SlmpDeviceCode,
+        number: u32,
+    ) -> Result<bool, SlmpError> {
+        let address = SlmpDeviceAddress::new(device, number, plc_profile);
+        inner.ensure_address_profile(address)?;
+        match inner.read_words_raw(address, 1).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.end_code.is_some() => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn read_words_raw(
@@ -5807,5 +5937,27 @@ mod tests {
         assert_eq!(info.subcommand, 0x0001);
         assert_eq!(info.raw.as_slice(), error_data);
         assert!(info.extra.is_empty());
+    }
+
+    #[test]
+    fn runtime_range_probe_applies_to_all_eight_canonical_q_series_profiles_only() {
+        let expected = [
+            SlmpPlcProfile::QCpu,
+            SlmpPlcProfile::QCpuQj71E71100,
+            SlmpPlcProfile::LCpu,
+            SlmpPlcProfile::LCpuLj71E71100,
+            SlmpPlcProfile::QnU,
+            SlmpPlcProfile::QnUQj71E71100,
+            SlmpPlcProfile::QnUDV,
+            SlmpPlcProfile::QnUDVQj71E71100,
+        ];
+        for profile in SlmpPlcProfile::ALL {
+            assert_eq!(
+                uses_device_range_runtime_probe(profile),
+                expected.contains(&profile),
+                "{}",
+                profile.canonical_name()
+            );
+        }
     }
 }

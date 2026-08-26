@@ -1,6 +1,5 @@
-use crate::client::SlmpClient;
 use crate::error::SlmpError;
-use crate::model::{SlmpDeviceAddress, SlmpDeviceCode, SlmpPlcProfile};
+use crate::model::SlmpPlcProfile;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -118,30 +117,15 @@ pub(crate) fn resolve_profile_for_plc_profile(
     }
 }
 
-pub(crate) async fn read_registers(
-    client: &SlmpClient,
+pub(crate) fn register_snapshot(
     profile: &SlmpDeviceRangeProfile,
-) -> Result<BTreeMap<u16, u16>, SlmpError> {
-    if profile.register_count == 0 {
-        return Ok(BTreeMap::new());
-    }
-
-    let values = client
-        .read_words_raw(
-            SlmpDeviceAddress::new(
-                SlmpDeviceCode::SD,
-                u32::from(profile.register_start),
-                client.plc_profile().await,
-            ),
-            profile.register_count,
-        )
-        .await?;
-
+    values: Vec<u16>,
+) -> BTreeMap<u16, u16> {
     let mut map = BTreeMap::new();
     for (index, value) in values.into_iter().enumerate() {
         map.insert(profile.register_start + index as u16, value);
     }
-    Ok(map)
+    map
 }
 
 pub(crate) fn build_catalog(
@@ -196,6 +180,27 @@ pub(crate) fn build_catalog_for_plc_profile(
     catalog.model = device_range_model_label(plc_profile).to_string();
     catalog.plc_profile = plc_profile;
     Ok(catalog)
+}
+
+pub(crate) fn replace_fixed_point_count(
+    mut catalog: SlmpDeviceRangeCatalog,
+    device: &str,
+    point_count: u32,
+    note: &str,
+) -> SlmpDeviceRangeCatalog {
+    let upper_bound = point_count_to_upper_bound(Some(point_count));
+    for entry in &mut catalog.entries {
+        if entry.device == device {
+            entry.supported = true;
+            entry.lower_bound = 0;
+            entry.upper_bound = upper_bound;
+            entry.point_count = Some(point_count);
+            entry.address_range = format_address_range(&entry.device, entry.notation, upper_bound);
+            entry.source = "Runtime access check".to_string();
+            entry.notes = Some(note.to_string());
+        }
+    }
+    catalog
 }
 
 pub(crate) fn device_range_model_label(plc_profile: SlmpPlcProfile) -> &'static str {

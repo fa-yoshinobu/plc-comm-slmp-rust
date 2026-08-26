@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Library: Restored the canonical Q-series device-range runtime probes for QCPU, LCPU, QnU, QnUDV, and their Ethernet-unit profiles. QCPU probes `Z15`; all affected profiles locate the `ZR` boundary and derive `R`, while only PLC end-code responses mean an unreadable candidate and all local, timeout, transport, lifecycle, and protocol failures propagate without a partial catalog.
+
 ## [5.0.0] - 2026-08-07
 
 - Library: Named polling now prepares and validates its immutable Random Read payload and compact decode indexes once per stream, then reuses them for every FIFO-controlled cycle without changing timing, cancellation, close, or error behavior.
