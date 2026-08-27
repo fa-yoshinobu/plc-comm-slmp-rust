@@ -709,12 +709,104 @@ fn decode_long_like_value(
 #[cfg(test)]
 mod optimization_tests {
     use super::*;
+    use crate::SlmpProfileLimitKey;
     use crate::model::{
         SlmpConnectionOptions, SlmpFrameType, SlmpTargetAddress, SlmpTransportMode,
     };
     use futures_util::StreamExt;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    async fn serve_bit_read_responses(listener: TcpListener, expected_points: &[usize]) {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        for &points in expected_points {
+            let mut header = [0u8; 9];
+            stream.read_exact(&mut header).await.unwrap();
+            let body_length = u16::from_le_bytes([header[7], header[8]]) as usize;
+            let mut body = vec![0; body_length];
+            stream.read_exact(&mut body).await.unwrap();
+
+            assert!(body.len() >= 8);
+            assert_eq!(&body[2..4], &0x0401u16.to_le_bytes());
+            assert_eq!(
+                u16::from_le_bytes([body[body.len() - 2], body[body.len() - 1]]),
+                u16::try_from(points).unwrap()
+            );
+
+            let data = vec![0; points.div_ceil(2)];
+            let response_length = u16::try_from(data.len() + 2).unwrap().to_le_bytes();
+            let mut response = vec![
+                0xD0,
+                0x00,
+                header[2],
+                header[3],
+                header[4],
+                header[5],
+                header[6],
+                response_length[0],
+                response_length[1],
+                0x00,
+                0x00,
+            ];
+            response.extend_from_slice(&data);
+            stream.write_all(&response).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn read_bits_single_request_enforces_every_profile_boundary() {
+        for &profile in SlmpPlcProfile::available_connection_profiles() {
+            let maximum = profile
+                .profile_limit(SlmpProfileLimitKey::DirectBitRead)
+                .unwrap()
+                .max_points;
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = tokio::spawn(async move {
+                serve_bit_read_responses(listener, &[1, maximum]).await;
+            });
+            let mut options = SlmpConnectionOptions::new(
+                "127.0.0.1",
+                port,
+                SlmpTransportMode::Tcp,
+                SlmpTargetAddress::default(),
+                profile,
+            )
+            .unwrap();
+            options.frame_type = SlmpFrameType::Frame3E;
+            let client = SlmpClient::connect(options).await.unwrap();
+            let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, 0, profile);
+
+            let zero_error = read_bits_single_request(&client, bit, 0).await.unwrap_err();
+            assert!(zero_error.to_string().contains("range 1-65535"));
+            assert_eq!(client.traffic_stats().await.request_count, 0);
+
+            assert_eq!(
+                read_bits_single_request(&client, bit, 1).await.unwrap(),
+                [false]
+            );
+            let maximum_values = read_bits_single_request(&client, bit, maximum)
+                .await
+                .unwrap();
+            assert_eq!(maximum_values.len(), maximum);
+            assert!(maximum_values.iter().all(|value| !value));
+
+            let profile_error = read_bits_single_request(&client, bit, maximum + 1)
+                .await
+                .unwrap_err();
+            assert!(profile_error.to_string().contains(&format!(
+                "read_bits bit access points out of range (1..{maximum}): {}",
+                maximum + 1
+            )));
+
+            let u16_error = read_bits_single_request(&client, bit, usize::from(u16::MAX) + 1)
+                .await
+                .unwrap_err();
+            assert!(u16_error.to_string().contains("range 1-65535"));
+            assert_eq!(client.traffic_stats().await.request_count, 2);
+            server.await.unwrap();
+        }
+    }
 
     #[tokio::test]
     async fn canonical_contiguous_helpers_send_one_request_each_and_reject_before_send() {

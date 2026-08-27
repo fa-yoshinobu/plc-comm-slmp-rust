@@ -15,7 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Tooling`: Developer/operator command-line tools and helper utilities.
 - `CI`: Release checks, workflow scripts, or automation-only changes.
 
-## [Unreleased]
+## [Unreleased] - 2026-08-27
+
+- Tests: Added direct `read_bits_single_request` boundary coverage for zero, one, every connectable PLC profile's canonical maximum, maximum plus one, and counts above `u16`, including proof that rejected counts do not reach transport.
+- Docs: Recorded the crates.io packaged-crate self-test gap as a concise next-release item in `TODO.md`.
 
 ## [5.1.2] - 2026-08-27
 
