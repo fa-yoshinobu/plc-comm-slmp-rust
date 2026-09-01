@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-08-27
 
+- Tests: Included only the two canonical JSON fixtures required by library unit tests in the registry crate and made the extracted-crate package gate run `cargo test --lib --all-features`.
 - Tests: Added direct `read_bits_single_request` boundary coverage for zero, one, every connectable PLC profile's canonical maximum, maximum plus one, and counts above `u16`, including proof that rejected counts do not reach transport.
-- Docs: Recorded the crates.io packaged-crate self-test gap as a concise next-release item in `TODO.md`.
 
 ## [5.1.2] - 2026-08-27
 

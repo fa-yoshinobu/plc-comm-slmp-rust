@@ -18,6 +18,8 @@ include = [
     "README.md",
     "src/**",
     "examples/**",
+    "tests/fixtures/slmp_device_range_rules.json",
+    "tests/fixtures/slmp_ethernet_profiles.json",
 ]
 
 [lib]

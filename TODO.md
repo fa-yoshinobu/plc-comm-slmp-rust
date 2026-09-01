@@ -4,12 +4,6 @@ Current active TODOs only.
 
 ## Current Status
 
-### Packaging
-
-- [ ] Next release: make the extracted crates.io package pass
-  `cargo test --lib --all-features` by packaging the required test fixtures and
-  adding the test to the package verification script.
-
 ### SLMP-RUST-TODO-1: Remove unused Memory / Extend Unit functions from the public API
 
 Status: `approved`. Complete this public API cleanup in the next release. There are no users of these methods, so no compatibility alias or migration path is required.

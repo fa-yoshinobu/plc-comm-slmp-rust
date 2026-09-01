@@ -52,18 +52,27 @@ try {
             Sort-Object -Unique
     )
 
+    $requiredTestFixtures = @(
+        "tests/fixtures/slmp_device_range_rules.json",
+        "tests/fixtures/slmp_ethernet_profiles.json"
+    )
     $forbiddenPrefixes = @(
         ".github/",
         "docs/",
         "internal_docs/",
         "scripts/",
         "test/",
-        "tests/",
         "tools/"
     )
     $forbiddenNames = @("AGENTS.md", "TODO.md", "release_check.bat", "run_ci.bat")
     $forbidden = @(
         foreach ($path in $packageFiles) {
+            if ($path.StartsWith("tests/", [System.StringComparison]::OrdinalIgnoreCase)) {
+                if ($path -notin $requiredTestFixtures) {
+                    $path
+                }
+                continue
+            }
             if ($path -in $forbiddenNames) {
                 $path
                 continue
@@ -80,7 +89,7 @@ try {
         throw "Registry package contains repository-only files: $($forbidden -join ', ')"
     }
 
-    $required = @("Cargo.toml", "LICENSE", "README.md", "src/lib.rs")
+    $required = @("Cargo.toml", "LICENSE", "README.md", "src/lib.rs") + $requiredTestFixtures
     $missing = @($required | Where-Object { $_ -notin $packageFiles })
     if ($missing.Count -ne 0) {
         throw "Registry package is missing required files: $($missing -join ', ')"
@@ -103,6 +112,11 @@ try {
     & cargo check --manifest-path $packagedManifest --all-features --lib --bins --examples
     if ($LASTEXITCODE -ne 0) {
         throw "Generated-crate library/binary/example check failed."
+    }
+
+    & cargo test --manifest-path $packagedManifest --lib --all-features
+    if ($LASTEXITCODE -ne 0) {
+        throw "Generated-crate library tests failed."
     }
 
     $env:RUSTDOCFLAGS = "-D warnings"

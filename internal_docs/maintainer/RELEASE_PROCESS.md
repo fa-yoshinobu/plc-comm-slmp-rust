@@ -8,7 +8,7 @@ This checklist governs crates.io and GitHub publication for this repository.
 2. Confirm `Cargo.toml`, runtime version metadata, canonical profile fixtures, CHANGELOG, user docs, examples, and public API agree.
 3. Enumerate every unchecked repository TODO and maintainer checkbox. Pass it, mark it explicitly not required, or record an item-by-item release disposition in the active release GOAL.
 4. Run `scripts/check_source_archive.ps1` and require the extracted GitHub source archive to pass its complete non-hardware validation gate.
-5. Run `scripts/check_package_contents.ps1`. It generates and extracts the `.crate`, confirms repository tests and maintainer tooling are absent, builds packaged examples and rustdoc, and compiles an isolated consumer using only the extracted package before the immutable annotated tag is created.
+5. Run `scripts/check_package_contents.ps1`. It generates and extracts the `.crate`, permits and requires only the two canonical JSON fixtures used by library unit tests under `tests/`, rejects all other repository tests and maintainer tooling, runs `cargo test --lib --all-features`, builds packaged examples and rustdoc, and compiles an isolated consumer using only the extracted package before the immutable annotated tag is created.
 
 ## Publication Integrity Gate
 
