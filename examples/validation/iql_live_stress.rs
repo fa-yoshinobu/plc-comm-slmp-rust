@@ -388,8 +388,8 @@ async fn observe_multi_word_block_candidate(client: &SlmpClient) {
     let probe = async {
         let first = device(SlmpDeviceCode::D, 12_020);
         let second = device(SlmpDeviceCode::D, 12_040);
-        let original_first = client.read_words_raw(first, 4).await?;
-        let original_second = client.read_words_raw(second, 4).await?;
+        let original_first = client.read_words(first, 4).await?;
+        let original_second = client.read_words(second, 4).await?;
         let values_first = word_pattern(4, 0x4400);
         let values_second = word_pattern(4, 0x4500);
         let result: Result<(), plc_comm_slmp::SlmpError> = async {
@@ -408,8 +408,8 @@ async fn observe_multi_word_block_candidate(client: &SlmpClient) {
                     &[],
                 )
                 .await?;
-            let actual_first = client.read_words_raw(first, 4).await?;
-            let actual_second = client.read_words_raw(second, 4).await?;
+            let actual_first = client.read_words(first, 4).await?;
+            let actual_second = client.read_words(second, 4).await?;
             if actual_first != values_first || actual_second != values_second {
                 return Err(plc_comm_slmp::SlmpError::new(format!(
                     "multi word-block readback mismatch first={actual_first:?} second={actual_second:?}"
@@ -541,9 +541,7 @@ async fn timeout_and_reconnect(
             let result = async {
                 let client =
                     SlmpClient::connect(options(host, port, transport_mode, 3_000)?).await?;
-                let _ = client
-                    .read_words_raw(device(SlmpDeviceCode::D, 0), 1)
-                    .await?;
+                let _ = client.read_words(device(SlmpDeviceCode::D, 0), 1).await?;
                 client.close().await?;
                 Ok::<(), Box<dyn Error>>(())
             }
@@ -585,9 +583,7 @@ async fn timeout_and_reconnect(
     };
     let bad_result = async {
         let client = SlmpClient::connect(options(host, bad_port, transport_mode, 500)?).await?;
-        client
-            .read_words_raw(device(SlmpDeviceCode::D, 0), 1)
-            .await?;
+        client.read_words(device(SlmpDeviceCode::D, 0), 1).await?;
         Ok::<(), Box<dyn Error>>(())
     }
     .await;
@@ -602,9 +598,7 @@ async fn timeout_and_reconnect(
     );
 
     let client = SlmpClient::connect(options(host, port, transport_mode, 3_000)?).await?;
-    let _ = client
-        .read_words_raw(device(SlmpDeviceCode::D, 0), 1)
-        .await?;
+    let _ = client.read_words(device(SlmpDeviceCode::D, 0), 1).await?;
     client.close().await?;
     Ok(())
 }

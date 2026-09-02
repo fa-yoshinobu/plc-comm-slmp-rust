@@ -273,7 +273,7 @@ fn normalize_tag_name(address: &str) -> String {
 }
 
 fn options_for(endpoint: &PlcEndpoint) -> MonitorResult<SlmpConnectionOptions> {
-    let profile = SlmpPlcProfile::parse_label(&endpoint.plc_profile)
+    let profile = SlmpPlcProfile::parse_canonical_name(&endpoint.plc_profile)
         .ok_or_else(|| format!("unsupported plc profile: {}", endpoint.plc_profile))?;
     if profile.is_base_profile() {
         return Err("melsec:qcpu is a base profile; use melsec:qcpu:qj71e71-100.".into());

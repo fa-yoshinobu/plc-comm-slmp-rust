@@ -136,7 +136,7 @@ async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<S
     match config.scenario.as_str() {
         "words" => {
             let values = client
-                .read_words_raw(parse_address(&config.word_device)?, config.word_points)
+                .read_words(parse_address(&config.word_device)?, config.word_points)
                 .await
                 .map_err(err_msg)?;
             Ok(format_word_sample(&values))
@@ -150,7 +150,7 @@ async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<S
         }
         "dwords" => {
             let values = client
-                .read_dwords_raw(parse_address(&config.dword_device)?, config.dword_points)
+                .read_dwords(parse_address(&config.dword_device)?, config.dword_points)
                 .await
                 .map_err(err_msg)?;
             Ok(format_dword_sample(&values))
@@ -161,7 +161,7 @@ async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<S
                 .await
                 .map_err(err_msg)?;
             let words = client
-                .read_words_raw(parse_address(&config.word_device)?, config.word_points)
+                .read_words(parse_address(&config.word_device)?, config.word_points)
                 .await
                 .map_err(err_msg)?;
             Ok(format!(
@@ -235,7 +235,7 @@ async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<S
             let device = parse_address(&config.word_device)?;
             client.write_words(device, &values).await.map_err(err_msg)?;
             let read_back = client
-                .read_words_raw(device, config.word_points)
+                .read_words(device, config.word_points)
                 .await
                 .map_err(err_msg)?;
             if values != read_back {
@@ -252,7 +252,7 @@ async fn execute_scenario(client: &SlmpClient, config: &BenchConfig) -> Result<S
                 tokio::time::sleep(Duration::from_millis(config.idle_ms)).await;
             }
             let values = client
-                .read_words_raw(parse_address_for_profile("D1000", config.plc_profile)?, 1)
+                .read_words(parse_address_for_profile("D1000", config.plc_profile)?, 1)
                 .await
                 .map_err(err_msg)?;
             Ok(format!(
@@ -286,7 +286,7 @@ async fn timeout_once(config: &BenchConfig) -> Result<String, String> {
         Ok(Ok(client)) => {
             let read = timeout(
                 Duration::from_millis(750),
-                client.read_words_raw(parse_address_for_profile("D1000", config.plc_profile)?, 1),
+                client.read_words(parse_address_for_profile("D1000", config.plc_profile)?, 1),
             )
             .await;
             let _ = client.close().await;
@@ -403,7 +403,7 @@ impl BenchConfig {
         if port == 0 {
             return Err("--port must be in 1..=65535".to_string());
         }
-        let plc_profile = SlmpPlcProfile::parse_label(
+        let plc_profile = SlmpPlcProfile::parse_canonical_name(
             &option(&args, "--plc-profile")
                 .ok_or_else(|| "--plc-profile is required".to_string())?,
         )

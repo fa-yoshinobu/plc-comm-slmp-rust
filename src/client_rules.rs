@@ -8,8 +8,6 @@ use crate::model::{
 const DIRECT_WORD_POINT_LIMIT: usize = 960;
 const DIRECT_BIT_POINT_LIMIT: usize = 7168;
 const DIRECT_IQF_BIT_POINT_LIMIT: usize = 3584;
-const MEMORY_WORD_LIMIT: usize = 480;
-const EXTEND_UNIT_BYTE_LIMIT: usize = 1920;
 
 pub(crate) fn validate_non_empty_u16_count(count: usize, name: &str) -> Result<(), SlmpError> {
     if count == 0 {
@@ -348,39 +346,6 @@ pub(crate) fn validate_direct_device_span_with_semantics(
         return Err(SlmpError::new(format!(
             "{name} device span exceeds the selected wire address field: start={}, consumed_device_numbers={consumed_device_numbers}, end={end}, maximum={maximum_device_number}",
             device.number()
-        )));
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_memory_word_length(word_length: usize, name: &str) -> Result<(), SlmpError> {
-    if !(1..=MEMORY_WORD_LIMIT).contains(&word_length) {
-        return Err(SlmpError::new(format!(
-            "{name} word length out of range (1..480): {word_length}"
-        )));
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_extend_unit_byte_length(
-    byte_length: usize,
-    name: &str,
-) -> Result<(), SlmpError> {
-    if !(2..=EXTEND_UNIT_BYTE_LIMIT).contains(&byte_length) {
-        return Err(SlmpError::new(format!(
-            "{name} byte length out of range (2..1920): {byte_length}"
-        )));
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_extend_unit_word_length(
-    word_length: usize,
-    name: &str,
-) -> Result<(), SlmpError> {
-    if !(1..=DIRECT_WORD_POINT_LIMIT).contains(&word_length) {
-        return Err(SlmpError::new(format!(
-            "{name} word length out of range (1..960): {word_length}"
         )));
     }
     Ok(())

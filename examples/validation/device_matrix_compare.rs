@@ -477,7 +477,7 @@ async fn assert_long_timer_state_reads(
     let (base_device, contact) = long_timer_state_base(device)
         .ok_or_else(|| make_error(format!("{address} is not a long timer state device")))?;
     let typed = read_typed(client, device, "BIT").await?.as_bool()?;
-    let block_words = client.read_words_raw(base_device, 4).await?;
+    let block_words = client.read_words(base_device, 4).await?;
     let request_words = request_plain_read_words(client, mode, base_device, 4).await?;
     let dedicated = match base_device.code() {
         SlmpDeviceCode::LTN => {
@@ -502,10 +502,7 @@ async fn assert_long_timer_state_reads(
     };
     let observed = [
         ("read_typed", typed),
-        (
-            "read_words_raw(4)",
-            decode_long_state(&block_words, contact)?,
-        ),
+        ("read_words(4)", decode_long_state(&block_words, contact)?),
         (
             "request_block(4)",
             decode_long_state(&request_words, contact)?,
@@ -531,7 +528,7 @@ async fn assert_long_timer_current_reads(
             )));
         }
     };
-    let block_words = client.read_words_raw(device, 4).await?;
+    let block_words = client.read_words(device, 4).await?;
     let request_words = request_plain_read_words(client, mode, device, 4).await?;
     let dedicated = match device.code() {
         SlmpDeviceCode::LTN => client.read_long_timer(device.number(), 1).await?[0].current_value,
@@ -546,7 +543,7 @@ async fn assert_long_timer_current_reads(
     };
     let observed = [
         ("read_typed", typed),
-        ("read_words_raw(4)", decode_long_current(&block_words)?),
+        ("read_words(4)", decode_long_current(&block_words)?),
         ("request_block(4)", decode_long_current(&request_words)?),
         ("dedicated", dedicated),
         ("expected", expected),
@@ -606,7 +603,7 @@ async fn assert_word_reads(
         }
     };
     let observed = [
-        ("read_words_raw", client.read_words_raw(device, 1).await?[0]),
+        ("read_words", client.read_words(device, 1).await?[0]),
         ("read_typed", typed),
         ("read_named", value_from_named_u16(&named, &named_address)?),
         (
@@ -645,10 +642,7 @@ async fn assert_dword_reads(
     };
     let request_words = request_plain_read_words(client, mode, device, 2).await?;
     let observed = [
-        (
-            "read_dwords_raw",
-            client.read_dwords_raw(device, 1).await?[0],
-        ),
+        ("read_dwords", client.read_dwords(device, 1).await?[0]),
         ("read_typed", typed),
         ("read_named", value_from_named_u32(&named, named_address)?),
         (
@@ -751,7 +745,7 @@ async fn compare_word_device(
     address: &str,
 ) -> Result<(), Box<dyn Error>> {
     let device = parse_device_for_client(client, address).await?;
-    let original = client.read_words_raw(device, 1).await?[0];
+    let original = client.read_words(device, 1).await?[0];
     let value_a = seeded_u16(address, 0x11);
     let value_b = seeded_u16(address, 0x22);
     let result: Result<(), Box<dyn Error>> = async {
@@ -844,7 +838,7 @@ async fn compare_dword_device(
         return result;
     }
 
-    let original = client.read_dwords_raw(device, 1).await?[0];
+    let original = client.read_dwords(device, 1).await?[0];
     let value_a = seeded_u32(address, 0x33);
     let value_b = seeded_u32(address, 0x44);
     let result: Result<(), Box<dyn Error>> = async {

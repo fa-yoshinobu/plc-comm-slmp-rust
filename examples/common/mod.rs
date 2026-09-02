@@ -115,7 +115,7 @@ pub async fn connect_from_env() -> Result<SlmpClient, Box<dyn Error>> {
 
 pub fn print_connection_banner(example: &str) -> Result<(), Box<dyn Error>> {
     let plc_profile = env_profile_label()?;
-    let profile = SlmpPlcProfile::parse_label(&plc_profile).map(SlmpPlcProfile::defaults);
+    let profile = SlmpPlcProfile::parse_canonical_name(&plc_profile).map(SlmpPlcProfile::defaults);
     println!(
         "{example}: host={} port={} plc_profile={} frame={} compatibility={} transport={} target={}",
         env_string("SLMP_HOST", "192.168.250.100"),
@@ -146,7 +146,7 @@ fn format_env_target() -> Result<String, Box<dyn Error>> {
 }
 
 fn parse_plc_profile(value: &str) -> Result<SlmpPlcProfile, Box<dyn Error>> {
-    let profile = SlmpPlcProfile::parse_label(value).ok_or_else(|| {
+    let profile = SlmpPlcProfile::parse_canonical_name(value).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             PLC_PROFILE_REQUIRED_MESSAGE.to_string(),

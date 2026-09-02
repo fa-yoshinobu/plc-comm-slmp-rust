@@ -8,7 +8,7 @@
 //! intended flow is:
 //!
 //! 1. connect with [`SlmpConnectionOptions`] and [`SlmpClient`]
-//! 2. use raw device APIs for low-level control
+//! 2. use direct device APIs for low-level control
 //! 3. use helper APIs such as [`read_named`] and [`write_named`] for
 //!    application-facing snapshots and typed values
 //! 4. validate changes with this repository's Rust tests and examples
@@ -29,7 +29,7 @@
 //!     let options = SlmpConnectionOptions::new("192.168.250.100", 1025, SlmpTransportMode::Tcp, SlmpTargetAddress::default(), SlmpPlcProfile::IqR)?;
 //!
 //!     let client = SlmpClient::connect(options).await?;
-//!     let words = client.read_words_raw(SlmpAddress::parse("D100", plc_comm_slmp::SlmpPlcProfile::IqR)?, 2).await?;
+//!     let words = client.read_words(SlmpAddress::parse("D100", plc_comm_slmp::SlmpPlcProfile::IqR)?, 2).await?;
 //!     println!("{words:?}");
 //!     Ok(())
 //! })
@@ -109,8 +109,8 @@ mod network;
 mod route_validation;
 
 pub use address::{
-    SlmpAddress, normalize_named_address, parse_device, parse_named_address, parse_named_target,
-    parse_qualified_device, parse_target_auto_number,
+    NamedAddressParts, SlmpAddress, normalize_named_address, parse_device, parse_named_address,
+    parse_named_target, parse_qualified_device, parse_target_auto_number,
 };
 pub use capability_profiles::SlmpProfileLimitKey;
 pub use client::{SlmpClient, encode_raw_device_spec};
@@ -127,7 +127,7 @@ pub use error::{
 };
 pub use error_codes::{end_code_key, end_code_name, is_remote_password_end_code};
 pub use helpers::{
-    NamedAddress, SlmpValue, parse_scalar_for_named, poll_named, read_bits_single_request,
+    NamedAddress, SlmpValue, parse_scalar_for_named, poll, poll_named, read_bits_single_request,
     read_dwords_single_request, read_named, read_typed, read_words_single_request,
     write_bit_in_word, write_bit_in_word_extended, write_bits_single_request,
     write_dwords_single_request, write_named, write_typed, write_words_single_request,

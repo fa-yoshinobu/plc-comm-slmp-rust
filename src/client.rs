@@ -377,7 +377,7 @@ impl SlmpClient {
         }
     }
 
-    pub async fn read_words_raw(
+    pub async fn read_words(
         &self,
         device: SlmpDeviceAddress,
         points: u16,
@@ -385,6 +385,14 @@ impl SlmpClient {
         let mut inner = self.inner.lock().await;
         inner.ensure_address_profile(device)?;
         inner.read_words_raw(device, points).await
+    }
+
+    pub async fn read_words_raw(
+        &self,
+        device: SlmpDeviceAddress,
+        points: u16,
+    ) -> Result<Vec<u16>, SlmpError> {
+        self.read_words(device, points).await
     }
 
     pub async fn write_words(
@@ -476,7 +484,7 @@ impl SlmpClient {
         inner.write_bits(device, values).await
     }
 
-    pub async fn read_dwords_raw(
+    pub async fn read_dwords(
         &self,
         device: SlmpDeviceAddress,
         points: u16,
@@ -484,6 +492,14 @@ impl SlmpClient {
         let mut inner = self.inner.lock().await;
         inner.ensure_address_profile(device)?;
         inner.read_dwords_raw(device, points).await
+    }
+
+    pub async fn read_dwords_raw(
+        &self,
+        device: SlmpDeviceAddress,
+        points: u16,
+    ) -> Result<Vec<u32>, SlmpError> {
+        self.read_dwords(device, points).await
     }
 
     pub async fn write_dwords(
@@ -580,7 +596,7 @@ impl SlmpClient {
         Ok(self.read_random(&[], dword_devices).await?.dword_values)
     }
 
-    pub async fn read_random_ext(
+    pub async fn read_random_extended(
         &self,
         word_devices: &[SlmpQualifiedDeviceAddress],
         dword_devices: &[SlmpQualifiedDeviceAddress],
@@ -599,18 +615,32 @@ impl SlmpClient {
         inner.read_random_ext(word_devices, dword_devices).await
     }
 
+    pub async fn read_random_ext(
+        &self,
+        word_devices: &[SlmpQualifiedDeviceAddress],
+        dword_devices: &[SlmpQualifiedDeviceAddress],
+    ) -> Result<SlmpRandomReadResult, SlmpError> {
+        self.read_random_extended(word_devices, dword_devices).await
+    }
+
     pub async fn read_random_words_extended(
         &self,
         word_devices: &[SlmpQualifiedDeviceAddress],
     ) -> Result<Vec<u16>, SlmpError> {
-        Ok(self.read_random_ext(word_devices, &[]).await?.word_values)
+        Ok(self
+            .read_random_extended(word_devices, &[])
+            .await?
+            .word_values)
     }
 
     pub async fn read_random_dwords_extended(
         &self,
         dword_devices: &[SlmpQualifiedDeviceAddress],
     ) -> Result<Vec<u32>, SlmpError> {
-        Ok(self.read_random_ext(&[], dword_devices).await?.dword_values)
+        Ok(self
+            .read_random_extended(&[], dword_devices)
+            .await?
+            .dword_values)
     }
 
     /// Registers Word and DWord devices with one Entry Monitor Device request.
@@ -630,7 +660,7 @@ impl SlmpClient {
     }
 
     /// Registers qualified Extended Devices with one Entry Monitor Device request.
-    pub async fn register_monitor_devices_ext(
+    pub async fn register_monitor_devices_extended(
         &self,
         word_devices: &[SlmpQualifiedDeviceAddress],
         dword_devices: &[SlmpQualifiedDeviceAddress],
@@ -648,6 +678,15 @@ impl SlmpClient {
         )?;
         inner
             .register_monitor_devices_ext(word_devices, dword_devices)
+            .await
+    }
+
+    pub async fn register_monitor_devices_ext(
+        &self,
+        word_devices: &[SlmpQualifiedDeviceAddress],
+        dword_devices: &[SlmpQualifiedDeviceAddress],
+    ) -> Result<(), SlmpError> {
+        self.register_monitor_devices_extended(word_devices, dword_devices)
             .await
     }
 
@@ -712,7 +751,7 @@ impl SlmpClient {
         self.write_random_words(&[], dword_entries).await
     }
 
-    pub async fn write_random_words_ext(
+    pub async fn write_random_words_extended(
         &self,
         word_entries: &[(SlmpQualifiedDeviceAddress, u16)],
         dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
@@ -729,18 +768,27 @@ impl SlmpClient {
             .await
     }
 
+    pub async fn write_random_words_ext(
+        &self,
+        word_entries: &[(SlmpQualifiedDeviceAddress, u16)],
+        dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
+    ) -> Result<(), SlmpError> {
+        self.write_random_words_extended(word_entries, dword_entries)
+            .await
+    }
+
     pub async fn write_random_u16s_extended(
         &self,
         word_entries: &[(SlmpQualifiedDeviceAddress, u16)],
     ) -> Result<(), SlmpError> {
-        self.write_random_words_ext(word_entries, &[]).await
+        self.write_random_words_extended(word_entries, &[]).await
     }
 
     pub async fn write_random_u32s_extended(
         &self,
         dword_entries: &[(SlmpQualifiedDeviceAddress, u32)],
     ) -> Result<(), SlmpError> {
-        self.write_random_words_ext(&[], dword_entries).await
+        self.write_random_words_extended(&[], dword_entries).await
     }
 
     pub async fn write_random_bits(
@@ -752,13 +800,20 @@ impl SlmpClient {
         inner.write_random_bits(bit_entries).await
     }
 
-    pub async fn write_random_bits_ext(
+    pub async fn write_random_bits_extended(
         &self,
         bit_entries: &[(SlmpQualifiedDeviceAddress, bool)],
     ) -> Result<(), SlmpError> {
         let mut inner = self.inner.lock().await;
         inner.ensure_address_profiles(bit_entries.iter().map(|(device, _)| device.device_ref()))?;
         inner.write_random_bits_ext(bit_entries).await
+    }
+
+    pub async fn write_random_bits_ext(
+        &self,
+        bit_entries: &[(SlmpQualifiedDeviceAddress, bool)],
+    ) -> Result<(), SlmpError> {
+        self.write_random_bits_extended(bit_entries).await
     }
 
     pub async fn read_block(
@@ -856,56 +911,6 @@ impl SlmpClient {
     /// Sends the fixed Clear Error command as exactly one request.
     pub async fn clear_error(&self) -> Result<(), SlmpError> {
         self.inner.lock().await.clear_error().await
-    }
-
-    pub async fn memory_read_words(
-        &self,
-        head_address: u32,
-        word_length: u16,
-    ) -> Result<Vec<u16>, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .memory_read_words(head_address, word_length)
-            .await
-    }
-
-    pub async fn memory_write_words(
-        &self,
-        head_address: u32,
-        values: &[u16],
-    ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .memory_write_words(head_address, values)
-            .await
-    }
-
-    pub async fn extend_unit_read_words(
-        &self,
-        head_address: u32,
-        word_length: u16,
-        module_no: u16,
-    ) -> Result<Vec<u16>, SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .extend_unit_read_words(head_address, word_length, module_no)
-            .await
-    }
-
-    pub async fn extend_unit_write_words(
-        &self,
-        head_address: u32,
-        module_no: u16,
-        values: &[u16],
-    ) -> Result<(), SlmpError> {
-        self.inner
-            .lock()
-            .await
-            .extend_unit_write_words(head_address, module_no, values)
-            .await
     }
 
     pub async fn read_array_labels(
@@ -3082,107 +3087,6 @@ impl ClientInner {
 
     async fn clear_error(&mut self) -> Result<(), SlmpError> {
         self.request(SlmpCommand::ClearError, 0x0000, &[], true)
-            .await?;
-        Ok(())
-    }
-
-    async fn memory_read_words(
-        &mut self,
-        head_address: u32,
-        word_length: u16,
-    ) -> Result<Vec<u16>, SlmpError> {
-        rules::validate_memory_word_length(word_length as usize, "memory_read")?;
-        let mut payload = Vec::with_capacity(6);
-        payload.extend_from_slice(&head_address.to_le_bytes());
-        payload.extend_from_slice(&word_length.to_le_bytes());
-        self.request_decoded(SlmpCommand::MemoryRead, 0x0000, &payload, true, |data| {
-            if data.len() != word_length as usize * 2 {
-                Err(SlmpError::new("memory_read response size mismatch"))
-            } else {
-                Ok(data
-                    .chunks_exact(2)
-                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                    .collect())
-            }
-        })
-        .await
-    }
-
-    async fn memory_write_words(
-        &mut self,
-        head_address: u32,
-        values: &[u16],
-    ) -> Result<(), SlmpError> {
-        rules::validate_memory_word_length(values.len(), "memory_write")?;
-        let mut payload = Vec::with_capacity(6 + (values.len() * 2));
-        payload.extend_from_slice(&head_address.to_le_bytes());
-        payload.extend_from_slice(&(values.len() as u16).to_le_bytes());
-        for value in values {
-            payload.extend_from_slice(&value.to_le_bytes());
-        }
-        self.request(SlmpCommand::MemoryWrite, 0x0000, &payload, true)
-            .await?;
-        Ok(())
-    }
-
-    async fn extend_unit_read_bytes(
-        &mut self,
-        head_address: u32,
-        byte_length: u16,
-        module_no: u16,
-    ) -> Result<Vec<u8>, SlmpError> {
-        rules::validate_extend_unit_byte_length(byte_length as usize, "extend_unit_read")?;
-        let mut payload = Vec::with_capacity(8);
-        payload.extend_from_slice(&head_address.to_le_bytes());
-        payload.extend_from_slice(&byte_length.to_le_bytes());
-        payload.extend_from_slice(&module_no.to_le_bytes());
-        self.request_decoded(
-            SlmpCommand::ExtendUnitRead,
-            0x0000,
-            &payload,
-            true,
-            |data| {
-                if data.len() != byte_length as usize {
-                    Err(SlmpError::new("extend_unit_read response size mismatch"))
-                } else {
-                    Ok(data.to_vec())
-                }
-            },
-        )
-        .await
-    }
-
-    async fn extend_unit_read_words(
-        &mut self,
-        head_address: u32,
-        word_length: u16,
-        module_no: u16,
-    ) -> Result<Vec<u16>, SlmpError> {
-        rules::validate_extend_unit_word_length(word_length as usize, "extend_unit_read_words")?;
-        let data = self
-            .extend_unit_read_bytes(head_address, word_length * 2, module_no)
-            .await?;
-        Ok(data
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect())
-    }
-
-    async fn extend_unit_write_words(
-        &mut self,
-        head_address: u32,
-        module_no: u16,
-        values: &[u16],
-    ) -> Result<(), SlmpError> {
-        rules::validate_extend_unit_word_length(values.len(), "extend_unit_write_words")?;
-        let mut payload = Vec::with_capacity(8 + values.len() * 2);
-        payload.extend_from_slice(&head_address.to_le_bytes());
-        payload.extend_from_slice(&((values.len() * 2) as u16).to_le_bytes());
-        payload.extend_from_slice(&module_no.to_le_bytes());
-        for value in values {
-            payload.extend_from_slice(&value.to_le_bytes());
-        }
-        self.request(SlmpCommand::ExtendUnitWrite, 0x0000, &payload, true)
             .await?;
         Ok(())
     }

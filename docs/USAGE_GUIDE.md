@@ -6,7 +6,8 @@
 | --- | --- |
 | `SlmpConnectionOptions::new(host, port, transport, target, plc_profile)` | Creating a connection configuration with an explicit endpoint, route, and profile; only timeout, monitoring timer, and keepalive use approved defaults. |
 | `SlmpClient::connect(options)` | Opening a TCP or UDP SLMP client. |
-| `SlmpAddress::parse("D100", plc_profile)` | Parsing a profile-bound device address. |
+| `SlmpAddress::parse("D100", plc_profile)` | Parsing a profile-bound direct `DeviceAddress`; dtype, bit selector, and qualified route syntax are rejected. |
+| `parse_named_address("D100:U")` / `normalize_named_address("D50.A", plc_profile)` | Parsing or normalizing a typed `AddressSpec`; the public result type is `NamedAddressParts`. |
 | `read_latest_self_diagnosis_error_code` | Reading the latest PLC self-diagnosis error code from `SD0`. |
 | `read_typed` and `write_typed` | Reading or writing one scalar value. |
 | `read_named` and `write_named` | Reading or writing a small typed collection by address text. |
@@ -14,10 +15,16 @@
 | `read_bits_single_request` / `write_bits_single_request` | Reading or writing one contiguous direct-bit range in one request. |
 | `read_dwords_single_request` | Reading one contiguous 32-bit range in one request. |
 | `write_bit_in_word` | Updating one bit inside a word register. |
-| `poll_named` | Repeating a named typed collection read on an interval. |
+| `poll` | Repeating a named typed collection read on an interval. |
 | `parse_qualified_device` | Parsing extended device text such as `U3\G100`, `U3E0\HG0`, and `J2\SW10`. |
 | `read_words_extended` / `write_words_extended` | Reading or writing routed `U...` / `J...` word devices. |
 | `read_bits_extended` / `write_bits_extended` | Reading or writing routed `U...` / `J...` bit devices. |
+
+Keep the three address concepts separate: `SlmpAddress` and `parse_device`
+handle only direct `DeviceAddress` values such as `D100` and `X10`;
+`NamedAddressParts`, `parse_named_address`, and `normalize_named_address`
+handle typed `AddressSpec` values such as `D100:U` and `D50.A`; and
+`parse_qualified_device` handles routes such as `J1\X10` and `U0\G100`.
 
 ## Connection
 
@@ -555,9 +562,7 @@ continuing.
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use plc_comm_slmp::{
-    poll_named, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile,
-};
+use plc_comm_slmp::{poll, SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -565,7 +570,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = SlmpClient::connect(options).await?;
     let addresses = vec!["D100:U".to_string(), "M100:BIT".to_string(), "D50.3".to_string()];
-    let mut stream = Box::pin(poll_named(&client, &addresses, Duration::from_millis(500)));
+    let mut stream = Box::pin(poll(&client, &addresses, Duration::from_millis(500)));
 
     if let Some(snapshot) = stream.next().await.transpose()? {
         println!("{:?}", snapshot);
@@ -691,7 +696,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `LTN`, `LSTN`, `LCN`, and `LZ` are 32-bit families. Use `read_typed` with `D` or `L` for one scalar
 value. `LTN` and `LSTN` use the Direct long-timer route and therefore cannot be included in
-`read_named` or `poll_named`, whose contract is exactly one Random Read request.
+`read_named` or `poll`, whose contract is exactly one Random Read request.
 
 ```rust
 use plc_comm_slmp::{
@@ -736,7 +741,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `:BIT` | `M100:BIT` | Boolean bit device value. |
 | `.n` | `D50.3` | Bit `n` inside a word, where `n` is `0` through `F`. |
 
-Named addresses used with `read_named`, `write_named`, and `poll_named` must include the intended
+Named addresses used with `read_named`, `write_named`, and `poll` must include the intended
 type, for example `D100:U` or `M100:BIT`. `BIT` is valid only for bit devices; numeric/string dtypes
 are valid only for word devices. A word-device bit is written explicitly with `.n` or
 `write_bit_in_word`; no helper performs an implicit mask, read-modify-write, or fallback.

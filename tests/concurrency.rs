@@ -60,7 +60,7 @@ async fn concurrent_calls_are_serialized_and_use_unique_frame_serials() {
         let client = client.clone();
         tasks.push(tokio::spawn(async move {
             client
-                .read_words_raw(
+                .read_words(
                     SlmpDeviceAddress::new(SlmpDeviceCode::D, number, SlmpPlcProfile::IqR),
                     1,
                 )

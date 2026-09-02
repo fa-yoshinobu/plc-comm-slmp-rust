@@ -1004,7 +1004,7 @@ mod tests {
         let notation_overrides = payload["notation_overrides"].as_object().unwrap();
 
         for (profile_name, profile_payload) in profiles {
-            let plc_profile = SlmpPlcProfile::parse_label(profile_name).unwrap();
+            let plc_profile = SlmpPlcProfile::parse_canonical_name(profile_name).unwrap();
 
             for (item, rule) in profile_payload["rules"].as_object().unwrap() {
                 let snapshot = canonical_register_snapshot(profile_payload, Some(item));

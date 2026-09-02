@@ -143,7 +143,7 @@ async fn read_one_word(
     profile: SlmpPlcProfile,
 ) -> Result<Vec<u16>, SlmpError> {
     client
-        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
+        .read_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
         .await
 }
 

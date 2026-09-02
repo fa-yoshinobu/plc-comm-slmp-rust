@@ -3,7 +3,7 @@ use plc_comm_slmp::{SlmpAddress, SlmpPlcProfile};
 
 #[napi]
 pub fn normalize_address(address: String, plc_profile: String) -> napi::Result<String> {
-    let plc_profile = SlmpPlcProfile::parse_label(&plc_profile).ok_or_else(|| {
+    let plc_profile = SlmpPlcProfile::parse_canonical_name(&plc_profile).ok_or_else(|| {
         napi::Error::from_reason(
             "plc_profile must be an exact canonical profile label such as 'melsec:iq-r'",
         )

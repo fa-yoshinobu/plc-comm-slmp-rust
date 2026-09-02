@@ -113,7 +113,7 @@ async fn close_rejects_active_write_as_unknown_and_queued_read_without_sending()
     seen_rx.await.unwrap();
 
     let queued_client = client.clone();
-    let queued = tokio::spawn(async move { queued_client.read_words_raw(device(2), 1).await });
+    let queued = tokio::spawn(async move { queued_client.read_words(device(2), 1).await });
     tokio::task::yield_now().await;
     tokio::time::timeout(Duration::from_millis(100), client.close())
         .await
@@ -165,14 +165,14 @@ async fn cancelling_a_waiter_sends_nothing_and_does_not_delay_its_successor() {
         .await
         .unwrap();
     let active_client = client.clone();
-    let active = tokio::spawn(async move { active_client.read_words_raw(device(10), 1).await });
+    let active = tokio::spawn(async move { active_client.read_words(device(10), 1).await });
     first_seen_rx.await.unwrap();
 
     let cancelled_client = client.clone();
     let (started_tx, started_rx) = oneshot::channel();
     let cancelled = tokio::spawn(async move {
         started_tx.send(()).unwrap();
-        cancelled_client.read_words_raw(device(11), 1).await
+        cancelled_client.read_words(device(11), 1).await
     });
     started_rx.await.unwrap();
     tokio::task::yield_now().await;
@@ -180,8 +180,7 @@ async fn cancelling_a_waiter_sends_nothing_and_does_not_delay_its_successor() {
     assert!(cancelled.await.unwrap_err().is_cancelled());
 
     let successor_client = client.clone();
-    let successor =
-        tokio::spawn(async move { successor_client.read_words_raw(device(12), 1).await });
+    let successor = tokio::spawn(async move { successor_client.read_words(device(12), 1).await });
     release_tx.send(()).unwrap();
     assert_eq!(active.await.unwrap().unwrap(), vec![1]);
     assert_eq!(successor.await.unwrap().unwrap(), vec![2]);
@@ -223,16 +222,13 @@ async fn separate_client_instances_make_progress_independently() {
     let fast = SlmpClient::connect(options(fast_port, Duration::from_secs(2)))
         .await
         .unwrap();
-    let slow_call = tokio::spawn(async move { slow.read_words_raw(device(1), 1).await });
+    let slow_call = tokio::spawn(async move { slow.read_words(device(1), 1).await });
     slow_seen_rx.await.unwrap();
     assert_eq!(
-        tokio::time::timeout(
-            Duration::from_millis(100),
-            fast.read_words_raw(device(2), 1)
-        )
-        .await
-        .unwrap()
-        .unwrap(),
+        tokio::time::timeout(Duration::from_millis(100), fast.read_words(device(2), 1))
+            .await
+            .unwrap()
+            .unwrap(),
         vec![2]
     );
     slow_release_tx.send(()).unwrap();
@@ -290,7 +286,7 @@ async fn bit_in_word_rmw_owns_one_fifo_turn() {
         tokio::spawn(async move { write_bit_in_word(&rmw_client, device(100), 0, true).await });
     first_seen_rx.await.unwrap();
     let queued_client = client.clone();
-    let queued = tokio::spawn(async move { queued_client.read_words_raw(device(200), 1).await });
+    let queued = tokio::spawn(async move { queued_client.read_words(device(200), 1).await });
     tokio::task::yield_now().await;
     release_tx.send(()).unwrap();
     rmw.await.unwrap().unwrap();
@@ -412,10 +408,7 @@ async fn plc_ng_is_definitive_but_malformed_write_is_outcome_unknown() {
     let plc_ng = definitive.write_words(device(1), &[1]).await.unwrap_err();
     assert_eq!(plc_ng.kind, SlmpErrorKind::PlcEndCode);
     assert_eq!(plc_ng.end_code, Some(0xC051));
-    assert_eq!(
-        definitive.read_words_raw(device(2), 1).await.unwrap(),
-        vec![9]
-    );
+    assert_eq!(definitive.read_words(device(2), 1).await.unwrap(), vec![9]);
 
     let unknown = SlmpClient::connect(options(port, Duration::from_secs(2)))
         .await
@@ -427,7 +420,7 @@ async fn plc_ng_is_definitive_but_malformed_write_is_outcome_unknown() {
         Some(SlmpOutcomeUnknownReason::MalformedResponse)
     );
     assert_eq!(
-        unknown.read_words_raw(device(4), 1).await.unwrap_err().kind,
+        unknown.read_words(device(4), 1).await.unwrap_err().kind,
         SlmpErrorKind::Closed
     );
     server.await.unwrap();
@@ -454,7 +447,7 @@ async fn transmitted_write_timeout_has_structured_unknown_reason() {
         Some(SlmpOutcomeUnknownReason::Timeout)
     );
     assert_eq!(
-        client.read_words_raw(device(10), 1).await.unwrap_err().kind,
+        client.read_words(device(10), 1).await.unwrap_err().kind,
         SlmpErrorKind::Closed
     );
     server.await.unwrap();

@@ -31,7 +31,7 @@ async fn qcpu_unit_catalog_uses_base_rules_in_one_client_turn() {
     wait_for_request_count(&server, 1).await;
     let user_read = tokio::spawn(async move {
         client
-            .read_words_raw(
+            .read_words(
                 SlmpDeviceAddress::new(SlmpDeviceCode::D, 999, SlmpPlcProfile::QCpuQj71E71100),
                 1,
             )

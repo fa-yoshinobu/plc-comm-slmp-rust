@@ -124,16 +124,16 @@ pub async fn read_typed(
     match normalized_dtype.as_str() {
         "BIT" => Ok(SlmpValue::Bool(client.read_bits(device, 1).await?[0])),
         "F" => Ok(SlmpValue::F32(f32::from_bits(
-            client.read_dwords_raw(device, 1).await?[0],
+            client.read_dwords(device, 1).await?[0],
         ))),
-        "D" => Ok(SlmpValue::U32(client.read_dwords_raw(device, 1).await?[0])),
+        "D" => Ok(SlmpValue::U32(client.read_dwords(device, 1).await?[0])),
         "L" => Ok(SlmpValue::I32(
-            client.read_dwords_raw(device, 1).await?[0] as i32,
+            client.read_dwords(device, 1).await?[0] as i32,
         )),
         "S" => Ok(SlmpValue::I16(
-            client.read_words_raw(device, 1).await?[0] as i16,
+            client.read_words(device, 1).await?[0] as i16,
         )),
-        "U" => Ok(SlmpValue::U16(client.read_words_raw(device, 1).await?[0])),
+        "U" => Ok(SlmpValue::U16(client.read_words(device, 1).await?[0])),
         other => Err(SlmpError::new(format!("Unsupported dtype '{other}'."))),
     }
 }
@@ -238,7 +238,7 @@ pub async fn read_words_single_request(
     count: usize,
 ) -> Result<Vec<u16>, SlmpError> {
     validate_single_request_count(count, 960)?;
-    client.read_words_raw(start, count as u16).await
+    client.read_words(start, count as u16).await
 }
 
 /// Reads one contiguous bit-device range with exactly one SLMP request.
@@ -274,7 +274,7 @@ pub async fn read_dwords_single_request(
         return Ok(client.read_random(&[], &devices).await?.dword_values);
     }
     validate_single_request_count(count, 480)?;
-    client.read_dwords_raw(start, count as u16).await
+    client.read_dwords(start, count as u16).await
 }
 
 pub async fn write_words_single_request(
@@ -374,7 +374,7 @@ pub async fn write_named(client: &SlmpClient, updates: &NamedAddress) -> Result<
     }
 }
 
-pub fn poll_named<'a>(
+pub fn poll<'a>(
     client: &'a SlmpClient,
     addresses: &'a [String],
     interval: Duration,
@@ -387,6 +387,14 @@ pub fn poll_named<'a>(
             tokio::time::sleep(interval).await;
         }
     }
+}
+
+pub fn poll_named<'a>(
+    client: &'a SlmpClient,
+    addresses: &'a [String],
+    interval: Duration,
+) -> impl Stream<Item = Result<NamedAddress, SlmpError>> + 'a {
+    poll(client, addresses, interval)
 }
 
 fn validate_single_request_count(count: usize, max: usize) -> Result<(), SlmpError> {
@@ -911,7 +919,7 @@ mod optimization_tests {
         options.frame_type = SlmpFrameType::Frame3E;
         let client = SlmpClient::connect(options).await.unwrap();
         let addresses = vec!["D100:U".to_string()];
-        let mut stream = Box::pin(poll_named(&client, &addresses, Duration::ZERO));
+        let mut stream = Box::pin(poll(&client, &addresses, Duration::ZERO));
 
         assert_eq!(
             stream.next().await.unwrap().unwrap()["D100:U"],

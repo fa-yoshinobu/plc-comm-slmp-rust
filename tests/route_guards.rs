@@ -368,14 +368,14 @@ async fn structured_error_information_is_correlated_for_every_transport_frame_an
                     .unwrap();
                 let client = error_correlation_client(transport, frame_4e, server.port).await;
                 let read_error = client
-                    .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
+                    .read_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
                     .await
                     .unwrap_err();
                 assert_eq!(read_error.kind, SlmpErrorKind::MalformedResponse);
                 assert_eq!(read_error.end_code, None);
                 assert_eq!(
                     client
-                        .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
+                        .read_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
                         .await
                         .unwrap_err()
                         .kind,
@@ -431,7 +431,7 @@ async fn matching_structured_error_information_with_extra_data_remains_a_plc_err
                     SlmpPlcProfile::IqF
                 };
                 let error = client
-                    .read_words_raw(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
+                    .read_words(SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, profile), 1)
                     .await
                     .unwrap_err();
                 assert_eq!(error.kind, SlmpErrorKind::PlcEndCode);
@@ -476,7 +476,7 @@ async fn frame_4e_ignores_mismatched_serial_response() {
     let client = SlmpClient::connect(options).await.unwrap();
 
     let words = client
-        .read_words_raw(
+        .read_words(
             SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
             1,
         )
@@ -735,7 +735,12 @@ async fn monitor_registration_rejects_empty_over_limit_and_long_state_before_tra
     let client = SlmpClient::connect(options).await.unwrap();
 
     assert!(client.register_monitor_devices(&[], &[]).await.is_err());
-    assert!(client.register_monitor_devices_ext(&[], &[]).await.is_err());
+    assert!(
+        client
+            .register_monitor_devices_extended(&[], &[])
+            .await
+            .is_err()
+    );
     let normal = (0..97)
         .map(|number| SlmpDeviceAddress::new(SlmpDeviceCode::D, number, SlmpPlcProfile::IqR))
         .collect::<Vec<_>>();
@@ -745,7 +750,7 @@ async fn monitor_registration_rejects_empty_over_limit_and_long_state_before_tra
         .collect::<Vec<_>>();
     assert!(
         client
-            .register_monitor_devices_ext(&extended, &[])
+            .register_monitor_devices_extended(&extended, &[])
             .await
             .is_err()
     );
@@ -775,7 +780,7 @@ async fn extended_monitor_registration_uses_qualified_subcommand() {
     let hg = parse_qualified_device(r"U3E0\HG0", SlmpPlcProfile::IqR).unwrap();
 
     client
-        .register_monitor_devices_ext(&[hg], &[])
+        .register_monitor_devices_extended(&[hg], &[])
         .await
         .unwrap();
 
@@ -813,14 +818,17 @@ async fn link_direct_random_and_monitor_extended_apis_use_ql_subcommands() {
     let word = parse_qualified_device(r"J1\W0", SlmpPlcProfile::IqR).unwrap();
     let bit = parse_qualified_device(r"J1\B0", SlmpPlcProfile::IqR).unwrap();
 
-    client.read_random_ext(&[word], &[]).await.unwrap();
+    client.read_random_extended(&[word], &[]).await.unwrap();
     client
-        .write_random_words_ext(&[(word, 1)], &[])
+        .write_random_words_extended(&[(word, 1)], &[])
         .await
         .unwrap();
-    client.write_random_bits_ext(&[(bit, true)]).await.unwrap();
     client
-        .register_monitor_devices_ext(&[word], &[])
+        .write_random_bits_extended(&[(bit, true)])
+        .await
+        .unwrap();
+    client
+        .register_monitor_devices_extended(&[word], &[])
         .await
         .unwrap();
 
@@ -862,19 +870,19 @@ async fn link_direct_extended_apis_reject_mixed_ql_and_iqr_layouts_before_transp
     .unwrap();
 
     let read_error = client
-        .read_random_ext(&[link_word, iqr_word], &[])
+        .read_random_extended(&[link_word, iqr_word], &[])
         .await
         .unwrap_err();
     let write_error = client
-        .write_random_words_ext(&[(link_word, 1), (iqr_word, 2)], &[])
+        .write_random_words_extended(&[(link_word, 1), (iqr_word, 2)], &[])
         .await
         .unwrap_err();
     let bit_error = client
-        .write_random_bits_ext(&[(link_bit, true), (iqr_bit, false)])
+        .write_random_bits_extended(&[(link_bit, true), (iqr_bit, false)])
         .await
         .unwrap_err();
     let monitor_error = client
-        .register_monitor_devices_ext(&[link_word, iqr_word], &[])
+        .register_monitor_devices_extended(&[link_word, iqr_word], &[])
         .await
         .unwrap_err();
 
@@ -1017,7 +1025,7 @@ async fn udp_read_words_accepts_manual_limit_datagram_response() {
     let client = SlmpClient::connect(options).await.unwrap();
 
     let values = client
-        .read_words_raw(
+        .read_words(
             SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
             960,
         )
@@ -1033,7 +1041,7 @@ async fn udp_read_words_accepts_manual_limit_datagram_response() {
 async fn profile_mismatch_is_rejected_before_transport() {
     let client = udp_client_with_profile(SlmpPlcProfile::IqF).await;
     let error = client
-        .read_words_raw(
+        .read_words(
             SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
             1,
         )
@@ -1096,7 +1104,7 @@ async fn write_span_errors_precede_overlap_and_transport() {
     assert!(!ordinary_error.message.contains("overlap"));
 
     let qualified_error = client
-        .write_random_words_ext(&[(qualified_maximum, 1), (qualified_maximum, 2)], &[])
+        .write_random_words_extended(&[(qualified_maximum, 1), (qualified_maximum, 2)], &[])
         .await
         .unwrap_err();
     assert!(qualified_error.message.contains("wire address field"));
@@ -1154,12 +1162,12 @@ async fn direct_word_bit_dword_and_float_spans_accept_valid_wire_boundaries() {
         let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum, profile);
         let wide = SlmpDeviceAddress::new(SlmpDeviceCode::D, maximum - 1, profile);
 
-        assert_eq!(client.read_words_raw(word, 1).await.unwrap(), vec![0x1234]);
+        assert_eq!(client.read_words(word, 1).await.unwrap(), vec![0x1234]);
         client.write_words(word, &[0x1234]).await.unwrap();
         assert_eq!(client.read_bits(bit, 1).await.unwrap(), vec![true]);
         client.write_bits(bit, &[true]).await.unwrap();
         assert_eq!(
-            client.read_dwords_raw(wide, 1).await.unwrap(),
+            client.read_dwords(wide, 1).await.unwrap(),
             vec![0x1234_5678]
         );
         client.write_dwords(wide, &[0x1234_5678]).await.unwrap();
@@ -1187,7 +1195,7 @@ async fn direct_word_bit_dword_and_float_spans_reject_overflow_before_transport(
 
         assert!(
             client
-                .read_words_raw(word, 2)
+                .read_words(word, 2)
                 .await
                 .unwrap_err()
                 .message
@@ -1224,7 +1232,7 @@ async fn direct_word_bit_dword_and_float_spans_reject_overflow_before_transport(
             let float_values = vec![1.0; count as usize];
             assert!(
                 client
-                    .read_dwords_raw(start, count)
+                    .read_dwords(start, count)
                     .await
                     .unwrap_err()
                     .message
@@ -1275,7 +1283,7 @@ async fn packed_bit_device_word_spans_count_sixteen_device_numbers() {
 
         assert!(
             client
-                .read_words_raw(valid_start, 2)
+                .read_words(valid_start, 2)
                 .await
                 .unwrap_err()
                 .message
@@ -1291,7 +1299,7 @@ async fn packed_bit_device_word_spans_count_sixteen_device_numbers() {
         );
         assert!(
             client
-                .read_words_raw(invalid_start, 1)
+                .read_words(invalid_start, 1)
                 .await
                 .unwrap_err()
                 .message
@@ -1307,7 +1315,7 @@ async fn packed_bit_device_word_spans_count_sixteen_device_numbers() {
         );
         assert!(
             client
-                .read_dwords_raw(valid_dword_start, 2)
+                .read_dwords(valid_dword_start, 2)
                 .await
                 .unwrap_err()
                 .message
@@ -1369,7 +1377,7 @@ async fn packed_bit_device_dword_and_float_accept_exact_boundary() {
         let start = SlmpDeviceAddress::new(SlmpDeviceCode::M, maximum - 31, profile);
 
         assert_eq!(
-            client.read_dwords_raw(start, 1).await.unwrap(),
+            client.read_dwords(start, 1).await.unwrap(),
             vec![0x1234_5678]
         );
         client.write_dwords(start, &[0x1234_5678]).await.unwrap();
@@ -1398,10 +1406,7 @@ async fn long_timer_direct_blocks_count_one_device_per_four_words() {
     )
     .unwrap();
     let client = SlmpClient::connect(options).await.unwrap();
-    assert_eq!(
-        client.read_words_raw(last_timer, 4).await.unwrap(),
-        vec![0; 4]
-    );
+    assert_eq!(client.read_words(last_timer, 4).await.unwrap(), vec![0; 4]);
     let block = client
         .read_word_blocks(&[SlmpBlockRead {
             device: last_timer,
@@ -1416,7 +1421,7 @@ async fn long_timer_direct_blocks_count_one_device_per_four_words() {
     let invalid = udp_client_with_profile(profile).await;
     assert!(
         invalid
-            .read_words_raw(last_timer, 8)
+            .read_words(last_timer, 8)
             .await
             .unwrap_err()
             .message
@@ -1705,7 +1710,7 @@ async fn extended_routes_use_selected_wire_width_before_transport() {
     );
     assert!(
         client
-            .read_random_ext(&[], &[link_maximum])
+            .read_random_extended(&[], &[link_maximum])
             .await
             .unwrap_err()
             .message
@@ -1713,7 +1718,7 @@ async fn extended_routes_use_selected_wire_width_before_transport() {
     );
     assert!(
         client
-            .write_random_words_ext(&[], &[(link_maximum, 1)])
+            .write_random_words_extended(&[], &[(link_maximum, 1)])
             .await
             .unwrap_err()
             .message
@@ -1721,7 +1726,7 @@ async fn extended_routes_use_selected_wire_width_before_transport() {
     );
     assert!(
         client
-            .register_monitor_devices_ext(&[], &[link_maximum])
+            .register_monitor_devices_extended(&[], &[link_maximum])
             .await
             .unwrap_err()
             .message
@@ -1729,7 +1734,7 @@ async fn extended_routes_use_selected_wire_width_before_transport() {
     );
     assert!(
         client
-            .read_random_ext(&[], &[iqr_bit_maximum])
+            .read_random_extended(&[], &[iqr_bit_maximum])
             .await
             .unwrap_err()
             .message
@@ -1737,7 +1742,7 @@ async fn extended_routes_use_selected_wire_width_before_transport() {
     );
     assert!(
         client
-            .write_random_words_ext(&[], &[(iqr_bit_maximum, 1)])
+            .write_random_words_extended(&[], &[(iqr_bit_maximum, 1)])
             .await
             .unwrap_err()
             .message
@@ -1745,7 +1750,7 @@ async fn extended_routes_use_selected_wire_width_before_transport() {
     );
     assert!(
         client
-            .register_monitor_devices_ext(&[], &[iqr_bit_maximum])
+            .register_monitor_devices_extended(&[], &[iqr_bit_maximum])
             .await
             .unwrap_err()
             .message
@@ -1825,18 +1830,18 @@ async fn extended_routes_accept_representative_exact_span_boundaries() {
     );
     assert_eq!(
         client
-            .read_random_ext(&[], &[packed_dword_maximum])
+            .read_random_extended(&[], &[packed_dword_maximum])
             .await
             .unwrap()
             .dword_values,
         vec![0x1234_5678]
     );
     client
-        .write_random_words_ext(&[], &[(packed_dword_maximum, 1)])
+        .write_random_words_extended(&[], &[(packed_dword_maximum, 1)])
         .await
         .unwrap();
     client
-        .register_monitor_devices_ext(&[], &[packed_dword_maximum])
+        .register_monitor_devices_extended(&[], &[packed_dword_maximum])
         .await
         .unwrap();
 
@@ -1948,7 +1953,7 @@ async fn packed_bit_write_overlap_uses_consumed_device_spans() {
     );
     assert!(
         client
-            .write_random_words_ext(&[(q0, 1), (q15, 2)], &[])
+            .write_random_words_extended(&[(q0, 1), (q15, 2)], &[])
             .await
             .unwrap_err()
             .message
@@ -1956,7 +1961,7 @@ async fn packed_bit_write_overlap_uses_consumed_device_spans() {
     );
     assert!(
         client
-            .write_random_words_ext(&[(q_null, 1), (q_zero, 2)], &[])
+            .write_random_words_extended(&[(q_null, 1), (q_zero, 2)], &[])
             .await
             .unwrap_err()
             .message
@@ -1964,7 +1969,7 @@ async fn packed_bit_write_overlap_uses_consumed_device_spans() {
     );
     assert!(
         client
-            .write_random_bits_ext(&[(q_null, true), (q_same_zero, false)])
+            .write_random_bits_extended(&[(q_null, true), (q_same_zero, false)])
             .await
             .unwrap_err()
             .message
@@ -2164,7 +2169,7 @@ async fn random_and_block_writes_reject_duplicate_or_overlapping_ranges() {
     let q101 = SlmpQualifiedDeviceAddress::module_access(d101, 1).unwrap();
     assert!(
         client
-            .write_random_words_ext(&[(q101, 1)], &[(q100, 2)])
+            .write_random_words_extended(&[(q101, 1)], &[(q100, 2)])
             .await
             .is_err()
     );
@@ -2201,11 +2206,11 @@ async fn aggregate_operations_reject_all_empty_inputs_before_transport() {
     let client = udp_client().await;
 
     assert!(client.read_random(&[], &[]).await.is_err());
-    assert!(client.read_random_ext(&[], &[]).await.is_err());
+    assert!(client.read_random_extended(&[], &[]).await.is_err());
     assert!(client.write_random_words(&[], &[]).await.is_err());
-    assert!(client.write_random_words_ext(&[], &[]).await.is_err());
+    assert!(client.write_random_words_extended(&[], &[]).await.is_err());
     assert!(client.write_random_bits(&[]).await.is_err());
-    assert!(client.write_random_bits_ext(&[]).await.is_err());
+    assert!(client.write_random_bits_extended(&[]).await.is_err());
     assert!(client.read_block(&[], &[]).await.is_err());
     assert!(client.write_block(&[], &[]).await.is_err());
     assert_eq!(client.traffic_stats().await.request_count, 0);
@@ -2226,11 +2231,11 @@ async fn udp_timeout_closes_transport_before_another_request() {
     let client = SlmpClient::connect(options).await.unwrap();
     let address = SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR);
 
-    let first = client.read_words_raw(address, 1).await.unwrap_err();
+    let first = client.read_words(address, 1).await.unwrap_err();
     assert!(first.message.contains("udp receive timed out"));
     assert_eq!(first.kind, SlmpErrorKind::Timeout);
     assert!(first.is_timeout());
-    let second = client.read_words_raw(address, 1).await.unwrap_err();
+    let second = client.read_words(address, 1).await.unwrap_err();
     assert!(second.message.contains("transport is closed"));
     assert_eq!(client.traffic_stats().await.request_count, 1);
     assert!(client.traffic_stats().await.tx_bytes > 0);
@@ -2295,7 +2300,7 @@ async fn direct_bit_write_rejects_long_timer_state_devices() {
 async fn direct_word_write_rejects_long_current_and_lz_devices() {
     let client = udp_client().await;
     let err = client
-        .read_words_raw(
+        .read_words(
             SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
             4,
         )
@@ -2335,7 +2340,7 @@ async fn direct_word_write_rejects_long_current_and_lz_devices() {
 async fn direct_dword_routes_reject_long_current_and_lz_devices() {
     let client = udp_client().await;
     let err = client
-        .read_dwords_raw(
+        .read_dwords(
             SlmpDeviceAddress::new(SlmpDeviceCode::LCN, 10, SlmpPlcProfile::IqR),
             1,
         )
@@ -2541,7 +2546,7 @@ async fn explicit_word_api_retains_packed_word_access_to_bit_devices() {
     let client = SlmpClient::connect(options).await.unwrap();
     let bit = SlmpDeviceAddress::new(SlmpDeviceCode::M, 100, SlmpPlcProfile::IqR);
 
-    assert_eq!(client.read_words_raw(bit, 1).await.unwrap(), vec![0x1234]);
+    assert_eq!(client.read_words(bit, 1).await.unwrap(), vec![0x1234]);
     assert_eq!(server.requests().await.len(), 1);
 }
 
@@ -2741,7 +2746,7 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
         .map(|index| qualified_device_for(SlmpPlcProfile::IqF, SlmpDeviceCode::D, index))
         .collect();
     assert!(
-        iqf.read_random_ext(&read_devices, &[])
+        iqf.read_random_extended(&read_devices, &[])
             .await
             .unwrap_err()
             .to_string()
@@ -2757,7 +2762,7 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
         })
         .collect();
     assert!(
-        iqf.write_random_words_ext(&word_entries, &[])
+        iqf.write_random_words_extended(&word_entries, &[])
             .await
             .unwrap_err()
             .to_string()
@@ -2773,7 +2778,7 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
         })
         .collect();
     assert!(
-        iqf.write_random_bits_ext(&bit_entries)
+        iqf.write_random_bits_extended(&bit_entries)
             .await
             .unwrap_err()
             .to_string()
@@ -2785,7 +2790,7 @@ async fn extended_random_uses_profile_ext_limit_keys_before_transport() {
         .map(|index| qualified_device_for(SlmpPlcProfile::QCpuQj71E71100, SlmpDeviceCode::D, index))
         .collect();
     assert!(
-        qcpu.read_random_ext(&qcpu_read_devices, &[])
+        qcpu.read_random_extended(&qcpu_read_devices, &[])
             .await
             .unwrap_err()
             .to_string()
@@ -2806,7 +2811,7 @@ async fn standalone_g_hg_random_bit_writes_are_rejected() {
     assert!(err.to_string().contains("standalone G/HG bit entries"));
 
     let err = client
-        .read_words_raw(
+        .read_words(
             SlmpDeviceAddress::new(SlmpDeviceCode::G, 10, SlmpPlcProfile::IqR),
             1,
         )
@@ -2876,7 +2881,7 @@ async fn manual_point_limits_reject_overruns_before_transport() {
 
     assert!(
         client
-            .read_words_raw(
+            .read_words(
                 SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqR),
                 961
             )
@@ -3021,39 +3026,6 @@ async fn manual_point_limits_reject_overruns_before_transport() {
             .unwrap_err()
             .to_string()
             .contains("total device points")
-    );
-
-    assert!(
-        client
-            .memory_read_words(0, 481)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("1..480")
-    );
-    assert!(
-        client
-            .memory_write_words(0, &vec![0; 481])
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("1..480")
-    );
-    assert!(
-        client
-            .extend_unit_read_words(0, 961, 0x03E0)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("1..960")
-    );
-    assert!(
-        client
-            .extend_unit_write_words(0, 0x03E0, &vec![0; 961])
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("1..960")
     );
 }
 
@@ -3385,7 +3357,7 @@ async fn direct_access_does_not_use_device_range_upper_bounds_as_send_guard() {
     let client = SlmpClient::connect(options).await.unwrap();
 
     let values = client
-        .read_words_raw(
+        .read_words(
             SlmpDeviceAddress::new(SlmpDeviceCode::D, 999_999, SlmpPlcProfile::IqR),
             1,
         )
@@ -3583,7 +3555,7 @@ async fn frame_3e_mock_nonzero_end_code_includes_error_info() {
     let client = SlmpClient::connect(options).await.unwrap();
 
     let error = client
-        .read_words_raw(
+        .read_words(
             SlmpDeviceAddress::new(SlmpDeviceCode::D, 0, SlmpPlcProfile::IqF),
             1,
         )

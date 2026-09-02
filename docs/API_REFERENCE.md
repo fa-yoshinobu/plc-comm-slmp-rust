@@ -23,22 +23,22 @@ request from its first send through response decoding.
 
 | Operation | Public API |
 | --- | --- |
-| Direct word read/write | `read_words_raw`, `write_words` |
+| Direct word read/write | `read_words`, `write_words` |
 | Direct bit read/write | `read_bits`, `write_bits` |
-| 32-bit values | `read_dwords_raw`, `write_dwords` |
+| 32-bit values | `read_dwords`, `write_dwords` |
 | Float32 values | `read_float32s`, `write_float32s` |
 | Extended direct word read/write | `read_words_extended`, `write_words_extended` |
 | Extended direct bit read/write | `read_bits_extended`, `write_bits_extended` |
 | Random read | `read_random` |
 | Word-only / dword-only random read | `read_random_words`, `read_random_dwords` |
-| Extended random read | `read_random_ext` |
+| Extended random read | `read_random_extended` |
 | Extended word-only / dword-only random read | `read_random_words_extended`, `read_random_dwords_extended` |
 | Random word/dword write | `write_random_words` |
 | Word-only / dword-only random write | `write_random_u16s`, `write_random_u32s` |
-| Extended random word/dword write | `write_random_words_ext` |
+| Extended random word/dword write | `write_random_words_extended` |
 | Extended word-only / dword-only random write | `write_random_u16s_extended`, `write_random_u32s_extended` |
 | Random bit write | `write_random_bits` |
-| Extended random bit write | `write_random_bits_ext` |
+| Extended random bit write | `write_random_bits_extended` |
 | Block read/write | `read_block`, `write_block` |
 | Single-kind block read/write | `read_word_blocks`, `read_bit_blocks`, `write_word_blocks`, `write_bit_blocks` |
 | Type name | `read_type_name` |
@@ -78,9 +78,7 @@ Optional Z, LZ, and indirect modification uses `SlmpDeviceModification`.
 
 | Operation | Public API |
 | --- | --- |
-| Memory command words | `memory_read_words`, `memory_write_words` |
-| Extend-unit command words | `extend_unit_read_words`, `extend_unit_write_words` |
-| Monitor registration/cycle | `register_monitor_devices`, `register_monitor_devices_ext`, `run_monitor_cycle` |
+| Monitor registration/cycle | `register_monitor_devices`, `register_monitor_devices_extended`, `run_monitor_cycle` |
 | Label array access | `read_array_labels`, `write_array_labels`; use the explicit `_with_abbreviations` variants when definitions are required |
 | Label random access | `read_random_labels`, `write_random_labels`; use the explicit `_with_abbreviations` variants when definitions are required |
 | Remote CPU control | `remote_run` with `SlmpRemoteMode` and `SlmpRemoteClearMode`, `remote_stop`, `remote_pause`, `remote_latch_clear`, `remote_reset` |
@@ -122,16 +120,26 @@ CPU-buffer access.
 
 | Operation | Public API |
 | --- | --- |
-| Connection options and profile descriptors | `SlmpConnectionOptions`, `plc_profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
+| Connection options and profile descriptors | `SlmpConnectionOptions`, `plc_profile_descriptors`, `SlmpPlcProfileDescriptor`, `SlmpPlcProfile::parse_canonical_name`, `SlmpTransportMode`, `SlmpFrameType`, `SlmpCompatibilityMode` |
 | Profile request limits | `SlmpPlcProfile::profile_limit`, `SlmpProfileLimitKey`, `SlmpProfileLimit` |
-| Address parsing | `SlmpAddress::parse`, `SlmpAddress::try_parse`, `SlmpAddress::format`, `SlmpAddress::normalize`, `parse_device`, `parse_qualified_device` (all parsing requires `SlmpPlcProfile`) |
+| Direct `DeviceAddress` parsing | `SlmpAddress::parse`, `SlmpAddress::try_parse`, `SlmpAddress::format`, `SlmpAddress::normalize`, `parse_device` (all parsing requires `SlmpPlcProfile`) |
+| Typed `AddressSpec` parsing | `NamedAddressParts`, `parse_named_address`, `normalize_named_address`; requires an explicit dtype (`D100:U`) or bit index (`D50.A`) |
+| Qualified route parsing | `parse_qualified_device`; `Jn\...` and `Un\G...` are not ordinary `DeviceAddress` values |
 | Typed values | `read_typed`, `write_typed` |
-| Named typed collections | `read_named`, `write_named`, `poll_named` (one random request per call/cycle or pre-transport rejection; a polling stream prepares its immutable request and compact decode indexes once; Direct long-timer routes are excluded) |
+| Named typed collections | `read_named`, `write_named`, `poll` (one random request per call/cycle or pre-transport rejection; a polling stream prepares its immutable request and compact decode indexes once; Direct long-timer routes are excluded) |
 | Single-request word/dword read/write | `read_words_single_request`, `read_dwords_single_request`, `write_words_single_request`, `write_dwords_single_request` |
 | Single-request bit read/write | `read_bits_single_request`, `write_bits_single_request` |
 | Bit-in-word write | `write_bit_in_word` (direct) and `write_bit_in_word_extended` (qualified U/J route); explicit non-atomic RMW under one FIFO turn and one post-admission deadline |
 | Traffic counters | `traffic_stats` |
 | Errors and timeout classification | `SlmpError`, `SlmpErrorKind`, `SlmpOutcomeUnknownReason`, `SlmpError::is_timeout`, `SlmpError::is_outcome_unknown` |
+
+For source migration, `read_words_raw`, `read_dwords_raw`, `read_random_ext`,
+`register_monitor_devices_ext`, `write_random_words_ext`,
+`write_random_bits_ext`, `poll_named`, and `SlmpPlcProfile::parse_label`
+remain temporary direct delegates to the canonical names above. Their removal
+version is not yet fixed. The removed `memory_read_words`,
+`memory_write_words`, `extend_unit_read_words`, and `extend_unit_write_words`
+methods have no compatibility aliases or replacement high-level APIs.
 
 `SlmpErrorInfo` exposes the correlated error route, command, and subcommand.
 Its `raw` field is the required nine-byte prefix; `extra` retains all following

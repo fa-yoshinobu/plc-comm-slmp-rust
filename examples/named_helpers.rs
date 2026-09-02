@@ -4,7 +4,7 @@ mod common;
 
 use common::{connect_from_env, env_bool, env_csv, env_string, print_connection_banner};
 use futures_util::StreamExt;
-use plc_comm_slmp::{NamedAddress, SlmpValue, poll_named, read_named, write_named};
+use plc_comm_slmp::{NamedAddress, SlmpValue, poll, read_named, write_named};
 use std::error::Error;
 use std::time::Duration;
 
@@ -43,13 +43,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Polling reuses the compiled address plan after the first tick.
     let interval_ms: u64 = env_string("SLMP_POLL_INTERVAL_MS", "1000").parse()?;
-    let mut stream = Box::pin(poll_named(
+    let mut stream = Box::pin(poll(
         &client,
         &addresses,
         Duration::from_millis(interval_ms),
     ));
     if let Some(values) = stream.next().await.transpose()? {
-        print_collection("poll_named first tick", &values);
+        print_collection("poll first tick", &values);
     }
     Ok(())
 }

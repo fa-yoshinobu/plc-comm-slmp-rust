@@ -18,7 +18,7 @@ page.
 | Cancelled request | A request future is dropped or an outer `tokio::time::timeout` expires, and the next call reports that the transport is closed. | This is intentional. A partial TCP frame or delayed UDP response cannot safely be reused, especially with 3E frames. Create and explicitly connect a new client; a state-changing command may already have reached the PLC, so do not automatically retry it. |
 | Closed during a command | `close` completes while active and queued calls fail. | `close` immediately invalidates that client's connection generation. Incomplete active transmitted writes report `OutcomeUnknown`/`Closed`; queued calls report `Closed` without sending. A fully correlated and decoded success or PLC end code remains definitive. |
 | Bit-in-word RMW | A bit update can still race PLC logic or another connection. | `write_bit_in_word` reserves one FIFO turn on this client, but the PLC read and write are two non-atomic commands. Treat a post-send failure as an unknown write outcome. |
-| Named collection | A required address cannot fit the named batch. | `read_named` and each `poll_named` cycle emit one random-read request or fail before transport. `LTN`/`LSTN` current and `LTS`/`LTC`/`LSTS`/`LSTC` state entries require the Direct long-timer route and are rejected; use typed or explicit long-timer operations. |
+| Named collection | A required address cannot fit the named batch. | `read_named` and each `poll` cycle emit one random-read request or fail before transport. `LTN`/`LSTN` current and `LTS`/`LTC`/`LSTS`/`LSTC` state entries require the Direct long-timer route and are rejected; use typed or explicit long-timer operations. |
 
 ```rust
 let (left, right) = tokio::join!(

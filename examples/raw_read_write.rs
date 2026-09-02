@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let read_address = env_string("SLMP_READ_ADDRESS", "D100");
     let read_count: u16 = env_string("SLMP_READ_COUNT", "2").parse()?;
     let words = client
-        .read_words_raw(SlmpAddress::parse(&read_address, plc_profile)?, read_count)
+        .read_words(SlmpAddress::parse(&read_address, plc_profile)?, read_count)
         .await?;
     println!("read {read_address} count={read_count} -> {words:?}");
 
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .await?;
     let read_back = client
-        .read_words_raw(
+        .read_words(
             SlmpAddress::parse(&write_address, plc_profile)?,
             write_values.len() as u16,
         )

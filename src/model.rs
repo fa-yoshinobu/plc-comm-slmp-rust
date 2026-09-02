@@ -202,7 +202,7 @@ impl SlmpPlcProfile {
         }
     }
 
-    pub fn parse_label(value: &str) -> Option<Self> {
+    pub fn parse_canonical_name(value: &str) -> Option<Self> {
         let normalized = value.trim();
         match normalized {
             "melsec:iq-f" => Some(Self::IqF),
@@ -222,6 +222,10 @@ impl SlmpPlcProfile {
             "melsec:qnudv:qj71e71-100" => Some(Self::QnUDVQj71E71100),
             _ => None,
         }
+    }
+
+    pub fn parse_label(value: &str) -> Option<Self> {
+        Self::parse_canonical_name(value)
     }
 
     pub fn defaults(self) -> SlmpPlcProfileDefaults {
@@ -1103,24 +1107,40 @@ mod tests {
     use super::{SlmpPlcProfile, SlmpTargetAddress, SlmpTransportMode};
 
     #[test]
-    fn plc_profile_parse_label_accepts_only_canonical_profile_text() {
+    fn plc_profile_parse_canonical_name_accepts_only_canonical_profile_text() {
         assert_eq!(
-            SlmpPlcProfile::parse_label("melsec:iq-r"),
+            SlmpPlcProfile::parse_canonical_name("melsec:iq-r"),
             Some(SlmpPlcProfile::IqR)
         );
         assert_eq!(
-            SlmpPlcProfile::parse_label("melsec:iq-r:rj71en71"),
+            SlmpPlcProfile::parse_canonical_name("melsec:iq-r:rj71en71"),
             Some(SlmpPlcProfile::IqRRj71En71)
         );
         assert_eq!(
-            SlmpPlcProfile::parse_label("melsec:qcpu:qj71e71-100"),
+            SlmpPlcProfile::parse_canonical_name("melsec:qcpu:qj71e71-100"),
             Some(SlmpPlcProfile::QCpuQj71E71100)
         );
-        assert_eq!(SlmpPlcProfile::parse_label("MELSEC:IQ-F"), None);
-        assert_eq!(SlmpPlcProfile::parse_label("iq-r"), None);
-        assert_eq!(SlmpPlcProfile::parse_label("iqr"), None);
-        assert_eq!(SlmpPlcProfile::parse_label("q"), None);
-        assert_eq!(SlmpPlcProfile::parse_label("qnudvcpu"), None);
+        assert_eq!(SlmpPlcProfile::parse_canonical_name("MELSEC:IQ-F"), None);
+        assert_eq!(SlmpPlcProfile::parse_canonical_name("iq-r"), None);
+        assert_eq!(SlmpPlcProfile::parse_canonical_name("iqr"), None);
+        assert_eq!(SlmpPlcProfile::parse_canonical_name("q"), None);
+        assert_eq!(SlmpPlcProfile::parse_canonical_name("qnudvcpu"), None);
+    }
+
+    #[test]
+    fn parse_label_delegates_to_parse_canonical_name_for_every_profile_and_rejection() {
+        for profile in SlmpPlcProfile::ALL {
+            assert_eq!(
+                SlmpPlcProfile::parse_label(profile.canonical_name()),
+                SlmpPlcProfile::parse_canonical_name(profile.canonical_name())
+            );
+        }
+        for value in ["MELSEC:IQ-F", "iq-r", "iqr", "q", "qnudvcpu"] {
+            assert_eq!(
+                SlmpPlcProfile::parse_label(value),
+                SlmpPlcProfile::parse_canonical_name(value)
+            );
+        }
     }
 
     #[test]
@@ -1158,7 +1178,7 @@ mod tests {
 
     #[test]
     fn mxr_rj71en71_profile_is_connectable_with_canonical_defaults_and_base() {
-        let profile = SlmpPlcProfile::parse_label("melsec:mx-r:rj71en71").unwrap();
+        let profile = SlmpPlcProfile::parse_canonical_name("melsec:mx-r:rj71en71").unwrap();
         assert_eq!(profile, SlmpPlcProfile::MxRRj71En71);
         assert_eq!(profile.base_profile(), Some("melsec:mx-r"));
         assert_eq!(profile.address_profile(), SlmpPlcProfile::MxR);

@@ -6,6 +6,22 @@ The optional Node binding follows the same rule:
 `normalizeAddress(address, plcProfile)` requires the exact canonical PLC
 profile label. There is no profile-free compatibility overload.
 
+## SLMP-RS-ADDRESS-NAMING-20260903 — DeviceAddress and AddressSpec separation
+
+`SlmpAddress` / `parse_device` remain the direct `DeviceAddress` surface and
+accept only a device code and head number. `NamedAddressParts` is now exported
+from the crate root as the existing typed `AddressSpec` result used by
+`parse_named_address` and `normalize_named_address`; no duplicate parser or
+type was added. Qualified `J...` and `U...` routes remain exclusively on
+`parse_qualified_device`.
+
+Acceptance tests round-trip `D100` and `X10` through the direct surface,
+`D100:U` and `D50.A` through the typed surface, and reject typed or qualified
+syntax on the direct parser. This changes only public type reachability and
+documentation; device code, head address, route, validation, and wire behavior
+are unchanged. No live PLC check is required, and no live communication was
+run.
+
 ## SLMP-BIT-RMW-20260807 — Complete-route bit-in-word contract
 
 - Scope: Direct and qualified Extended Device complete-word routes.
@@ -470,6 +486,158 @@ Acceptance criteria:
 - [x] Codex resolved or dispositioned every Claude finding and reran affected checks.
 - [x] Live-PLC verification is not required; deterministic TCP/UDP peers exercise the wire contract.
 - [x] Documentation, migration notes, changelog, and generated API reference agree.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## DECISION-SLMP-PUBLIC-API-001 — Remove unused Memory / Extend Unit callables
+
+Stable identifier: `DECISION-SLMP-PUBLIC-API-001`.
+
+Implementation scope: the Rust `SlmpClient` public Memory Read/Write and Extend
+Unit Read/Write word methods, their dedicated private codec and validation,
+tests, user API reference, migration notes, and changelog.
+
+Target contract: `memory_read_words`, `memory_write_words`,
+`extend_unit_read_words`, and `extend_unit_write_words` are absent from the
+public API. No compatibility alias, deprecated wrapper, fallback, or new
+replacement high-level API remains. The generic raw-command surface and its
+public command identifiers are outside this four-callable removal.
+
+Compatibility impact: source that directly called one of the four removed
+methods must stop using it. Ordinary Direct, Extended Device, label, remote,
+and raw-command behavior is unchanged.
+
+Machine-verifiable acceptance criteria:
+
+1. The four public method declarations and their dedicated unused private
+   codec/validation are absent.
+2. No alternate public wrapper exposes the removed callables.
+3. Tests, API reference, and changelog identify exactly the same four removals.
+
+- [x] Implementation completed in this repository.
+- [x] Focused public-surface tests and the complete repository CI/package gate passed.
+- [x] Codex self-review found no additional accepted, rejected, duplicate, or deferred finding.
+- [x] Live PLC verification is not required because this is a public-surface removal with no new wire claim.
+- [x] API reference, migration note, changelog, and TODO agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## SL-NAME-001 — Use Extended in canonical Rust public names
+
+Stable identifier: `SL-NAME-001`.
+
+Implementation scope: Rust random Extended Device read/write and monitor
+registration public methods, call sites, tests, examples, API reference,
+migration notes, and changelog.
+
+Target contract: `read_random_extended`, `register_monitor_devices_extended`,
+`write_random_words_extended`, and `write_random_bits_extended` are canonical.
+Each former `_ext` name is a branch-free direct delegate to its canonical
+method. Signatures, results, validation, errors, request ordering,
+command/subcommand, and payload are unchanged.
+
+Compatibility impact: new source uses `_extended`. Existing source may retain
+the `_ext` delegates during the approved migration period; no removal version
+is fixed by this decision.
+
+Machine-verifiable acceptance criteria:
+
+1. The four canonical methods are public and ordinary repository call sites use them.
+2. Each legacy name delegates directly and generates the same result and request bytes.
+3. No Direct, Random, or Monitor operation is merged or added by the rename.
+
+- [x] Implementation and source migration completed in this repository.
+- [x] Focused result/wire parity tests and the complete repository CI/package gate passed.
+- [x] Codex self-review confirmed signatures, errors, validation order, and wire behavior are unchanged.
+- [x] Live PLC verification is not required because deterministic loopback request-byte parity covers the rename.
+- [x] API reference, examples, migration note, and changelog agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## SL-NAME-002 — Use parse_canonical_name for canonical profile IDs
+
+Stable identifier: `SL-NAME-002`.
+
+Implementation scope: `SlmpPlcProfile` parsing, repository call sites, tests,
+examples, profile documentation, API reference, migration notes, and changelog.
+
+Target contract: `parse_canonical_name` is canonical and retains the exact
+existing accepted/rejected input set and returned enum values. `parse_label`
+directly delegates to it without accepting display names, abbreviations,
+case-folded IDs, or PLC labels.
+
+Compatibility impact: new source uses `parse_canonical_name`; `parse_label`
+remains available during the approved migration period. This synchronous
+metadata rename has no PLC communication effect.
+
+Machine-verifiable acceptance criteria:
+
+1. Every canonical profile ID maps to its existing enum value.
+2. Representative display-name, abbreviation, uppercase, and PLC-label inputs remain rejected.
+3. Both names return identical `Option<SlmpPlcProfile>` values for accepted and rejected inputs.
+
+- [x] Implementation and source migration completed in this repository.
+- [x] Canonical/legacy parity tests and the complete repository CI/package gate passed.
+- [x] Codex self-review confirmed the parser match table and trim behavior are unchanged.
+- [x] Live PLC verification is not required for a synchronous metadata-only rename.
+- [x] API reference, examples, profile guide, migration note, and changelog agree.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## SL-NAME-003 — Remove Raw from canonical decoded Word / DWord reads
+
+Stable identifier: `SL-NAME-003`.
+
+Implementation scope: Rust decoded contiguous Word/DWord client reads, internal
+call sites, tests, examples, API reference, migration notes, and changelog.
+
+Target contract: `read_words` and `read_dwords` are canonical. The former
+`read_words_raw` and `read_dwords_raw` names directly delegate to the canonical
+methods. Their arguments, decoded results, validation, errors, request count,
+command/subcommand, and wire bytes are unchanged. The four Single Request
+helper names and behavior remain unchanged.
+
+Compatibility impact: new source uses the non-Raw names. The former names
+remain available during the approved migration period; their removal version
+is not fixed by this decision.
+
+Machine-verifiable acceptance criteria:
+
+1. Both non-Raw canonical methods are public and symmetric with the write names.
+2. Canonical and legacy methods produce identical values and request bytes.
+3. Single Request helper signatures and one-request behavior remain unchanged.
+
+- [x] Implementation and source migration completed in this repository.
+- [x] Focused result/wire parity tests and the complete repository CI/package gate passed.
+- [x] Codex self-review confirmed signatures, validation, errors, and helper boundaries are unchanged.
+- [x] Live PLC verification is not required because deterministic loopback request-byte parity covers the rename.
+- [x] API reference, examples, migration note, and changelog agree with the implementation.
+- [x] Final acceptance criteria verified and the item marked complete.
+
+## SL-NAME-005 — Use poll as the canonical named polling entry
+
+Stable identifier: `SL-NAME-005`.
+
+Implementation scope: the Rust named polling function and crate-root export,
+repository call sites, tests, examples, user guides, API reference, migration
+notes, and changelog.
+
+Target contract: crate-root `poll` owns the existing stream implementation.
+`poll_named` directly returns `poll` without a second plan, branch, or behavior.
+Addresses, interval, stream items, errors, one-time compiled-plan preparation,
+request order, and wire behavior are unchanged.
+
+Compatibility impact: new source uses `poll`; `poll_named` remains available
+during the approved migration period. Its removal version is not fixed by this
+decision.
+
+Machine-verifiable acceptance criteria:
+
+1. `poll` and `poll_named` are both exported from the crate root.
+2. Both names return the same first item and exact request bytes for the same plan.
+3. The existing one-time plan/payload preparation test passes through `poll`.
+
+- [x] Implementation and source migration completed in this repository.
+- [x] Focused stream/wire parity tests and the complete repository CI/package gate passed.
+- [x] Codex self-review confirmed plan compilation, reuse, ordering, cancellation, and errors are unchanged.
+- [x] Live PLC verification is not required because deterministic loopback request-byte parity covers the rename.
+- [x] API reference, examples, user guides, migration note, and changelog agree.
 - [x] Final acceptance criteria verified and the item marked complete.
 
 ## QREV-20260714-003: Use one absolute deadline for each request

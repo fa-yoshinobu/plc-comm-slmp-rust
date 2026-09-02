@@ -307,7 +307,7 @@ async fn validate_block_read(
 ) -> Result<String, SlmpError> {
     let word = parse_for_client(client, &options.word_device).await?;
     let bit = parse_for_client(client, &options.bit_device).await?;
-    let direct_words = client.read_words_raw(word, 2).await?;
+    let direct_words = client.read_words(word, 2).await?;
     let direct_bits = client.read_bits(bit, 16).await?;
     let block = client
         .read_block(
@@ -347,7 +347,7 @@ async fn validate_block_write(
 ) -> Result<String, SlmpError> {
     let word = parse_for_client(client, &options.word_device).await?;
     let bit = parse_for_client(client, &options.bit_device).await?;
-    let original_words = client.read_words_raw(word, 2).await?;
+    let original_words = client.read_words(word, 2).await?;
     let original_bits = client.read_bits(bit, 16).await?;
     let write_words = vec![
         alternate_u16(original_words[0], 0x1234),
@@ -368,7 +368,7 @@ async fn validate_block_write(
                 }],
             )
             .await?;
-        let observed_words = client.read_words_raw(word, 2).await?;
+        let observed_words = client.read_words(word, 2).await?;
         if observed_words != write_words {
             return Err(SlmpError::new(format!(
                 "word write mismatch: expected={write_words:?} observed={observed_words:?}"
@@ -442,8 +442,8 @@ async fn validate_random_read(
     let word = parse_for_client(client, &options.word_device).await?;
     let dword = parse_for_client(client, &options.dword_device).await?;
     let random = client.read_random(&[word], &[dword]).await?;
-    let direct_word = client.read_words_raw(word, 1).await?[0];
-    let direct_dword = client.read_dwords_raw(dword, 1).await?[0];
+    let direct_word = client.read_words(word, 1).await?[0];
+    let direct_dword = client.read_dwords(dword, 1).await?[0];
 
     if random.word_values != vec![direct_word] {
         return Err(SlmpError::new(format!(
@@ -471,8 +471,8 @@ async fn validate_random_write(
     let dword = parse_for_client(client, &options.dword_device).await?;
     let bit = parse_for_client(client, &options.bit_device).await?;
 
-    let original_word = client.read_words_raw(word, 1).await?[0];
-    let original_dword = client.read_dwords_raw(dword, 1).await?[0];
+    let original_word = client.read_words(word, 1).await?[0];
+    let original_dword = client.read_dwords(dword, 1).await?[0];
     let original_bit = client.read_bits(bit, 1).await?[0];
     let write_word = alternate_u16(original_word, 0x2468);
     let write_dword = alternate_u32(original_dword, 0x1357_2468);
@@ -483,8 +483,8 @@ async fn validate_random_write(
             .write_random_words(&[(word, write_word)], &[(dword, write_dword)])
             .await?;
         client.write_random_bits(&[(bit, write_bit)]).await?;
-        let observed_word = client.read_words_raw(word, 1).await?[0];
-        let observed_dword = client.read_dwords_raw(dword, 1).await?[0];
+        let observed_word = client.read_words(word, 1).await?[0];
+        let observed_dword = client.read_dwords(dword, 1).await?[0];
         let observed_bit = client.read_bits(bit, 1).await?[0];
         if observed_word != write_word
             || observed_dword != write_dword
@@ -542,9 +542,9 @@ async fn validate_typed_roundtrip(
     let word = parse_for_client(client, &options.word_device).await?;
     let dword = parse_for_client(client, &options.dword_device).await?;
     let float = parse_for_client(client, &options.float_device).await?;
-    let original_word = client.read_words_raw(word, 1).await?[0];
-    let original_dword = client.read_dwords_raw(dword, 1).await?[0];
-    let original_float = client.read_dwords_raw(float, 1).await?[0];
+    let original_word = client.read_words(word, 1).await?[0];
+    let original_dword = client.read_dwords(dword, 1).await?[0];
+    let original_float = client.read_dwords(float, 1).await?[0];
     let write_word = alternate_u16(original_word, 0x1357);
     let write_dword = alternate_u32(original_dword, 0x1234_ABCD);
     let write_float = if original_float == 12.5f32.to_bits() {
@@ -837,7 +837,7 @@ async fn validate_one_range_error_device(
 
     let mut checked_routes = vec!["word", "typed"];
     expect_range_error(
-        client.read_words_raw(device, 1).await,
+        client.read_words(device, 1).await,
         "read_words range",
         expected_end_code,
     )?;

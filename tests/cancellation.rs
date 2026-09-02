@@ -30,13 +30,13 @@ async fn externally_cancelled_exchange_closes_transport() {
     let address = SlmpDeviceAddress::new(SlmpDeviceCode::D, 100, SlmpPlcProfile::IqR);
 
     let cancelled =
-        tokio::time::timeout(Duration::from_millis(50), client.read_words_raw(address, 1)).await;
+        tokio::time::timeout(Duration::from_millis(50), client.read_words(address, 1)).await;
     assert!(cancelled.is_err(), "the outer timeout must cancel the call");
     assert_eq!(client.traffic_stats().await.request_count, 1);
     assert!(client.traffic_stats().await.tx_bytes > 0);
     assert_eq!(client.traffic_stats().await.rx_bytes, 0);
 
-    let error = client.read_words_raw(address, 1).await.unwrap_err();
+    let error = client.read_words(address, 1).await.unwrap_err();
     assert!(error.message.contains("transport is closed"));
     assert_eq!(client.traffic_stats().await.request_count, 1);
 }

@@ -1,7 +1,7 @@
 use futures_util::StreamExt;
 use plc_comm_slmp::{
     SlmpClient, SlmpCommand, SlmpConnectionOptions, SlmpDeviceAddress, SlmpDeviceCode,
-    SlmpPlcProfile, SlmpValue, poll_named, read_named,
+    SlmpPlcProfile, SlmpValue, poll, read_named,
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -239,7 +239,7 @@ async fn read_named_rejects_long_counter_state_direct_bit_fallback() {
 }
 
 #[tokio::test]
-async fn read_and_poll_named_reject_long_timer_direct_routes_before_transport() {
+async fn read_and_poll_reject_long_timer_direct_routes_before_transport() {
     let rejected = [
         "LTN10:D",
         "LSTN10:L",
@@ -257,7 +257,7 @@ async fn read_and_poll_named_reject_long_timer_direct_routes_before_transport() 
         assert!(error.message.contains("explicit long-timer helper"));
         assert!(server.requests().await.is_empty());
 
-        let mut stream = Box::pin(poll_named(
+        let mut stream = Box::pin(poll(
             &client,
             &addresses,
             std::time::Duration::from_millis(1),

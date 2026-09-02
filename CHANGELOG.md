@@ -15,8 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Tooling`: Developer/operator command-line tools and helper utilities.
 - `CI`: Release checks, workflow scripts, or automation-only changes.
 
-## [Unreleased] - 2026-08-27
+## [Unreleased]
 
+## [5.2.0] - 2026-09-03
+
+- Release: Bumped the main crate and lockfile metadata to `5.2.0` for the approved high-level API overhaul; the non-published `slmp-node` workspace crate remains unchanged.
+- Library: Exported the existing `NamedAddressParts` typed `AddressSpec` result at the crate root, keeping direct `SlmpAddress` / `parse_device`, typed `parse_named_address`, and qualified `parse_qualified_device` address concepts distinct without adding a duplicate parser or changing wire behavior.
+- BREAKING: Removed the unused public `memory_read_words`, `memory_write_words`, `extend_unit_read_words`, and `extend_unit_write_words` methods without aliases or replacement high-level APIs.
+- Library: Added canonical `read_random_extended`, `register_monitor_devices_extended`, `write_random_words_extended`, and `write_random_bits_extended` names; the former `_ext` names remain temporary direct delegates with unchanged signatures, validation, errors, and wire behavior.
+- Library: Added canonical `read_words` and `read_dwords` decoded Direct Read names; `read_words_raw` and `read_dwords_raw` remain temporary direct delegates, while the single-request helpers are unchanged.
+- Library: Exported canonical `poll` and added `SlmpPlcProfile::parse_canonical_name`; `poll_named` and `parse_label` remain temporary direct delegates with unchanged behavior. The removal versions for these migration names are not yet fixed.
+- Tests: Added canonical/legacy-name parity coverage for valid results, rejected inputs, request bytes, polling plans, and canonical profile parsing. Existing route tests now exercise the canonical names.
+- Docs: Updated examples, guides, the API reference, and migration notes to use the canonical names and identify the temporary aliases and no-alias removals.
 - Tests: Included only the two canonical JSON fixtures required by library unit tests in the registry crate and made the extracted-crate package gate run `cargo test --lib --all-features`.
 - Tests: Added direct `read_bits_single_request` boundary coverage for zero, one, every connectable PLC profile's canonical maximum, maximum plus one, and counts above `u16`, including proof that rejected counts do not reach transport.
 

@@ -57,7 +57,7 @@ Text configuration should store the canonical profile exactly:
 ```rust
 use plc_comm_slmp::SlmpPlcProfile;
 
-let profile = SlmpPlcProfile::parse_label("melsec:iq-r")
+let profile = SlmpPlcProfile::parse_canonical_name("melsec:iq-r")
     .expect("unknown canonical PLC profile");
 assert_eq!(profile, SlmpPlcProfile::IqR);
 ```
