@@ -55,11 +55,6 @@ jobs:
         shell: pwsh
         run: ./scripts/check_package_contents.ps1
 
-      - name: Verify self-contained source archive
-        working-directory: plc-comm-slmp-rust
-        shell: pwsh
-        run: ./scripts/check_source_archive.ps1
-
   windows-contract-smoke:
     name: Windows representative contract smoke
     runs-on: windows-latest

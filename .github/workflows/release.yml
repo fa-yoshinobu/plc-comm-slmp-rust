@@ -40,6 +40,12 @@ jobs:
         shell: pwsh
         run: ./scripts/update_slmp_profile_jsons.ps1 -FailIfChanged
 
+      # The GitHub-generated source zip is a release artifact, so it is verified
+      # here rather than on every push.
+      - name: Verify self-contained source archive
+        shell: pwsh
+        run: ./scripts/check_source_archive.ps1
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Cargo fmt
