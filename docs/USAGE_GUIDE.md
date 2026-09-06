@@ -95,7 +95,7 @@ let value = read_result?;
 ```
 
 For `C200`-series password end codes, see the shared
-[SLMP Troubleshooting & Codes](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/troubleshooting-codes/)
+[SLMP Troubleshooting & Codes](https://plc-comm-docs-site.fa-labo.com/plc-setup/slmp/troubleshooting-codes/)
 page.
 
 ## Remote CPU control
@@ -207,7 +207,7 @@ SLMP request target automatically. Select the target CPU in
 client for a different target. A write can return a normal end code without
 changing the intended CPU buffer when the selected request target identifies a
 different CPU or Own Station. Cross-CPU reads remain valid. See the shared
-[iQ-R target guidance](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/iq-r/#multi-cpu-cpu-buffer-target).
+[iQ-R target guidance](https://plc-comm-docs-site.fa-labo.com/plc-setup/slmp/iq-r/#multi-cpu-cpu-buffer-target).
 
 ## Monitor, self-test, and Clear Error
 
@@ -671,7 +671,7 @@ cargo run --example device_matrix_compare
 Every semantic `SlmpDeviceAddress` or qualified address is bound to the exact canonical profile used to create it. Passing it to a client configured for any other profile is rejected before request construction or transport activity, including when a unit-specific profile shares a base family with the client. Parse the address again with the destination client's profile instead of reusing it across profiles.
 
 `read_device_range_catalog` reads the canonical profile's required SD-register window after you connect. It requires an explicit profile through `SlmpConnectionOptions` and does not auto-discover your intended profile. For QCPU, LCPU, QnU, and QnUDV address profiles, it then performs the canonical runtime probes: QCPU checks `Z15`, and all four families find the readable `ZR` boundary before deriving `R`. Any nonzero PLC end code returned by a probe means only that candidate address is unreadable; timeout, transport, protocol, lifecycle, and local-validation failures are returned to the caller without a partial catalog. Rust future cancellation drops the operation instead of producing a library error.
-The source rules for this catalog are maintained in the shared [SLMP device ranges](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/device-ranges/) reference.
+The source rules for this catalog are maintained in the shared [SLMP device ranges](https://plc-comm-docs-site.fa-labo.com/slmp/profile-reference/device-ranges/) reference.
 
 ```rust
 use plc_comm_slmp::{SlmpClient, SlmpConnectionOptions, SlmpPlcProfile};

@@ -8,7 +8,7 @@ needs the canonical name, display name, connection availability, and
 base-profile relationship in one list. The abstract `melsec:qcpu` entry is
 included with `connectable: false`. Store `canonical_name`, not `display_name`.
 
-For cross-profile capability and device-range details, see the [SLMP Profile Reference](https://fa-yoshinobu.github.io/plc-comm-docs-site/slmp/profile-reference/).
+For cross-profile capability and device-range details, see the [SLMP Profile Reference](https://plc-comm-docs-site.fa-labo.com/slmp/profile-reference/).
 
 Verified hardware available for focused validation is maintained once in the
 shared [MELSEC SLMP profile catalog](https://github.com/fa-yoshinobu/plc-comm-slmp-profiles#verified-hardware-available-for-validation).

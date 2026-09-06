@@ -106,7 +106,7 @@ value manually before continuing.
 
 1. The PLC IP address is reachable from your computer.
 2. TCP port `1025` is open on your PLC Ethernet module or built-in Ethernet port.
-3. The PLC-side communication data code is Binary and the port/open setting matches your transport; see the [MELSEC SLMP PLC Setup Guide](https://fa-yoshinobu.github.io/plc-comm-docs-site/plc-setup/slmp/).
+3. The PLC-side communication data code is Binary and the port/open setting matches your transport; see the [MELSEC SLMP PLC Setup Guide](https://plc-comm-docs-site.fa-labo.com/plc-setup/slmp/).
 4. PLC-side RUN-time write permission is enabled before you run a write example where the PLC exposes that setting.
 5. `SlmpPlcProfile::IqR` matches your real hardware, or you selected the correct variant from [profiles](PROFILES.md).
 6. A read from `D100` returns a `SlmpValue` without an SLMP end code error.
